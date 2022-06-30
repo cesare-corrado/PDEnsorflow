@@ -49,6 +49,10 @@ print('Tensorflow version is: {0}'.format(tf.__version__))
 from gpuSolve.ionic.fenton4v import *
 from gpuSolve.diffop3D import laplace_homog as laplace
 from gpuSolve.diffop3D import laplace_conv_homog as conv_laplace
+from gpuSolve.force_terms import Stimulus
+
+
+
 
 
 @tf.function
@@ -146,7 +150,13 @@ class Fenton4vSimple(Fenton4v):
 
         #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
         then = time.time()
-        s2 = tf.constant(s2_init,name="s2", dtype=np.float32)
+        s2 = Stimulus({'tstart': self.s2_time, 
+                       'nstim': 1, 
+                       'period':800,
+                       'duration':self.dt,
+                       'dt': self.dt,
+                       'intensity':self.max_v})
+        s2.set_stimregion(s2_init)
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -161,8 +171,9 @@ class Fenton4vSimple(Fenton4v):
             V = V1
             W = W1
             S = S1
-            if i == int(self.s2_time / self.dt):
-                U = tf.maximum(U, s2)
+            #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
+            if s2.stimulate_tissue_timestep(i,self.dt):
+                U = tf.maximum(U, s2())
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
                 image = U.numpy()
@@ -182,9 +193,9 @@ if __name__ == '__main__':
     print('=======================================================================')
 
     config = {
-        'width': 64,
-        'height': 64,
-        'depth': 64,
+        'width': 32,
+        'height': 32,
+        'depth': 32,
         'dx': 1,
         'dy': 1,
         'dz': 1,
