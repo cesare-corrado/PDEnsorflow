@@ -1,12 +1,12 @@
 import tensorflow as tf
 
 @tf.function
-def laplace_homogeneous_isotropic_diffusion(X0,DX,DY,DZ):
+def laplace_homogeneous_isotropic_diffusion(X0,DX,DY):
     """
     This function computes the 3D Laplace operator on X for homogeneous isotropic diffusion.
     This formula does not take into account of the domain, except its sizes along x,y, and z.
     We use the laplace formula found in : https://en.wikipedia.org/wiki/Discrete_Laplace_operator, adapted
-    to take into account DX,DY and DZ. (experimental)
+    to take into account DX,DY. (experimental)
 
     Input:
         X0:       the (tensor) variable one wants to compute the laplace operator; shape: (D, H, W )

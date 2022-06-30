@@ -13,7 +13,7 @@ This function is used on homogeneous isotropic domains and has signature:
 laplace_homogeneous_isotropic_diffusion(X0,DX,DY)
 ```
 
-Where `X0` is a *TensorFlow* Variable and `DX`,`DY` are the pixel dimensions along `x` and `y`
+Where `X0` is a *TensorFlow* Variable and `DX`,`DY` are the pixel dimensions along `x` and `y`.
 
 This function evaluates the Laplace operator with classical finite differences:
 
@@ -30,7 +30,7 @@ This function is used on hetrogeneous isotropic domains and has signature:
 laplace_heterogeneous_isotropic_diffusion(X0,DIFF0,DX,DY)
 ```
 
-Where `X0` is a *TensorFlow* Variable and `DX`,`DY` are the pixel dimensions along `x` and `y`
+Where `X0` is a *TensorFlow* Variable, `DIFF0` is the tensorflow tensor that defines the diffusion coefficient at each pixel and `DX`,`DY` are the pixel dimensions along `x` and `y`.
 
 
 On each point, this function first evaluate the left and right products of the gradients time the conductivity;

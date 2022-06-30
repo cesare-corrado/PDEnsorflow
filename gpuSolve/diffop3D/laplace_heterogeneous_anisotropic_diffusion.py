@@ -18,7 +18,7 @@ def laplace_heterogeneous_anisotropic_diffusion(X0,DIFF0,AVEC0,DX,DY,DZ):
     Input:
         X0:       the (tensor) variable one wants to compute the laplace operator; shape: (D, H, W )
        DIFF0:  diffusion tensor of shape: (D, H, W,2 ). the first channel is transverse diffusivity sigma_t;
-                   the seond channel is the difference: sigma_l - sigma_t
+                   the second channel is the difference: sigma_l - sigma_t
        AVEC0:  direction tensor (D, H, W,6 ). Each channel represents the following components of 
                the diadic product: A1A1 A1A2 A1A3  A2A2 A2A3 A3A3
         D{X,Y,Z}: the element sizes along the 3 directions
