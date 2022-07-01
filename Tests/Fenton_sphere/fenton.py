@@ -46,12 +46,9 @@ else:
 print('Tensorflow version is: {0}'.format(tf.__version__))
 
   
-from gpuSolve.ionic.fenton4v import *  
+from gpuSolve.ionic.fenton4v import *
 from gpuSolve.diffop3D import laplace_heterog as laplace
 from gpuSolve.force_terms import Stimulus
-
-
-
 
 
 @tf.function
@@ -66,6 +63,9 @@ def enforce_boundary(X):
 
 
 class Fenton4vSimple(Fenton4v):
+    """
+    The heat monodomain model with Fenton-Cherry ionic model
+    """
 
     def __init__(self, props):
         self.width     = 1
@@ -88,7 +88,6 @@ class Fenton4vSimple(Fenton4v):
         for attribute in self.__dict__.keys():
             if attribute[:1] != '_':
               self._config[attribute] = getattr(self,attribute)
-
 
         then = time.time()
         self.DX    = tf.constant(self.dx, dtype=np.float32)
@@ -162,7 +161,6 @@ class Fenton4vSimple(Fenton4v):
             # first stimulus on one side; second stimulus on a brick
             u_init[:,0:2,:] = self.max_v
             s2_init[:self.height//2, :self.width//2,:] = self.max_v            
-            
         else:
             u_init[:,(self.width//2-10):(self.width//2+10),:] = self.max_v
             s2_init[(self.width//2-10):(self.width//2+10),:,:] = self.max_v            
@@ -186,9 +184,6 @@ class Fenton4vSimple(Fenton4v):
                        'duration':self.dt,
                        'dt': self.dt,
                        'intensity':self.max_v})
-        
-	#s2 = tf.where(self._domain>0.0, tf.constant(s2_init,dtype=np.float32), self.min_v,name="s2")
-        
         s2.set_stimregion(np.where(self._domain.numpy()>0.0, s2_init, self.min_v))
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)

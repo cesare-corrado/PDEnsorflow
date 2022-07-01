@@ -52,9 +52,6 @@ from gpuSolve.diffop3D import laplace_conv_homog as conv_laplace
 from gpuSolve.force_terms import Stimulus
 
 
-
-
-
 @tf.function
 def enforce_boundary(X):
     """
@@ -67,6 +64,9 @@ def enforce_boundary(X):
 
 
 class Fenton4vSimple(Fenton4v):
+    """
+    The heat monodomain model with Fenton-Cherry ionic model
+    """
 
     def __init__(self, props):
         self.width     = 1
@@ -86,7 +86,6 @@ class Fenton4vSimple(Fenton4v):
         for attribute in self.__dict__.keys():
             if attribute[:1] != '_':
               self._config[attribute] = getattr(self,attribute)
-
 
         then = time.time()
         self.DX    = tf.constant(self.dx, dtype=np.float32)
@@ -132,7 +131,7 @@ class Fenton4vSimple(Fenton4v):
                 None
         """
         # the initial values of the state variables
-        # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)       
+        # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
         u_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
         s2_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
 
@@ -206,7 +205,7 @@ if __name__ == '__main__':
         's2_time': 200,
          'convl': False
     }
-    
+
     print('config:')
     for key,value in config.items():
         print('{0}\t{1}'.format(key,value))

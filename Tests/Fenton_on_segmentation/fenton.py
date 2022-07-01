@@ -47,11 +47,10 @@ else:
 print('Tensorflow version is: {0}'.format(tf.__version__))
 
   
-from gpuSolve.ionic.fenton4v import *  
+from gpuSolve.ionic.fenton4v import *
 from gpuSolve.diffop3D import laplace_heterog as laplace
 from gpuSolve.diffop3D import laplace_heterog_aniso as aniso_laplace
 from gpuSolve.force_terms import Stimulus
-
 
 
 @tf.function
@@ -66,14 +65,20 @@ def enforce_boundary(X):
 
 
 class Fenton4vSimple(Fenton4v):
+    """
+    The heat monodomain model with Fenton-Cherry ionic model
+    """
 
     def __init__(self, props):
-        
-        self.min_v = 0.0
-        self.max_v = 1.0
-        self.dx    = 1.0
-        self.dy    = 1.0
-        self.dz    = 1.0
+        self.width     = 1
+        self.height    = 1
+        self.depth     = 1
+        self.min_v     = 0.0
+        self.max_v     = 1.0
+        self.dx        = 1.0
+        self.dy        = 1.0
+        self.dz        = 1.0
+        self.diff      = 1.0
         self.image_threshold = 1.e-4
         self.fname = ''
         for key, val in props.items():
@@ -85,17 +90,15 @@ class Fenton4vSimple(Fenton4v):
               self._config[attribute] = getattr(self,attribute)
 
         then = time.time()
-        self.DX    = tf.constant(self.dx,dtype=np.float32)
-        self.DY    = tf.constant(self.dy,dtype=np.float32)
-        self.DZ    = tf.constant(self.dz,dtype=np.float32)
+        self.DX    = tf.constant(self.dx, dtype=np.float32)
+        self.DY    = tf.constant(self.dy, dtype=np.float32)
+        self.DZ    = tf.constant(self.dz, dtype=np.float32)
         elapsed = (time.time() - then)
         tf.print('initialisation of DXYZ, elapsed: %f sec' % elapsed)
         self.tinit = elapsed
-        
-
+ 
         if len(self.fname):
             Image = ImageData()
-            
             then = time.time()
             tf.print('read image to define conductivity')
             Image.load_image(self.fname,self.Mx,self.My)
@@ -157,11 +160,10 @@ class Fenton4vSimple(Fenton4v):
         """
         # the initial values of the state variables
         # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
-        u_init  = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
-        
+        u_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
+
         if len(self.fname):
             u_init[:,:,(self.depth//2-10):(self.depth//2+10)] = self.max_v
-            
             s2_init = self._domain.numpy().astype(np.float32)
             #then set stimulus at half domain to zero
             s2_init[:self.height//2, :,:] = 0.0
@@ -192,7 +194,6 @@ class Fenton4vSimple(Fenton4v):
                        'duration':self.dt,
                        'dt': self.dt,
                        'intensity':self.max_v})
-        
         s2.set_stimregion(s2_init)
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
