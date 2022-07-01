@@ -37,7 +37,6 @@ except:
     print('Warning: no vedo found; using matplotlib',flush=True)
 
 
-
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -49,6 +48,10 @@ print('Tensorflow version is: {0}'.format(tf.__version__))
   
 from gpuSolve.ionic.fenton4v import *  
 from gpuSolve.diffop3D import laplace_heterog as laplace
+from gpuSolve.force_terms import Stimulus
+
+
+
 
 
 @tf.function
@@ -177,7 +180,16 @@ class Fenton4vSimple(Fenton4v):
 
         #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
         then = time.time()
-        s2 = tf.where(self._domain>0.0, tf.constant(s2_init,dtype=np.float32), self.min_v,name="s2")
+        s2 = Stimulus({'tstart': self.s2_time, 
+                       'nstim': 1, 
+                       'period':800,
+                       'duration':self.dt,
+                       'dt': self.dt,
+                       'intensity':self.max_v})
+        
+	#s2 = tf.where(self._domain>0.0, tf.constant(s2_init,dtype=np.float32), self.min_v,name="s2")
+        
+        s2.set_stimregion(np.where(self._domain.numpy()>0.0, s2_init, self.min_v))
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -192,8 +204,9 @@ class Fenton4vSimple(Fenton4v):
             V = V1
             W = W1
             S = S1
-            if i == int(self.s2_time / self.dt):
-                U = tf.maximum(U, s2)
+            #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
+            if s2.stimulate_tissue_timestep(i,self.dt):
+                U = tf.maximum(U, s2())
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
                 image = tf.where(self._domain>0.0, U, -1.0).numpy()
