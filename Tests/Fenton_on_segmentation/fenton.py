@@ -40,19 +40,17 @@ except:
 
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
-
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
       print('CPU device' )
 print('Tensorflow version is: {0}'.format(tf.__version__))
+
   
-from gpuSolve.ionic.fenton4v import *  
+from gpuSolve.ionic.fenton4v import *
 from gpuSolve.diffop3D import laplace_heterog as laplace
 from gpuSolve.diffop3D import laplace_heterog_aniso as aniso_laplace
- 
-
-
+from gpuSolve.force_terms import Stimulus
 
 
 @tf.function
@@ -67,14 +65,20 @@ def enforce_boundary(X):
 
 
 class Fenton4vSimple(Fenton4v):
+    """
+    The heat monodomain model with Fenton-Cherry ionic model
+    """
 
     def __init__(self, props):
-        
-        self.min_v = 0.0
-        self.max_v = 1.0
-        self.dx    = 1.0
-        self.dy    = 1.0
-        self.dz    = 1.0
+        self.width     = 1
+        self.height    = 1
+        self.depth     = 1
+        self.min_v     = 0.0
+        self.max_v     = 1.0
+        self.dx        = 1.0
+        self.dy        = 1.0
+        self.dz        = 1.0
+        self.diff      = 1.0
         self.image_threshold = 1.e-4
         self.fname = ''
         for key, val in props.items():
@@ -86,18 +90,15 @@ class Fenton4vSimple(Fenton4v):
               self._config[attribute] = getattr(self,attribute)
 
         then = time.time()
-        self.DX    = tf.constant(self.dx,dtype=np.float32)
-        self.DY    = tf.constant(self.dy,dtype=np.float32)
-        self.DZ    = tf.constant(self.dz,dtype=np.float32)
+        self.DX    = tf.constant(self.dx, dtype=np.float32)
+        self.DY    = tf.constant(self.dy, dtype=np.float32)
+        self.DZ    = tf.constant(self.dz, dtype=np.float32)
         elapsed = (time.time() - then)
         tf.print('initialisation of DXYZ, elapsed: %f sec' % elapsed)
         self.tinit = elapsed
-        
-
+ 
         if len(self.fname):
             Image = ImageData()
-            
-                    
             then = time.time()
             tf.print('read image to define conductivity')
             Image.load_image(self.fname,self.Mx,self.My)
@@ -130,10 +131,8 @@ class Fenton4vSimple(Fenton4v):
     def  config(self):
         return(self._config)
 
-
     def  domain(self):
         return(self._domain.numpy())
-
 
     @tf.function
     def solve(self, state):
@@ -141,7 +140,7 @@ class Fenton4vSimple(Fenton4v):
         U, V, W, S = state
         U0 = enforce_boundary(U)
         dU, dV, dW, dS = self.differentiate(U, V, W, S)
-        U1 = U0 + self.dt * dU +  self.dt * laplace(U0,self.conductivity,self.DX,self.DY,self.DZ)
+        U1 = U0 + self.dt * dU + self.dt * laplace(U0,self.conductivity,self.DX,self.DY,self.DZ)
         V1 = V + self.dt * dV
         W1 = W + self.dt * dW
         S1 = S + self.dt * dS
@@ -162,17 +161,19 @@ class Fenton4vSimple(Fenton4v):
         # the initial values of the state variables
         # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
         u_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
-        s2_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
-        
+
         if len(self.fname):
             u_init[:,:,(self.depth//2-10):(self.depth//2+10)] = self.max_v
-            s2_init[0:self.height//2, 0:self.width//2,:] = self.max_v
-            
+            s2_init = self._domain.numpy().astype(np.float32)
+            #then set stimulus at half domain to zero
+            s2_init[:self.height//2, :,:] = 0.0
+            #Finally, define stimulus ampliture
+            s2_init = s2_init*(self.max_v - self.min_v  )
+            s2_init = s2_init + self.min_v            
         else:
-            u_init[:,1,:] = self.max_v
+            u_init[:,0:2,:] = self.max_v
+            s2_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
             s2_init[:self.height//2, :self.width//2,:] = self.max_v
-
-
 
         then = time.time()
         U = tf.Variable(u_init, name="U" )
@@ -183,12 +184,17 @@ class Fenton4vSimple(Fenton4v):
         elapsed = (time.time() - then)
         tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
-        
         u_init=[]
-        
-        then = time.time()
-        s2 = tf.where(self._domain>0.0, tf.constant(s2_init,dtype=np.float32), self.min_v,name="s2")
 
+        #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
+        then = time.time()
+        s2 = Stimulus({'tstart': self.s2_time, 
+                       'nstim': 1, 
+                       'period':800,
+                       'duration':self.dt,
+                       'dt': self.dt,
+                       'intensity':self.max_v})
+        s2.set_stimregion(s2_init)
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -203,28 +209,22 @@ class Fenton4vSimple(Fenton4v):
             V = V1
             W = W1
             S = S1
-
-            if i == int(self.s2_time / self.dt):
-                U = tf.maximum(U, s2)            
+            #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
+            if s2.stimulate_tissue_timestep(i,self.dt):
+                U = tf.maximum(U, s2())
             # draw a frame every 1 ms
-            if im and i % self.dt_per_plot == 0:                
+            if im and i % self.dt_per_plot == 0:
                 image = tf.where(self._domain>0.0, U, -1.0).numpy()
                 im.imshow(image)                
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         print('TOTAL, elapsed: %f sec' % (elapsed+self.tinit))
-        
-        
-        
         if im:
             im.wait()   # wait until the window is closed
 
 
 
 
-
-
-#######################################################################################  
 
 
 if __name__ == '__main__':
@@ -237,7 +237,7 @@ if __name__ == '__main__':
         'dx':     1,
         'dy':     1,
         'dz':     1,
-        'fname': '../data/structure.png',
+        'fname': '../../data/structure.png',
         'Mx': 16,
         'My': 8,
         'dt': 0.1,
@@ -247,7 +247,6 @@ if __name__ == '__main__':
         's2_time': 210
     }
 
-    
     print('config:')
     for key,value in config.items():
         print('{0}\t{1}'.format(key,value))
