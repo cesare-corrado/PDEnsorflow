@@ -2,8 +2,8 @@
 ionic submodule of gpuSolve.
 This module contains the 0D ionic models
 Contains:
-    * fenton4v:  the 4 variables fenton model
-
+    * fenton4v:  the 4 variables Fenton model
+    * mms2v.py:  the 2 cariables modified Mitchell Schaeffer model
 """
 
 
