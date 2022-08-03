@@ -89,6 +89,10 @@ class ImageData:
             img = nib.Nifti1Image(load_png_image(fname,mx,my),np.eye(4) )
         elif(self._imgfile['type']=='nii'):
             img = nib.load(fname)
+        elif(self._imgfile['type']=='npy'):
+           img = nib.Nifti1Image(np.load(fname),np.eye(4) )
+        else:
+            print('file type {0} not wnown'.format(self._imgfile['type']))
         self._img = img
 
 
