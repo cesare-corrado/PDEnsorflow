@@ -3,7 +3,7 @@ import numpy as np
 class ResultWriter:
     """
     Class ResultWriter
-    Implements a wrtiter for GPU simulations
+    Implements a writer for GPU simulations
     When the domain is not a 3D slab, it is possible to write the result in a compact form
     Secifying the domain
     """
