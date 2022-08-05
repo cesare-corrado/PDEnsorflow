@@ -24,8 +24,8 @@ class Domain3D:
         self._conductivity      = None
         self._geometryfile      = ''
         self._conductivityfile  = ''
-        self._timecounter       = 0
-        self._anysotropic       = False
+        self._timecounter       = 0.0
+        self._anisotropic       = False
         if(len(props)>0):
             for attribute in self.__dict__.keys():
                 attr_name = attribute[1:]
@@ -104,10 +104,10 @@ class Domain3D:
                 img_vox = Image.get_fdata()
                 if(len(img_vox.shape)==4 and img_vox.shape[-1] >1 ):
                     tf.print('anisotropic conductivity (need fibres)')
-                    self._anysotropic = True
+                    self._anisotropic = True
                 else:
                     tf.print('isotropic conductivity')
-                    self._anysotropic = False
+                    self._anisotropic = False
                     # remove one dim from the tensor
                     if len(img_vox.shape)==4:
                         img_vox = img_vox[:,:,:,0]
@@ -131,10 +131,10 @@ class Domain3D:
         if self._geometry is not None:   
             if(len(conductivityTensor.shape)==4 and conductivityTensor.shape[-1] >1 ):
                     tf.print('anisotropic conductivity (need fibres)')
-                    self._anysotropic = True
+                    self._anisotropic = True
             else:
                     tf.print('isotropic conductivity')
-                    self._anysotropic = False
+                    self._anisotropic = False
                     # remove one dim from the tensor
                     if len(conductivityTensor.shape)==4:
                         conductivityTensor = conductivityTensor[:,:,:,0]
@@ -171,6 +171,9 @@ class Domain3D:
     def depth(self):
         return(self._depth)
 
+    def anisotropic(self):
+        return(self._anisotropic)
+
 
     def geometry(self):
         return(self._geometry)
@@ -178,6 +181,9 @@ class Domain3D:
 
     def conductivity(self):
         return(self._conductivity)
+        
+    def walltime(self):
+        return(self._timecounter)
 
         
 
