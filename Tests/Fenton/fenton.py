@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-    A TensorFlow-based 2D Cardiac Electrophysiology Modeler
+    A TensorFlow-based 3D Cardiac Electrophysiology Modeler
 
     Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
 
@@ -26,7 +26,6 @@
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
-
 try:
   import vedo 
   is_vedo = True
@@ -49,6 +48,7 @@ print('Tensorflow version is: {0}'.format(tf.__version__))
 from gpuSolve.ionic.fenton4v import *
 from gpuSolve.diffop3D import laplace_homog as laplace
 from gpuSolve.diffop3D import laplace_conv_homog as conv_laplace
+#from gpuSolve.entities.domain3D import Domain3D
 from gpuSolve.force_terms import Stimulus
 
 
@@ -213,9 +213,9 @@ if __name__ == '__main__':
     print('=======================================================================')
     model = Fenton4vSimple(config)
     if is_vedo:
-        im = ResultWriter(model.config())
+        im = ResultWriter(config)
     else:
-        im = ResultWriter(model.config())
+        im = ResultWriter(config)
     model.run(im)
     im = None
 

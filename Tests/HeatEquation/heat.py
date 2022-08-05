@@ -200,9 +200,9 @@ if __name__ == '__main__':
     print('=======================================================================')
     model = HeatEquation(config)
     if is_vedo:
-        im = ResultWriter(model.config())
+        im = ResultWriter(config)
     else:
-        im = ResultWriter(model.config())
+        im = ResultWriter(config)
     model.run(im)
     im = None
 
