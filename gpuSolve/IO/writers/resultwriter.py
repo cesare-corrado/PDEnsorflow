@@ -23,8 +23,9 @@ class ResultWriter:
         
 
         if(len(config)>0):
-            for key, val in config.items():
-                setattr(self, key, val)
+            for attribute in self.__dict__.keys():
+                if attribute in config.keys():
+                    setattr(self, attribute, config[attribute])
         self._sparse  = False
 
 
