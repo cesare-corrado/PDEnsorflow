@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-    A TensorFlow-based 2D Cardiac Electrophysiology Modeler
+    A TensorFlow-based 3D Cardiac Electrophysiology Modeler
 
     Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
 
@@ -45,8 +45,8 @@ else:
       print('CPU device' )
 print('Tensorflow version is: {0}'.format(tf.__version__))
 
-  
 from gpuSolve.ionic.fenton4v import *
+from gpuSolve.entities.domain3D import Domain3D
 from gpuSolve.diffop3D import laplace_heterog as laplace
 from gpuSolve.force_terms import Stimulus
 
@@ -68,64 +68,56 @@ class Fenton4vSimple(Fenton4v):
     """
 
     def __init__(self, props):
-        self.width     = 1
-        self.height    = 1
-        self.depth     = 1
-        self.min_v     = 0.0
-        self.max_v     = 1.0
-        self.dx        = 1.0
-        self.dy        = 1.0
-        self.dz        = 1.0
-        self.diff      = 1.0
-        self.radius    = 1.0
-        self.hole      = False
-        self.cylindric = False
+        self._domain     = Domain3D(props)
+        self.min_v       = 0.0
+        self.max_v       = 1.0
+        self.dt          = 0.1
+        self.samples     = 10000
+        self.s2_time     = 200
+        self.dt_per_plot = 10        
+        self.diff        = 1.0
+        self.tinit       = 0.0
 
-        for key, val in props.items():
-            setattr(self, key, val)
+        self.radius      = 1.0
+        self.hole        = False
+        self.cylindric   = False
 
-        self._config={}
         for attribute in self.__dict__.keys():
-            if attribute[:1] != '_':
-              self._config[attribute] = getattr(self,attribute)
+            if attribute in props.keys():
+                setattr(self, attribute, props[attribute])
 
         then = time.time()
-        self.DX    = tf.constant(self.dx, dtype=np.float32)
-        self.DY    = tf.constant(self.dy, dtype=np.float32)
-        self.DZ    = tf.constant(self.dz, dtype=np.float32)
-        elapsed = (time.time() - then)
-        tf.print('initialisation of DXYZ, elapsed: %f sec' % elapsed)
-        self.tinit = elapsed
+        self.DX = self._domain.DX()
+        self.DY = self._domain.DY()
+        self.DZ = self._domain.DZ()
 
-        c0=0.5*np.array([self.dx*self.width,self.dy*self.height,self.dz*self.depth])
-        then = time.time()
+        dx     = self.DX.numpy()
+        dy     = self.DY.numpy()
+        dz     = self.DZ.numpy()
+        width  = self._domain.width()
+        height = self._domain.height()
+        depth  = self._domain.depth()
+        
+        c0        = 0.5*np.array([dx*width, dy*height, dz*depth])
+        xx, yy,zz = np.meshgrid(dx*np.arange(width), dy*np.arange(height),dz*np.arange(depth) )
+        cyl_coef  = np.logical_not(self.cylindric).astype(np.float32)        
+        distsq    = (xx-c0[0])*(xx-c0[0])+(yy-c0[1])*(yy-c0[1])+cyl_coef*(zz-c0[2])*(zz-c0[2]) 
+        
         if self.hole:
             tf.print('create the domain with an hole')
+            img_vox = np.logical_not(distsq<=(self.radius*self.radius)).astype(np.float32)
         else:
             tf.print('create the spherical domain')
-        
-        xx, yy,zz = np.meshgrid(self.dx*np.arange(self.width), self.dy*np.arange(self.height),self.dz*np.arange(self.depth) )
-        cyl_coef=np.logical_not(self.cylindric).astype(np.float32)
-        if self.hole:
-            img_vox = np.logical_not(((xx-c0[0])*(xx-c0[0])+(yy-c0[1])*(yy-c0[1])+cyl_coef*(zz-c0[2])*(zz-c0[2]) )<=(self.radius*self.radius)).astype(np.float32)
-        else:
-            img_vox = (((xx-c0[0])*(xx-c0[0])+(yy-c0[1])*(yy-c0[1])+cyl_coef*(zz-c0[2])*(zz-c0[2]) )<=(self.radius*self.radius)).astype(np.float32)
-        
-        self._domain = tf.constant(img_vox,dtype=np.float32, name='domain' )        
-        img_vox = self.diff*img_vox
-        self.conductivity = tf.constant(img_vox,dtype=np.float32, name='diffusion' )
-        
+            img_vox = (distsq<=(self.radius*self.radius)).astype(np.float32)
+            
+        self._domain.assign_geometry(img_vox)
+        self._domain.assign_conductivity(self.diff*img_vox) 
         elapsed = (time.time() - then)
-        tf.print('initialisation of conductivity tensor, elapsed: %f sec' % elapsed)
         self.tinit += elapsed
-        for attribute in self._config.keys():
-              self._config[attribute] = getattr(self,attribute)
-        for attribute in self._config.keys():
-              self._config[attribute] = getattr(self,attribute)
+        tf.print('initialisation,elapsed: %f sec' % elapsed)
 
-
-    def  config(self):
-        return(self._config)
+    def  domain(self):
+        return(self._domain.geometry())
 
 
     @tf.function
@@ -134,7 +126,7 @@ class Fenton4vSimple(Fenton4v):
         U, V, W, S = state
         U0 = enforce_boundary(U)
         dU, dV, dW, dS = self.differentiate(U, V, W, S)
-        U1 = U0 + self.dt * dU + self.dt * laplace(U0,self.conductivity,self.DX,self.DY,self.DZ)
+        U1 = U0 + self.dt * dU + self.dt * laplace(U0,self._domain.conductivity(),self.DX,self.DY,self.DZ)
         V1 = V + self.dt * dV
         W1 = W + self.dt * dW
         S1 = S + self.dt * dS
@@ -152,25 +144,29 @@ class Fenton4vSimple(Fenton4v):
             Returns:
                 None
         """
+        width  = self._domain.width()        
+        height = self._domain.height()
+        depth  = self._domain.depth()
+
         # the initial values of the state variables
         # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)       
-        u_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
-        s2_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
+        u_init  = np.full([width,height,depth], self.min_v, dtype=np.float32)
+        s2_init = np.full([width,height,depth], self.min_v, dtype=np.float32)
         
         if self.hole:
             # first stimulus on one side; second stimulus on a brick
-            u_init[:,0:2,:] = self.max_v
-            s2_init[:self.height//2, :self.width//2,:] = self.max_v            
+            u_init[0:2,:,:] = self.max_v
+            s2_init[:width//2,:height//2,:] = self.max_v            
         else:
-            u_init[:,(self.width//2-10):(self.width//2+10),:] = self.max_v
-            s2_init[(self.width//2-10):(self.width//2+10),:,:] = self.max_v            
+            u_init[(width//2-10):(width//2+10),:,:]    = self.max_v
+            s2_init[:,(height//2-10):(height//2+10),:] = self.max_v            
 
         then = time.time()
         U = tf.Variable(u_init, name="U" )
-        U = tf.where(self._domain>0.0, U, self.min_v)
-        V = tf.Variable(np.full([self.height, self.width,self.depth], 1.0, dtype=np.float32), name="V"    )
-        W = tf.Variable(np.full([self.height, self.width,self.depth], 1.0, dtype=np.float32), name="W"    )
-        S = tf.Variable(np.full([self.height, self.width,self.depth], 0.0, dtype=np.float32), name="S"    )
+        U = tf.where(self.domain()>0.0, U, self.min_v)
+        V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
+        W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
+        S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
         elapsed = (time.time() - then)
         tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -184,7 +180,7 @@ class Fenton4vSimple(Fenton4v):
                        'duration':self.dt,
                        'dt': self.dt,
                        'intensity':self.max_v})
-        s2.set_stimregion(np.where(self._domain.numpy()>0.0, s2_init, self.min_v))
+        s2.set_stimregion(np.where(self.domain().numpy()>0.0, s2_init, self.min_v))
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -204,16 +200,13 @@ class Fenton4vSimple(Fenton4v):
                 U = tf.maximum(U, s2())
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
-                image = tf.where(self._domain>0.0, U, -1.0).numpy()
+                image = tf.where(self.domain()>0.0, U, -1.0).numpy()
                 im.imshow(image)                
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         print('TOTAL, elapsed: %f sec' % (elapsed+self.tinit))
         if im:
             im.wait()   # wait until the window is closed
-
-
-
 
 
 
@@ -240,10 +233,8 @@ if __name__ == '__main__':
     
     print('=======================================================================')
     model = Fenton4vSimple(config)
-    if is_vedo:
-        im = ResultWriter(model.config())
-    else:
-        im = ResultWriter(model.config())
+    im = ResultWriter(config)
+    [im.height,im.width,im.depth] = model.domain().numpy().shape
     model.run(im)
     im = None
 

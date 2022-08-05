@@ -1,7 +1,7 @@
 import imageio
 import numpy as np
 import nibabel as nib
-
+import sys
 
 def parse_name(fname):
     """ Function to parse the file name to extraxt file type and compression """
@@ -43,7 +43,7 @@ def load_png_image(imgfile,mx,my):
     h  = int(H/my)
     l  = int(L/mx)
     d  = int((H*L)/(h*l))
-    img3d = np.zeros(shape=(h,l,d))
+    img3d = np.zeros(shape=(h,l,d),dtype=im.dtype)
     for Y in range(H):
       for X in range(L):
           cx = np.floor(X/l) #0..mx-1
@@ -89,6 +89,10 @@ class ImageData:
             img = nib.Nifti1Image(load_png_image(fname,mx,my),np.eye(4) )
         elif(self._imgfile['type']=='nii'):
             img = nib.load(fname)
+        elif(self._imgfile['type']=='npy'):
+           img = nib.Nifti1Image(np.load(fname),np.eye(4) )
+        else:
+            sys.exit('file type {0} not wnown'.format(self._imgfile['type']))
         self._img = img
 
 
@@ -103,12 +107,23 @@ class ImageData:
 
     def get_data(self):
         """
-        returns the image data as a sumpy tensor
+        returns the image data as a numpy tensor with same data type
+        """
+        if self._img:
+            return(self._img.get_data())
+        else:
+            return(None)
+
+
+    def get_fdata(self):
+        """
+        returns the image data as a float64 numpy tensor
         """
         if self._img:
             return(self._img.get_fdata())
         else:
             return(None)
+
 
 
     def get_rescaled_data(self,scaling_type='unit'):
@@ -129,7 +144,7 @@ class ImageData:
                 Delta = np.nanstd(self._img.get_fdata())
 
             else:
-                print('unknown scaling method',flush=True)
+                sys.exit('unknown scaling method',flush=True)
                 return(None)
         
 
