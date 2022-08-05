@@ -92,6 +92,9 @@ class Fenton4vSimple(Fenton4v):
         tf.print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit = elapsed
 
+    def  domain(self):
+        return(self._domain.geometry())
+
 
     @tf.function
     def solve(self, state):
@@ -126,15 +129,15 @@ class Fenton4vSimple(Fenton4v):
         
         # the initial values of the state variables
         # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
-        u_init  = np.full([height, width,depth], self.min_v, dtype=np.float32)
-        s2_init = np.full([height, width,depth], self.min_v, dtype=np.float32)
-        u_init[:,0:2,:] = self.max_v
-        s2_init[:height//2, :width//2,:] = self.max_v
+        u_init  = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        s2_init = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        u_init[0:2,:,:] = self.max_v
+        s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
         U = tf.Variable(u_init, name="U" )
-        V = tf.Variable(np.full([height, width,depth], 1.0, dtype=np.float32), name="V"    )
-        W = tf.Variable(np.full([height, width,depth], 1.0, dtype=np.float32), name="W"    )
-        S = tf.Variable(np.full([height, width,depth], 0.0, dtype=np.float32), name="S"    )
+        V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
+        W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
+        S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
         elapsed = (time.time() - then)
         tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -201,10 +204,8 @@ if __name__ == '__main__':
     
     print('=======================================================================')
     model = Fenton4vSimple(config)
-    if is_vedo:
-        im = ResultWriter(config)
-    else:
-        im = ResultWriter(config)
+    im = ResultWriter(config)
+    [im.width,im.height,im.depth] = model.domain().numpy().shape
     model.run(im)
     im = None
 

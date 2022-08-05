@@ -117,7 +117,7 @@ class Domain3D:
                 self._conductivity = tf.constant(cond_unif*self._geometry, dtype=np.float32, name='diffusion' )
             elapsed = (time.time() - then)
             tf.print('initialisation of conductivity tensor, elapsed: %f sec' % elapsed)
-            self.tinit += elapsed
+            self._timecounter += elapsed
         else:
             sys.exit("No geometry defined! (assign a geometry first)")
 	
