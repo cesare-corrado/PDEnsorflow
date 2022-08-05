@@ -44,7 +44,6 @@ else:
       print('CPU device' )
 print('Tensorflow version is: {0}'.format(tf.__version__))
 
-  
 from gpuSolve.ionic.fenton4v import *
 from gpuSolve.entities.domain3D import Domain3D
 from gpuSolve.diffop3D import laplace_homog as laplace
@@ -123,10 +122,10 @@ class Fenton4vSimple(Fenton4v):
             Returns:
                 None
         """
-        width  = self._domain.width()        
+        width  = self._domain.width()
         height = self._domain.height()
         depth  = self._domain.depth()
-        
+
         # the initial values of the state variables
         # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
         u_init  = np.full([width,height, depth], self.min_v, dtype=np.float32)

@@ -234,7 +234,6 @@ if __name__ == '__main__':
     model = Fenton4vSimple(config)
     im = ResultWriter(config)
     [im.width,im.height,im.depth] = model.domain().numpy().shape
-    
     model.run(im)
     im = None
 

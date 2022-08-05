@@ -45,7 +45,6 @@ else:
       print('CPU device' )
 print('Tensorflow version is: {0}'.format(tf.__version__))
 
-  
 from gpuSolve.ionic.fenton4v import *
 from gpuSolve.entities.domain3D import Domain3D
 from gpuSolve.diffop3D import laplace_heterog as laplace
@@ -78,7 +77,7 @@ class Fenton4vSimple(Fenton4v):
         self.dt_per_plot = 10        
         self.diff        = 1.0
         self.tinit       = 0.0
-        
+
         self.radius      = 1.0
         self.hole        = False
         self.cylindric   = False
