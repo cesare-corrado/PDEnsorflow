@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-    A TensorFlow-based 2D Cardiac Electrophysiology Modeler
+    A TensorFlow-based 3D Cardiac Electrophysiology Modeler
 
     Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
 
@@ -26,7 +26,6 @@
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
-
 try:
   import vedo 
   is_vedo = True
@@ -45,8 +44,8 @@ else:
       print('CPU device' )
 print('Tensorflow version is: {0}'.format(tf.__version__))
 
-  
 from gpuSolve.ionic.fenton4v import *
+from gpuSolve.entities.domain3D import Domain3D
 from gpuSolve.diffop3D import laplace_homog as laplace
 from gpuSolve.diffop3D import laplace_conv_homog as conv_laplace
 from gpuSolve.force_terms import Stimulus
@@ -69,38 +68,31 @@ class Fenton4vSimple(Fenton4v):
     """
 
     def __init__(self, props):
-        self.width     = 1
-        self.height    = 1
-        self.depth     = 1
-        self.min_v     = 0.0
-        self.max_v     = 1.0
-        self.dx        = 1.0
-        self.dy        = 1.0
-        self.dz        = 1.0
-        self.diff      = 1.0
-        self.convl     = False
-        for key, val in props.items():
-            setattr(self, key, val)
+        self._domain = Domain3D(props)
+        self.min_v       = 0.0
+        self.max_v       = 1.0
+        self.dt          = 0.1
+        self.diff        = 1.0
+        self.convl       = False
+        self.samples     = 10000
+        self.s2_time     = 200
+        self.dt_per_plot = 10
 
-        self._config={}
         for attribute in self.__dict__.keys():
-            if attribute[:1] != '_':
-              self._config[attribute] = getattr(self,attribute)
+            if attribute in props.keys():
+                setattr(self, attribute, props[attribute])
 
         then = time.time()
-        self.DX    = tf.constant(self.dx, dtype=np.float32)
-        self.DY    = tf.constant(self.dy, dtype=np.float32)
-        self.DZ    = tf.constant(self.dz, dtype=np.float32)
+        self._domain.load_geometry_file()
+        self.DX = self._domain.DX()
+        self.DY = self._domain.DY()
+        self.DZ = self._domain.DZ()
         elapsed = (time.time() - then)
-        tf.print('initialisation of DXYZ, elapsed: %f sec' % elapsed)
+        tf.print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit = elapsed
 
-        for attribute in self._config.keys():
-              self._config[attribute] = getattr(self,attribute)
-
-
-    def  config(self):
-        return(self._config)
+    def  domain(self):
+        return(self._domain.geometry())
 
 
     @tf.function
@@ -110,7 +102,7 @@ class Fenton4vSimple(Fenton4v):
         U0 = enforce_boundary(U)
         dU, dV, dW, dS = self.differentiate(U, V, W, S)
         if self.convl:
-            U1 = U0 + self.dt * dU + self.diff * self.dt * conv_laplace(U0,self.dx,self.dy,self.dz)
+            U1 = U0 + self.dt * dU + self.diff * self.dt * conv_laplace(U0,self.DX,self.DY,self.DZ)
         else:
             U1 = U0 + self.dt * dU + self.diff * self.dt * laplace(U0,self.DX,self.DY,self.DZ)
         V1 = V + self.dt * dV
@@ -130,18 +122,21 @@ class Fenton4vSimple(Fenton4v):
             Returns:
                 None
         """
+        width  = self._domain.width()
+        height = self._domain.height()
+        depth  = self._domain.depth()
+
         # the initial values of the state variables
         # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
-        u_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
-        s2_init = np.full([self.height, self.width,self.depth], self.min_v, dtype=np.float32)
-
-        u_init[:,0:2,:] = self.max_v
-        s2_init[:self.height//2, :self.width//2,:] = self.max_v
+        u_init  = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        s2_init = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        u_init[0:2,:,:] = self.max_v
+        s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
         U = tf.Variable(u_init, name="U" )
-        V = tf.Variable(np.full([self.height, self.width,self.depth], 1.0, dtype=np.float32), name="V"    )
-        W = tf.Variable(np.full([self.height, self.width,self.depth], 1.0, dtype=np.float32), name="W"    )
-        S = tf.Variable(np.full([self.height, self.width,self.depth], 0.0, dtype=np.float32), name="S"    )
+        V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
+        W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
+        S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
         elapsed = (time.time() - then)
         tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -184,10 +179,6 @@ class Fenton4vSimple(Fenton4v):
             im.wait()   # wait until the window is closed
 
 
-
-
-
-
 if __name__ == '__main__':
     print('=======================================================================')
 
@@ -212,10 +203,8 @@ if __name__ == '__main__':
     
     print('=======================================================================')
     model = Fenton4vSimple(config)
-    if is_vedo:
-        im = ResultWriter(model.config())
-    else:
-        im = ResultWriter(model.config())
+    im = ResultWriter(config)
+    [im.width,im.height,im.depth] = model.domain().numpy().shape
     model.run(im)
     im = None
 

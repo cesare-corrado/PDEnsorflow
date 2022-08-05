@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-#!/usr/bin/env python
 """
     A TensorFlow-based Laplace Solver
 
@@ -216,7 +215,7 @@ if __name__ == '__main__':
     print('=======================================================================')
     model = LaplaceSolver(config)
     
-    im = ResultWriter(model.config())
+    im = ResultWriter(config)
     im.initval=np.nan
     im.initialise_cube()
     model.run(im)

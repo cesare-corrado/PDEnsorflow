@@ -3,7 +3,7 @@ import numpy as np
 class ResultWriter:
     """
     Class ResultWriter
-    Implements a wrtiter for GPU simulations
+    Implements a writer for GPU simulations
     When the domain is not a 3D slab, it is possible to write the result in a compact form
     Secifying the domain
     """
@@ -23,8 +23,9 @@ class ResultWriter:
         
 
         if(len(config)>0):
-            for key, val in config.items():
-                setattr(self, key, val)
+            for attribute in self.__dict__.keys():
+                if attribute in config.keys():
+                    setattr(self, attribute, config[attribute])
         self._sparse  = False
 
 
