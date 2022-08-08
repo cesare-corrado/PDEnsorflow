@@ -33,7 +33,7 @@ class ResultWriter:
     def initialise_cube(self):
         """Initialise the  cube to store results"""
         n                = int(self.samples//self.dt_per_plot)
-        self.cube        = np.full(shape=(n, self.height, self.width, self.depth),fill_value=self.initval ,dtype=np.float32)
+        self.cube        = np.full(shape=(n, self.width, self.height,  self.depth),fill_value=self.initval ,dtype=np.float32)
         self.counter     = 0
         self.cube_exists = True
         
