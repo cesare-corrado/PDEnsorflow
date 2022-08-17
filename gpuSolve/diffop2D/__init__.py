@@ -1,9 +1,9 @@
 """
-diffop3D submodule of gpuSolve.
+diffop32 submodule of gpuSolve.
 This module contains 2D partial differential operators
 Contains:
-  * laplace_heterogeneous_isotropic_diffusion: 2D laplace solver for heterogeneous isotropic diffusion   
-
+  * laplace_homogeneous_isotropic_diffusion: 2D laplace solver for homogeneous isotropic diffusion  
+  * laplace_heterogeneous_isotropic_diffusion: 2D laplace solver for heterogeneous isotropic diffusion  
 """
 import tensorflow as tf
 

@@ -16,7 +16,7 @@ def laplace_heterogeneous_isotropic_diffusion(X0,DIFF0,DX,DY):
     
     """
     padmode = 'symmetric'
-    paddings = tf.constant([[1,1], [1,1]] ])
+    paddings = tf.constant([[1,1], [1,1]] )
     X    = tf.pad(X0, paddings=paddings, mode=padmode) 
     DIFF = tf.pad(DIFF0, paddings=paddings, mode=padmode) 
     # Gx
