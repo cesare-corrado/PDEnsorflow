@@ -4,7 +4,8 @@ This module contains 3D partial differential operators
 Contains:
   * laplace_heterogeneous_isotropic_diffusion:   3D laplace solver for heterogeneous isotropic diffusion
   * laplace_heterogeneous_anisotropic_diffusion: 3D laplace solver for heterogeneous anisotropic diffusion
-   
+  * laplace_homogeneous_isotropic_diffusion:     3D laplace solver for homogeneous isotropic diffusion
+  * laplace_convolution_homogeneous_isotropic_diffusion: 3D laplace operator as a convolution layer
 
 """
 import tensorflow as tf
