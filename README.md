@@ -7,20 +7,39 @@
 Install `TensorFlow 2.X` using anaconda. First create an environment and activate it; e.g.: 
 
 ```
-conda create --name tf_gpu
+conda create --name tf_gpu python=3.9
 conda activate tf_gpu
 ```
 
-Then, follow the instructions to install tensorflow [here](https://www.tensorflow.org/install/pip).
+If you want to just install *TensorFlow*, follows  [this link](https://www.tensorflow.org/install/pip). 
+
+To install **PDEnsorflow**, proceed as follows:
+
+Install `cudatoolkit` version 11.2 and `cudnn` version 8.1.0, as follows:
+```
+conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1.0
+```
+Set up the `LD_LIBRARY_PATH` to the conda environment:
+```
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
+```
+Finally, cd to `PDEnsorflow` main directory and install with `pip`:
+```
+cd PDEnsorflow
+python -m pip install -e .
+```
 
 
 ## Run the code
 
-Once the environment is activated, source the `init.sh` file in the main directory of PDEnsorflow:
+
+**Old version:** Once the environment is activated, source the `init.sh` file in the main directory of PDEnsorflow:
 
 ```
 source init.sh
 ```
+
+**New Version:** The paths are authomatically set within `__init__.py`.
 
 Then, launch one of the examples; e.g.:
 
