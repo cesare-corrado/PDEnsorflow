@@ -22,7 +22,7 @@ if 'CONDA_PREFIX' in os.environ:
             sys.exit('EXCEPTION: Failed to Execute after adding CONDA_PREFIX to LD_LIBRARY_PATH, '+e)
 
 
-__version__=['1','0','1']
+__version__=['1','1','0']
 
 
 def version():
