@@ -27,5 +27,4 @@ Members:
 * `Pts()`: returns the numpy array of the point coordinates
 * `Elems()`: returns the python dict that contains the mesh Elements; each key corresponds to an element type (e.g.: `Trias` corresponds to Triangles); each entry is a numpy array of type int.
 * `Edges()`, `Trias()`, `Tetras()`, etc: shortcuts to `Elems()[key]`. It provides a numpy array of type int where the first n-1 columns are the element point IDs; the last column is the lement region ID. If the mesh does not contain the type, it returns `None`.
-
-* 
+* `Fibres()`: returns the numpy array of the fiber directions. 

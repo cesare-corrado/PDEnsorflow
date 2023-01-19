@@ -67,6 +67,9 @@ class CarpMeshReader:
         """
         return(self.__Elems)
 
+    def Fibres(self):
+        return(self.__Fibres)
+        
     def read(self,fsuffix):
         """
         function read(fsuffix)
