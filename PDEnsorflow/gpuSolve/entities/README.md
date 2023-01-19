@@ -2,8 +2,8 @@
 
 This sub-module of `gpuSolve` defines some general entities as classes that collect data into the same object
 
-* `domain3D`
-
+* `Domain3D`
+* `Triangulation`
 
 ## Domain3D
 
@@ -30,5 +30,13 @@ It is possible to determine if a conductivity is isotropic or not with get funct
 To load fibers, use the function `load_fiber_direction`. The function internally build the 6 entries `a_i a_j` of the tensor that are used in the Laplace operator.
 
 To access the tensor of `a_i a_j`, use the get function `fibtensor()`.
+
+## Triangulation
+This class implements the handler for triangulations (Finite Elements/Volumes Meshes). It gathers information on:
+* The coordinates of the mesh vertices
+* The Element types, region IDs and connectivity
+* The fibres directions
+A python dict contains all the element types thst belong to the mesh (thus, it can handle hybrid meshes).
+The function `readMesh(fsuffix)` reads meshes in Carp format.
 
 

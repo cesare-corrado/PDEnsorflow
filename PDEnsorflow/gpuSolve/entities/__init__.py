@@ -19,4 +19,4 @@ def version():
 
 
 from gpuSolve.entities.domain3D import Domain3D 
-
+from gpuSolve.entities.triangulation import Triangulation
