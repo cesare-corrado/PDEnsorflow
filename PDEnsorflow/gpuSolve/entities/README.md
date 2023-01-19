@@ -8,10 +8,11 @@ This sub-module of `gpuSolve` defines some general entities as classes that coll
 ## Domain3D
 
 This class implements a 3D domain; the domain gathers information on:
-* the voxel sizes
-* the anatomy
-* the conductivity(ies)
-* the fibres, if any
+
+*  the voxel sizes
+*  the anatomy
+*  the conductivity(ies)
+*  the fibres, if any
 
 ### Specify the anatomy
 
@@ -33,10 +34,20 @@ To access the tensor of `a_i a_j`, use the get function `fibtensor()`.
 
 ## Triangulation
 This class implements the handler for triangulations (Finite Elements/Volumes Meshes). It gathers information on:
+
 * The coordinates of the mesh vertices
 * The Element types, region IDs and connectivity
 * The fibres directions
-A python dict contains all the element types thst belong to the mesh (thus, it can handle hybrid meshes).
-The function `readMesh(fsuffix)` reads meshes in Carp format.
 
+### Data
+A python dict contains all the element (one key per type) that belong to the mesh 
+(It can handle hybrid meshes). Data are stored as TensorFlow tensors.
+
+
+### Member functions
+* `readMesh(filename)`: determines the mesh format and reads in the mesh.
+The existing formats are:
+  * Carp mesh format
+  * Binary format (pkl file) with data as numpy arrays
+* `saveMesh(fileName)`: saves the mesh in a *.pkl* format.
 
