@@ -41,13 +41,19 @@ This class implements the handler for triangulations (Finite Elements/Volumes Me
 
 ### Data
 A python dict contains all the element (one key per type) that belong to the mesh 
-(It can handle hybrid meshes). Data are stored as TensorFlow tensors.
+(It can handle hybrid meshes). Data are stored in numpy format (CPU) as meshes are used 
+to only assemble matrices.
 
 
 ### Member functions
+* `Pts()`: returns the point coordinates (numpy array)
+* `Fibres()`: returns the fiber directions (numpy array)
+* `Elems()`: returns a python dict (one entry for every element type of the mesh) with element connectivities and region ID. Element connectivities are numpy arrays of type *np.int32*
 * `readMesh(filename)`: determines the mesh format and reads in the mesh.
 The existing formats are:
   * Carp mesh format
   * Binary format (pkl file) with data as numpy arrays
 * `saveMesh(fileName)`: saves the mesh in a *.pkl* format.
+* `mesh_connectivity(storeConn=False)`: returns the mesh connectivity. When `storeConn=True`, it keeps the connectivity as an internal variable, avoiding recomputing in subsequent calls.
+* `contravariant_basis(storeCbas=False)`: returns the contravariant basis evaluated on each element. For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!). When `storeCbas=True`, it keeps a copy of the contravariant_basis as an internal variable, avoiding recomputing in subsequent calls.
 
