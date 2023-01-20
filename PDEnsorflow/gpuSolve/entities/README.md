@@ -2,16 +2,17 @@
 
 This sub-module of `gpuSolve` defines some general entities as classes that collect data into the same object
 
-* `domain3D`
-
+* `Domain3D`
+* `Triangulation`
 
 ## Domain3D
 
 This class implements a 3D domain; the domain gathers information on:
-* the voxel sizes
-* the anatomy
-* the conductivity(ies)
-* the fibres, if any
+
+*  the voxel sizes
+*  the anatomy
+*  the conductivity(ies)
+*  the fibres, if any
 
 ### Specify the anatomy
 
@@ -31,4 +32,28 @@ To load fibers, use the function `load_fiber_direction`. The function internally
 
 To access the tensor of `a_i a_j`, use the get function `fibtensor()`.
 
+## Triangulation
+This class implements the handler for triangulations (Finite Elements/Volumes Meshes). It gathers information on:
+
+* The coordinates of the mesh vertices
+* The Element types, region IDs and connectivity
+* The fibres directions
+
+### Data
+A python dict contains all the element (one key per type) that belong to the mesh 
+(It can handle hybrid meshes). Data are stored in numpy format (CPU) as meshes are used 
+to only assemble matrices.
+
+
+### Member functions
+* `Pts()`: returns the point coordinates (numpy array)
+* `Fibres()`: returns the fiber directions (numpy array)
+* `Elems()`: returns a python dict (one entry for every element type of the mesh) with element connectivities and region ID. Element connectivities are numpy arrays of type *np.int32*
+* `readMesh(filename)`: determines the mesh format and reads in the mesh.
+The existing formats are:
+  * Carp mesh format
+  * Binary format (pkl file) with data as numpy arrays
+* `saveMesh(fileName)`: saves the mesh in a *.pkl* format.
+* `mesh_connectivity(storeConn=False)`: returns the mesh connectivity. When `storeConn=True`, it keeps the connectivity as an internal variable, avoiding recomputing in subsequent calls.
+* `contravariant_basis(storeCbas=False)`: returns the contravariant basis evaluated on each element. For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!). When `storeCbas=True`, it keeps a copy of the contravariant_basis as an internal variable, avoiding recomputing in subsequent calls.
 
