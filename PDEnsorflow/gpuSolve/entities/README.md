@@ -56,4 +56,8 @@ The existing formats are:
 * `saveMesh(fileName)`: saves the mesh in a *.pkl* format.
 * `mesh_connectivity(storeConn=False)`: returns the mesh connectivity. When `storeConn=True`, it keeps the connectivity as an internal variable, avoiding recomputing in subsequent calls.
 * `contravariant_basis(storeCbas=False)`: returns the contravariant basis evaluated on each element. For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!). When `storeCbas=True`, it keeps a copy of the contravariant_basis as an internal variable, avoiding recomputing in subsequent calls.
+* `element_contravariant_basis(elemtype,elemID,localcoords=[])`: computes the contravariant basis at coordinates localcoords for the element elemID of type elemType and returns a python dict with the contravariant bais vectors ( v{1,2,3}) and the element measure
+* `release_contravariant_basis()`: deletes the contravariant basis dictionary and releases the memory 
+* `release_connnectivity()`: deletes the connectivity dictionary and releases the memory
+
 

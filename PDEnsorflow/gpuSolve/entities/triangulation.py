@@ -229,6 +229,44 @@ class Triangulation:
         else:
             return(self._contravbasis)
 
+    def element_contravariant_basis(self,elemtype,elemID,localcoords=[]):
+        """function element_contravariant_basis(elemtype,elemID,localcoords=[])
+        computes the contravariant basis at coordinates localcoords for the 
+        element elemID of type elemType
+        Input:
+            elemtype:     the type of element
+            elemID:       the element ID
+            localcoords:  the point (in local coordinates) where the contravariant basis is computed
+        Output:
+            a python dict with:
+              v{1,2,3}: the contravariant basis vectors
+              meas:       the element measure
+        """
+        try:
+            Elem = self._Elems[elemtype][elemID]
+            VertPts = self._Pts[Elem[:-1],:]            
+            contraBas = element_contravariant_basis(elemtype,VertPts,localcoords=[])
+            return(contraBas)
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+    
+    def release_contravariant_basis(self):
+        """function  release_contravariant_basis
+        deletes the contravariant basis dictionary and releases the memory
+        """
+        if self._contravbasis is not None:
+            del self._contravbasis
+            self._contravbasis = None 
+    
+    def release_connnectivity(self):
+        """function  release_connnectivity
+        deletes the connectivity dictionary and releases the memory
+        """    
+        if self._connectivity is not None:
+            del self._connectivity
+            self._connectivity = None 
+    
     def __readMeshPickleFormat(self,fname):
         '''This function reads a mesh in .pkl format
         The input data is a pkl file with a mesh having
