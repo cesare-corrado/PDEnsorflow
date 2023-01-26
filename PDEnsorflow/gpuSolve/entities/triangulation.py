@@ -141,6 +141,7 @@ class Triangulation:
         self._Fibres       = None
         self._connectivity = None
         self._contravbasis = None
+        self._pointRegIDs  = None
 
     def Pts(self):
         """ function Pts():
@@ -214,7 +215,7 @@ class Triangulation:
             return(self._connectivity)
 
     def contravariant_basis(self,storeCbas=False):
-        """ function connectivity=contravariant_basis(storeConn=storeCbas)
+        """ function connectivity=contravariant_basis(storeCbas=False)
         returns the contravariant basis evaluated on each element.
         For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!)
         When storeCbas = True, it keeps a copy of the contravariant_basis
@@ -228,6 +229,21 @@ class Triangulation:
                 return(self._contravbasis)   
         else:
             return(self._contravbasis)
+
+    def point_region_ids(self,storeIDs=False):
+        """ function regionIds = point_region_ids(storeIDs=False)
+        returns the region IDs associated to the mesh vertices.
+        When storeIDs = True, it keeps a copy of the point IDs
+        as an internal variable, avoiding recomputing in subsequent calls.
+        """
+        if self._pointRegIDs is None:
+            if storeIDs==False:            
+                return(self.__compute_point_region_ids())
+            else:
+                self._pointRegIDs = self.__compute_point_region_ids()
+                return(self._pointRegIDs)   
+        else:
+            return(self._pointRegIDs)
 
     def element_contravariant_basis(self,elemtype,elemID,localcoords=[]):
         """function element_contravariant_basis(elemtype,elemID,localcoords=[])
@@ -266,6 +282,14 @@ class Triangulation:
         if self._connectivity is not None:
             del self._connectivity
             self._connectivity = None 
+
+    def release_point_region_ids(self):
+        """function  release_point_region_ids
+        deletes the numpy array of the point region IDs releases the memory
+        """    
+        if self._pointRegIDs is not None:
+            del self._pointRegIDs
+            self._pointRegIDs = None 
     
     def __readMeshPickleFormat(self,fname):
         '''This function reads a mesh in .pkl format
@@ -308,7 +332,9 @@ class Triangulation:
         connectivity = {}
         t0 = time()
         for jpt in range(npt):
-            connectivity[jpt] = []        
+            connectivity[jpt] = []
+            #each node is connected with itself
+            connectivity[jpt].append(jpt)
         for elemName, Elements in self._Elems.items():
             for Elem in Elements:
                 nnodes = Elem.shape[-1] -1
@@ -348,4 +374,28 @@ class Triangulation:
         elapsed = time() - t0
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(contravbasis)
+
+    def __compute_point_region_ids(self):
+        '''This function assigns to each point the region ID
+        taking the most recurrent region ID of the elements
+        that have the point as a vertex.       
+        '''
+        print('Associating a region ID to points')
+        npt = self._Pts.shape[0]
+        regions = {}
+        t0 = time()
+        for ipt in range(npt):
+            regions[ipt] = []
+        for elemtype, Elements in self._Elems.items():
+            for iElem,Elem in enumerate(Elements):
+                rID  = Elem[-1]
+                Elem = Elem[:-1]
+                for ID in Elem:
+                    regions[ID].append(rID)
+        pointRegIDs = np.zeros(npt)-1 
+        for ipt in range(npt):    
+            pointRegIDs = np.argmax(np.bincount(regions[ipt])).astype(np.int32)
+        elapsed = time() - t0
+        print('done in {:3.2f} s'.format(elapsed),flush=True)
+        return(pointRegIDs)
 

@@ -4,6 +4,7 @@ This sub-module of `gpuSolve` defines some general entities as classes that coll
 
 * `Domain3D`
 * `Triangulation`
+* `MaterialProperties`
 
 ## Domain3D
 
@@ -40,9 +41,14 @@ This class implements the handler for triangulations (Finite Elements/Volumes Me
 * The fibres directions
 
 ### Data
-A python dict contains all the element (one key per type) that belong to the mesh 
-(It can handle hybrid meshes). Data are stored in numpy format (CPU) as meshes are used 
-to only assemble matrices.
+Data are stored on the CPU (numpy and native python formats) as meshes are used to only assemble matrices.
+Attributes are:
+* `_Pts`: a numpy array with node coordinates
+* `_Elems`: a python dict contains all the element (one key per type) that belong to the mesh  (can handle hybrid meshes). Each entry is a numpy array of integer of shape *nv*+1 where *nv* is the nb of vertices of the element.
+* `_Fibres`: a numpy array with the fiber tensor
+* `_connectivity`: a python dict that contains the mesh connectivity. **NOT** evaluated by default.
+* `_contravbasis`: (deprecated?) a python dict with of the same format of `_Elems` but with the contravariant basis and the element measures. **NOT** evaluated by default.
+* `_pointRegIDs`: a numpy array with the region *ID* for each node. **NOT** evaluated by default.
 
 
 ### Member functions
@@ -56,8 +62,41 @@ The existing formats are:
 * `saveMesh(fileName)`: saves the mesh in a *.pkl* format.
 * `mesh_connectivity(storeConn=False)`: returns the mesh connectivity. When `storeConn=True`, it keeps the connectivity as an internal variable, avoiding recomputing in subsequent calls.
 * `contravariant_basis(storeCbas=False)`: returns the contravariant basis evaluated on each element. For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!). When `storeCbas=True`, it keeps a copy of the contravariant_basis as an internal variable, avoiding recomputing in subsequent calls.
+* `point_region_ids(storeIDs=False)`: returns the region *ID* associated to each vertex. When `storeIDs=True`, it keeps a copy of the point IDs as an internal variable, avoiding recomputing in subsequent calls.
 * `element_contravariant_basis(elemtype,elemID,localcoords=[])`: computes the contravariant basis at coordinates localcoords for the element elemID of type elemType and returns a python dict with the contravariant bais vectors ( v{1,2,3}) and the element measure
 * `release_contravariant_basis()`: deletes the contravariant basis dictionary and releases the memory 
 * `release_connnectivity()`: deletes the connectivity dictionary and releases the memory
+* `release_point_region_ids()`: deletes the point region IDs array and releases the memory
 
 
+## `MaterialProperties`
+
+This class collects all the material properties associated to nodes or elements and implements some proxy functions to access the values.
+
+### Data
+Material properties are associated to elements (e.g. *diffusivity*) or to vertices (e.g *gNa* in cardiac sdimulations). Two python dicts collect material propertiesa associated to elements and nodes:
+
+* `_element_properties`: material properties associated to the elements.
+* `_nodal_properties`: material properties associated to the nodes/vertices.
+
+dict keys are the property names (e.g. *diffusivity*, *gNa*). Each property is characterised by a *type*: {*region*, *elem*} for the elements and {*region*, *nodal*} for the nodes that specify if assigned by region *IDs* or by node/element *IDs*. Finally, the *idmap* maps the *ID* to the numerical value of the property.
+
+Other attributes:
+
+* `_ud_functions`: a python dict that points to user defined functions. note that in these function one can not reference the class itself
+
+
+
+### Member functions
+
+* `add_element_property(pname,ptype,pmap)`:  adds the element material property `pname` of type `ptype` (*region* or *elem*) with the mapping `pmap`.
+* `add_nodal_property(pname,ptype,pmap)`: adds the nodal material property `pname` of type `ptype` (*region* or *nodal*) with the mapping `pmap`.
+* `remove_element_property(pname)`: removes the property `pname` from the `_element_properties` dict
+* `remove_nodal_property(pname)`: removes the property `pname` from the `_nodal_properties` dict
+* `remove_all_element_properties()`: deletes all the material properties associated to elements and releases memory
+* `remove_all_nodal_properties()`: : deletes all the material properties associated to nodes and releases memory
+* `ElementProperty(pname,elemtype,elemID,regionID)`: returns the nodal property `pname` at element `elemID` of type `elemtype` or at region `regionID`
+* `NodalProperty(pname,pointID,regionID)`: returns the nodal property `pname` at node `pointID` or at region `regionID`
+* `add_ud_function(fname,fdef)`: assigns to `_ud_functions` dict the user-defined function `fdef` with the key `fname`
+* `execute_ud_func(fname,*kwargs)`: executes the user defined function with key `fname`, passing the arguments `*kwargs`
+* `remove_ud_function(fname)`: removes the function `fname` from the `_ud_functions` dict
