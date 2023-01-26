@@ -14,7 +14,7 @@ def localMass(elemtype,elemData,props=None):
          lmass: a numpy array of the local mass.
     """
 
-    function_dict = {'Edges': None,
+    function_dict = {'Edges': linear_Edge_local_Mass,
                      'Trias': linear_triangular_local_Mass,
                      'Quads': None,
                      'Tetras': None,
@@ -23,6 +23,30 @@ def localMass(elemtype,elemData,props=None):
                      'Prisms': None
                     }  
     return(function_dict[elemtype](elemData,props) )
+
+
+def linear_Edge_local_Mass(elemData,props=None):
+    """function linear_Edge_local_Mass(elemData)
+    returns the local mass matrix for linear 1D elements.
+    Material properties are considered uniform and unitary
+    on the triangle.
+    Input: 
+        elemData: the dictionary containing the element data
+        props: a dummy argument.
+    Output:
+         lmass: a numpy array of shape (2X2).
+    """
+    EdgeLen = elemData['meas']
+    lmass = np.zeros(shape=(2,2),dtype=np.float32)
+    iientry = 1.0/3.0
+    ijentry = 1.0/6.0
+    for ipt in range(3):
+            lmass[ipt,ipt] = iientry
+            for jpt in range(1+ipt,3):
+                lmass[ipt,jpt] = ijentry
+                lmass[jpt,ipt] = ijentry
+    lmass = EdgeLen*lmass
+    return(lmass)
 
 
 def linear_triangular_local_Mass(elemData,props=None):

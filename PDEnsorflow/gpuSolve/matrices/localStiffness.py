@@ -15,7 +15,7 @@ def localStiffness(elemtype,elemData, Sigma=np.identity(3)):
          lmass: a numpy array of the local mass.
     """
 
-    function_dict = {'Edges': None,
+    function_dict = {'Edges': linear_Edge_local_Stiffness,
                      'Trias': linear_triangular_local_Stiffness,
                      'Quads': None,
                      'Tetras': None,
@@ -25,11 +25,30 @@ def localStiffness(elemtype,elemData, Sigma=np.identity(3)):
                     }  
     return(function_dict[elemtype](elemData,Sigma) )
 
-
+def linear_Edge_local_Stiffness(elemData, Sigma=np.identity(3) ):
+    """linear_Edge_local_Stiffness(elemData, Sigma=np.identity(3) )
+    returns the local stiffness matrix for linear 1D elements
+    and diffusion tensor Sigma (default: identity).
+    Material properties are considered uniform on the trianlge;
+    the tensor sigma encodes the anisotropy.
+    Input: 
+        elemData: the dictionary containing the element data
+        Sigma:    the diffusion tensor that encodes anisotropies (default: identity)
+    Output:
+         lstiff: a numpy array of shape (2X2).    
+    """
+    EdgeLen         = elemData['meas']
+    contra_bas      = np.zeros(shape=(3,1))
+    contra_bas[:,0] = elemData['v1']
+    localgrad       = np.array([[-1.0,1.0] ] )
+    grad            = np.matmul(contra_bas, localgrad)
+    flux            = np.matmul(Sigma,grad)
+    lstiff          = EdgeLen*np.matmul( grad.T,flux )
+    return(lstiff)
 
 
 def linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) ):
-    """function localStiffness(elemData, Sigma=np.identity(3) )
+    """function linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) )
     returns the local stiffness matrix for linear triangular elements
     and diffusion tensor Sigma (default: identity).
     Material properties are considered uniform on the trianlge;
