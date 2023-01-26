@@ -31,7 +31,6 @@ def element_contravariant_basis(elemtype,VertPts,localcoords=[]):
     return(function_dict[elemtype](VertPts, localcoords) )
 
 
-
 def Edge_contravariant_basis(VertPts,localcoords=[]):
     """function Edges_contravariant_basis(VertPts,localcoords=[])
     This function evaluates the contravariant basis and the length
@@ -42,14 +41,28 @@ def Edge_contravariant_basis(VertPts,localcoords=[]):
       * localCoords = [] is a dummy input for signature consistence with 
         (future) functions defined on non-linear elements.
     Output:
-      * v1, v2, v3:empty vectors
+      * v1, v2, v3: covariant basis
       * meas: the edge measure (length)
     """ 
     try:
         # Tangent space
         v10   = VertPts[1,:]-VertPts[0,:]
-        E_len = np.linalg.norm(v10,keepdims=True)
-        return {'v1':None,'v2':None,'v3':None,'meas':E_len}
+        # compute the svd to build a basis of the orthogonal space 
+        u,s,v = np.linalg.svd(v10[:,np.newaxis]
+        v20   = u[:,1]
+        v30   = u[:,2]
+        E_len = np.linalg.norm(v10,keepdims=True)        
+        # Covariant basis: each row is a vector of the basis
+        covbT = np.zeros(shape=(3,3),dtype=np.float32)
+        covbT[0,:] = v10
+        covbT[1,:] = v20
+        covbT[2,:] = v30
+        # first two column is the contravariant basis in tangent space
+        contrb     = np.linalg.inv(covbT)
+        v1contra   = contrb[:,0]
+        v2contra   = contrb[:,1]
+        v3contra   = contrb[:,2]
+        return {'v1':v1contra,'v2':v2contra,'v3':v3contra,'meas':E_len}
     except Exception as err:
         print(f"Unexpected {err=}, {type(err)=}")
         raise
