@@ -3,8 +3,9 @@ matrices submodule of gpuSolve.
 This module contains definitions of local Finite Element matrices
 and functions to assemble global sparse matrices. 
 Contains:
-  * 
-
+  * localMass:      a collection of functions to assemble local mass matrices in cartesian coordinates
+  * localStiffness: a collection of functions to assemble local stiffness matrices in cartesian coordinates
+  * globalMatrices: a collection of functions to assemble global sparse matrices
 """
 import tensorflow as tf
 

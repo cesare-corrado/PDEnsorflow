@@ -3,6 +3,8 @@ entities submodule of gpuSolve.
 This module contains general entities to group data 
 Contains:
   * domain3D: class that defines a domain in a 3D space
+  * Triangulation: a class that handles domain triangulations
+  * MaterialProperties: a container for material properties; allows function definitions.
 
 """
 import tensorflow as tf
