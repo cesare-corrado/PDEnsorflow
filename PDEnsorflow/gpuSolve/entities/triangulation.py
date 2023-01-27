@@ -48,7 +48,7 @@ def Edge_contravariant_basis(VertPts,localcoords=[]):
         # Tangent space
         v10   = VertPts[1,:]-VertPts[0,:]
         # compute the svd to build a basis of the orthogonal space 
-        u,s,v = np.linalg.svd(v10[:,np.newaxis]
+        u,s,v = np.linalg.svd(v10[:,np.newaxis])
         v20   = u[:,1]
         v30   = u[:,2]
         E_len = np.linalg.norm(v10,keepdims=True)        
