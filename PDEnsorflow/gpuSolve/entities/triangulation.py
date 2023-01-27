@@ -31,7 +31,6 @@ def element_contravariant_basis(elemtype,VertPts,localcoords=[]):
     return(function_dict[elemtype](VertPts, localcoords) )
 
 
-
 def Edge_contravariant_basis(VertPts,localcoords=[]):
     """function Edges_contravariant_basis(VertPts,localcoords=[])
     This function evaluates the contravariant basis and the length
@@ -42,14 +41,28 @@ def Edge_contravariant_basis(VertPts,localcoords=[]):
       * localCoords = [] is a dummy input for signature consistence with 
         (future) functions defined on non-linear elements.
     Output:
-      * v1, v2, v3:empty vectors
+      * v1, v2, v3: covariant basis
       * meas: the edge measure (length)
     """ 
     try:
         # Tangent space
         v10   = VertPts[1,:]-VertPts[0,:]
-        E_len = np.linalg.norm(v10,keepdims=True)
-        return {'v1':None,'v2':None,'v3':None,'meas':E_len}
+        # compute the svd to build a basis of the orthogonal space 
+        u,s,v = np.linalg.svd(v10[:,np.newaxis]
+        v20   = u[:,1]
+        v30   = u[:,2]
+        E_len = np.linalg.norm(v10,keepdims=True)        
+        # Covariant basis: each row is a vector of the basis
+        covbT = np.zeros(shape=(3,3),dtype=np.float32)
+        covbT[0,:] = v10
+        covbT[1,:] = v20
+        covbT[2,:] = v30
+        # first two column is the contravariant basis in tangent space
+        contrb     = np.linalg.inv(covbT)
+        v1contra   = contrb[:,0]
+        v2contra   = contrb[:,1]
+        v3contra   = contrb[:,2]
+        return {'v1':v1contra,'v2':v2contra,'v3':v3contra,'meas':E_len}
     except Exception as err:
         print(f"Unexpected {err=}, {type(err)=}")
         raise
@@ -141,6 +154,7 @@ class Triangulation:
         self._Fibres       = None
         self._connectivity = None
         self._contravbasis = None
+        self._pointRegIDs  = None
 
     def Pts(self):
         """ function Pts():
@@ -214,7 +228,7 @@ class Triangulation:
             return(self._connectivity)
 
     def contravariant_basis(self,storeCbas=False):
-        """ function connectivity=contravariant_basis(storeConn=storeCbas)
+        """ function connectivity=contravariant_basis(storeCbas=False)
         returns the contravariant basis evaluated on each element.
         For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!)
         When storeCbas = True, it keeps a copy of the contravariant_basis
@@ -229,6 +243,67 @@ class Triangulation:
         else:
             return(self._contravbasis)
 
+    def point_region_ids(self,storeIDs=False):
+        """ function regionIds = point_region_ids(storeIDs=False)
+        returns the region IDs associated to the mesh vertices.
+        When storeIDs = True, it keeps a copy of the point IDs
+        as an internal variable, avoiding recomputing in subsequent calls.
+        """
+        if self._pointRegIDs is None:
+            if storeIDs==False:            
+                return(self.__compute_point_region_ids())
+            else:
+                self._pointRegIDs = self.__compute_point_region_ids()
+                return(self._pointRegIDs)   
+        else:
+            return(self._pointRegIDs)
+
+    def element_contravariant_basis(self,elemtype,elemID,localcoords=[]):
+        """function element_contravariant_basis(elemtype,elemID,localcoords=[])
+        computes the contravariant basis at coordinates localcoords for the 
+        element elemID of type elemType
+        Input:
+            elemtype:     the type of element
+            elemID:       the element ID
+            localcoords:  the point (in local coordinates) where the contravariant basis is computed
+        Output:
+            a python dict with:
+              v{1,2,3}: the contravariant basis vectors
+              meas:       the element measure
+        """
+        try:
+            Elem = self._Elems[elemtype][elemID]
+            VertPts = self._Pts[Elem[:-1],:]            
+            contraBas = element_contravariant_basis(elemtype,VertPts,localcoords=[])
+            return(contraBas)
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+    
+    def release_contravariant_basis(self):
+        """function  release_contravariant_basis
+        deletes the contravariant basis dictionary and releases the memory
+        """
+        if self._contravbasis is not None:
+            del self._contravbasis
+            self._contravbasis = None 
+    
+    def release_connnectivity(self):
+        """function  release_connnectivity
+        deletes the connectivity dictionary and releases the memory
+        """    
+        if self._connectivity is not None:
+            del self._connectivity
+            self._connectivity = None 
+
+    def release_point_region_ids(self):
+        """function  release_point_region_ids
+        deletes the numpy array of the point region IDs releases the memory
+        """    
+        if self._pointRegIDs is not None:
+            del self._pointRegIDs
+            self._pointRegIDs = None 
+    
     def __readMeshPickleFormat(self,fname):
         '''This function reads a mesh in .pkl format
         The input data is a pkl file with a mesh having
@@ -270,7 +345,9 @@ class Triangulation:
         connectivity = {}
         t0 = time()
         for jpt in range(npt):
-            connectivity[jpt] = []        
+            connectivity[jpt] = []
+            #each node is connected with itself
+            connectivity[jpt].append(jpt)
         for elemName, Elements in self._Elems.items():
             for Elem in Elements:
                 nnodes = Elem.shape[-1] -1
@@ -310,4 +387,28 @@ class Triangulation:
         elapsed = time() - t0
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(contravbasis)
+
+    def __compute_point_region_ids(self):
+        '''This function assigns to each point the region ID
+        taking the most recurrent region ID of the elements
+        that have the point as a vertex.       
+        '''
+        print('Associating a region ID to points')
+        npt = self._Pts.shape[0]
+        regions = {}
+        t0 = time()
+        for ipt in range(npt):
+            regions[ipt] = []
+        for elemtype, Elements in self._Elems.items():
+            for iElem,Elem in enumerate(Elements):
+                rID  = Elem[-1]
+                Elem = Elem[:-1]
+                for ID in Elem:
+                    regions[ID].append(rID)
+        pointRegIDs = np.zeros(npt)-1 
+        for ipt in range(npt):    
+            pointRegIDs = np.argmax(np.bincount(regions[ipt])).astype(np.int32)
+        elapsed = time() - t0
+        print('done in {:3.2f} s'.format(elapsed),flush=True)
+        return(pointRegIDs)
 
