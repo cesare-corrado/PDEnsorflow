@@ -1,5 +1,5 @@
 """
-entities submodule of gpuSolve.
+matrices submodule of gpuSolve.
 This module contains definitions of local Finite Element matrices
 and functions to assemble global sparse matrices. 
 Contains:
