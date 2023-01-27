@@ -13,8 +13,9 @@ the function `localMass(elemtype, elemData,props=None)` takes as a input the typ
 the python dict `elemData` containing the contravariant basis and the element measure and
 calls one of the following:
 
-* `linear_triangular_local_Mass(elemData,props=None)`: local mass for linear triangular elements
 * `linear_Edge_local_Mass(elemData,props=None)`: local mass for linear 1D elements
+* `linear_triangular_local_Mass(elemData,props=None)`: local mass for linear triangular elements
+* `linear_tetrahedral_local_Mass(elemData,props=None)`: local mass for linear tetrahedral elements 
 
 the argument `props=[]` is a dummy argument, used to keep the same signature on local matrices and to
 allow extra arguments in the future.
@@ -25,9 +26,9 @@ allow extra arguments in the future.
 This module implements the functions that compute the local stiffness matrices; 
 the function `localStiffness(elemtype, elemData, Sigma=np.identity(3))` takes as a input the type of element,the python dict `elemData` containing the contravariant basisand the element measure, and the diffusion tensor `Sigma` and calls one of the following:
 
-* `linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) )`: local stiffness for linear triangular elements (diffusion can be anisotropic)
 * `linear_Edge_local_Stiffness(elemData, Sigma=np.identity(3) )`: local stiffness for linear triangular elements
-
+* `linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) )`: local stiffness for linear triangular elements (diffusion can be anisotropic)
+* `linear_tetrahedral_local_Stiffness(elemData, Sigma=np.identity(3) )`: local stiffness for linear tetrahedral elements (diffusion can be anisotropic)
 
 ## globalMatrices
 
