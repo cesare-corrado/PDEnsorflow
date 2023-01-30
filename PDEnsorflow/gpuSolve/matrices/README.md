@@ -64,6 +64,18 @@ This function computes the sparse stiffness matrix using the domain connectivity
 * stif_pname:     the name of the function that evaluates the matertial properties
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
 
+
+### assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
+
+Given a python dict of functions to compute local matrices, this function computes all the global the sparse matrices using the domain connectivity and the matrix pattern. The output is a dict with numpy arrays of the entries of each matrix (*coo format*). Input arguments are:
+
+* local\_matrices\_dict: a python dict of functions to compute the local matrices
+* matrix_pattern: the sparsity pattern of the matrix
+* domain:         the domain object
+* matprops:       a MaterialProperties object that implements functions to provide local properties
+* connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+
+
 ### assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
 
 Given a python dict of functions to compute local matrices, this function computes all the global the sparse matrices using the domain connectivity and the matrix pattern. The output is a dict with elements in TensorFlow sparse tensor format. Input arguments are:

@@ -115,13 +115,12 @@ def assemble_stiffness_matrix(matrix_pattern,domain,matprops,stif_pname='Sigma',
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(STIFFNESS)
-    
 
-def assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None):
-    """ function assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
+
+def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None):
+    """ function assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
     Given a python dict of functions to compute local matrices, this function computes all the 
-    global the sparse matrices using the domain connectivity and the matrix pattern.
-    It returs a dict of TensorFlow sparse tensors.
+    vectors of the entries of the global sparse matrices using the domain connectivity and the matrix pattern.
     Input:
         local_matrices_dict: a python dict of functions to compute the local matrices
         matrix_pattern:      the sparsity pattern of the matrix
@@ -129,17 +128,15 @@ def assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,co
         matprops:            a MaterialProperties object that implements functions to provide local properties
         connectivity:        the domain connectivity (if None, it is computed and kept in memory)
     Output:
-        MATRICES:  a python dict with the TensorFlow sparse tensors storing the matrices.
+        VM:  a python dict with the numpy tensors of entries.
     """
     npt = domain.Pts().shape[0]
-    I   = matrix_pattern['I']
-    J   = matrix_pattern['J']
     k0  = matrix_pattern['StartIndex']    
     VM  = {}
     print('Assembly the following sparse matrices:'.format(len(local_matrices_dict.keys())),flush=True)    
     for matr_name in local_matrices_dict.keys():
         print('{}'.format(matr_name),flush=True)
-        VM[matr_name]  = np.zeros(shape=I.shape)
+        VM[matr_name]  = np.zeros(shape=matrix_pattern['I'].shape)
     if connectivity is None:
         connectivity = domain.mesh_connectivity(True)
     lmat = {}
@@ -160,11 +157,34 @@ def assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,co
                     for matr_name,local_matrix in lmat.items():
                         VM[matr_name][indexEntry] += local_matrix[iEntry,jEntry]
     # Now generate a dict of tf.sparse objects
-    MATRICES = {}
-    indices  = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
-    for matr_name,VMAT in VM.items():
-        MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=VMAT.astype(np.float32), dense_shape=[npt,npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
+    return(VM)
+
+
+
+
+def assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None):
+    """ function assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
+    Given a python dict of functions to compute local matrices, this function computes all the 
+    global the sparse matrices using the domain connectivity and the matrix pattern.
+    It returs a dict of TensorFlow sparse tensors.
+    Input:
+        local_matrices_dict: a python dict of functions to compute the local matrices
+        matrix_pattern:      the sparsity pattern of the matrix
+        domain:              the domain object
+        matprops:            a MaterialProperties object that implements functions to provide local properties
+        connectivity:        the domain connectivity (if None, it is computed and kept in memory)
+    Output:
+        MATRICES:  a python dict with the TensorFlow sparse tensors storing the matrices.
+    """
+    npt = domain.Pts().shape[0]
+    I   = matrix_pattern['I']
+    J   = matrix_pattern['J']
+    VM  = assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity)
+    indices  = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+    MATRICES = {}
+    for matr_name,VMAT in VM.items():
+        MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=VMAT.astype(np.float32), dense_shape=[npt,npt])
     return(MATRICES)
 
