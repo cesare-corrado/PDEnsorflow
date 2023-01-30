@@ -102,7 +102,8 @@ class ConjGrad:
             tf.print('CG converged in {} iterations (residual: {:4.3f})'.format(self._niters,self._residual))
         else:
             tf.print('WARNING: max nb of iteration reached (residual: {:4.3f})'.format(self._residual))
-        
+
+    @tf.function    
     def solve(self):
         """
         solve()    
