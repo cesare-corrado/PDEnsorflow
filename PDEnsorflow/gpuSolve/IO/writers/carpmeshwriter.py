@@ -49,7 +49,7 @@ class CarpMeshWriter:
         """
         try:
             fdir  = os.path.split(fprefix)[0]
-            if not os.path.exists(fdir):
+            if fdir and (not os.path.exists(fdir)):
                 os.makedirs(fdir)            
             self.__write_carp_nodes(fprefix)
             self.__write_carp_elements(fprefix)
