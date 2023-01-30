@@ -16,4 +16,11 @@ This generates a *vedo* object (through the *vedo* library).
 
 This class store the output in a *numpy* array format and writes it to a file.
 
+## CarpMeshWriter
 
+This class writes a mesh in carp format (*.pts*, *.elem* and *.lon* files)
+Memeber methods:
+
+* `assignMesh(msh)`: assigns the mesh *msh* to the writer
+* `Mesh()`: returns the mesh
+* `writeMesh(fprefix)`: writes the mesh in CARP format, using *fprefix* as the prtefix. The prefix must contain the path.

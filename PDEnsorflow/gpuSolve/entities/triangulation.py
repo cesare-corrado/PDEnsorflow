@@ -4,7 +4,7 @@ import os
 import sys
 from time import time
 from gpuSolve.IO.readers.carpmeshreader import CarpMeshReader
-
+from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
 
 
 def element_contravariant_basis(elemtype,VertPts,localcoords=[]):
@@ -211,6 +211,20 @@ class Triangulation:
                 }                 
         with open(foutName,'wb') as fout:
             pickle.dump(mesh0,fout,protocol=pickle.HIGHEST_PROTOCOL)     
+
+    def exportCarpFormat(self,foutPrefix):
+        """function exportCarpFormat(foutPrefix)
+        exports the mesh in carp format (*.pts*, *.elem*, *.lon*), with prefix `foutPrefix`
+        Prefix must contain the path.
+        """
+        try:
+            writer = CarpMeshWriter()
+            writer.assignMesh(self)
+            writer.writeMesh(foutPrefix)
+
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
         
     def mesh_connectivity(self,storeConn=False):
         """ function connectivity=mesh_connectivity(storeConn=False)

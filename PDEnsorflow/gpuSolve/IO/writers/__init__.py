@@ -4,6 +4,7 @@ submodule of IO
 Contains:
     * ResultWriter: a class to write results in npy format
     * VedoPlotter: a class implementing a plotter based on ved library
+    * CarpMeshWriter: a class to write the mesh in carp {.pts, .elem, .lon} format
 
 """
 
@@ -20,6 +21,6 @@ def version():
   return(verstr)
 
 
-from gpuSolve.IO.writers.resultwriter import ResultWriter as ResultWriter
-from gpuSolve.IO.writers.vedoplotter import VedoPlotter as VedoPlotter
-
+from gpuSolve.IO.writers.resultwriter import ResultWriter
+from gpuSolve.IO.writers.vedoplotter import VedoPlotter
+from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
