@@ -5,6 +5,7 @@ Contains:
     * ResultWriter: a class to write results in npy format
     * VedoPlotter: a class implementing a plotter based on ved library
     * CarpMeshWriter: a class to write the mesh in carp {.pts, .elem, .lon} format
+    * IGBWriter: a class to write the output in .igb format (meshalyzer)
 
 """
 
@@ -24,3 +25,4 @@ def version():
 from gpuSolve.IO.writers.resultwriter import ResultWriter
 from gpuSolve.IO.writers.vedoplotter import VedoPlotter
 from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
+from gpuSolve.IO.writers.igbwriter import IGBWriter
