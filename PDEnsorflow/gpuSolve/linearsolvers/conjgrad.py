@@ -16,7 +16,7 @@ class ConjGrad:
         self._verbose: bool = False
         self._A : tf.sparse.SparseTensor = None
         self._RHS : tf.constant = None
-        self._X : tf.constant = None
+        self._X : tf.Variable = None
         
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -52,7 +52,7 @@ class ConjGrad:
         """
         self._RHS = RHS 
 
-    def set_X0(self, X0: tf.constant):
+    def set_X0(self, X0: tf.Variable):
         """
         set_X0(X0) assigns the inital guess X0 to the solver 
         """
@@ -82,7 +82,7 @@ class ConjGrad:
         """
         return(self._RHS) 
 
-    def X(self) ->  tf.constant :
+    def X(self) ->  tf.Variable :
         """
         X() returns the solution/initial value
         """
@@ -111,7 +111,8 @@ class ConjGrad:
         """
         try:
             self._niters   = 0
-            t0             = time()
+            if self._verbose:
+                t0             = time()
             r              = self._RHS - tf.sparse.sparse_dense_matmul(self._A,self._X)
             p              = r
             self._residual = tf.reduce_sum(tf.multiply(r, r))
@@ -128,9 +129,9 @@ class ConjGrad:
                 self._residual = rsnew 
                 if (tf.sqrt(self._residual) < self._toll):
                     break
-            elapsed = time() - t0
-            print('done in {:3.2f} s'.format(elapsed),flush=True)            
             if self._verbose:
+                elapsed = time() - t0
+                print('done in {:3.2f} s'.format(elapsed),flush=True)            
                 self.summary()
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
