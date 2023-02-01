@@ -39,15 +39,42 @@ class Stimulus:
                 if(hasattr(self,attribute) ):
                   setattr(self, attribute, val)
 
-    
     def __call__(self):
         return(self.stim)
+
+    def is_active(self):
+        """is_active(): returns true if the stimulus is still active.
+        This is a flag that is sset externally to speed-up aplllications
+        to skip stimulus that are no longer active
+        """
+        return(self._active)
+        
+     def deactivate(self):
+        """deactivate(): sets the flag _active" to False"""
+        self._active = False   
+            
+     def activate(self):
+        """activate(): sets the flag _active" to True """
+        self._active = True
     
+    def set_intensity(self,Imax: float):
+        """ set_intensity(Imax): sets the stimulus intensity to Imax
+        """
+        self.intensity = Imax
     
     def set_stimregion(self,streg):
-        self.stim = tf.constant(self.intensity*streg.astype(bool),name=self.name, dtype=np.float32)
-        [self.width,self.height,self.depth] = streg.shape
-    
+        region = self.intensity*np.squeeze(streg.astype(bool))
+        self.stim = tf.constant(region,name=self.name, dtype=np.float32   )
+
+        if (region.ndim==1):
+            self.stim                = tf.expand_dims(self.stim,axis=1)
+            self.depth               = 1
+            [self.width,self.height] = self.stim.shape
+        elif (region.ndim==2):
+            self.depth               = 1
+            [self.width,self.height] = self.stim.shape
+        else:
+            [self.width,self.height,self.depth] = self.stim.shape
     
     
     def stimulate_tissue_timestep(self,timestep: int, dt):
@@ -82,11 +109,11 @@ class Stimulus:
         return False
     
     
-    def stimulate_tissue_timevalue(self,time):    
-        '''
+    def stimulate_tissue_timevalue(self,time: float):    
+        """
         stimulate_tissue_timevalue(time) tells if stimulating the tissue or not
         Input is a time value (of type float)
-        '''
+        """
         if not hasattr(self,'_tend'):
             setattr(self, '_tend', self.tstart+self.period*(self.nstim-1)+self.duration )
 
@@ -102,6 +129,12 @@ class Stimulus:
                         return True
         return False
     
+    def stimApp(self,time: float):
+        """stimApp(time): returns the stimulus if applied at current time; None otherwise"""
+        if self.stimulate_tissue_timevalue(time):
+            return(self.stim)
+        else:
+            return(None)
     
     
     
