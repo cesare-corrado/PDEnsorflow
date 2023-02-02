@@ -23,12 +23,10 @@
     IN THE SOFTWARE.
 """
 
-
 import os
 import numpy as np
 import time
 import tensorflow as tf
-
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
@@ -66,6 +64,9 @@ def sigmaTens(elemtype, iElem,domain,matprop):
 
 
 class HeatEquation:
+    """
+    The heat equation
+    """
 
     def __init__(self, cfgdict=None):
         self._mesh_file_name = None
@@ -90,17 +91,18 @@ class HeatEquation:
         self.__nt = self._Tend//self._dt 
 
     def loadMesh(self,fname):
+        """ Loads the mesh"""
         self._mesh_file_name = fname
         self.__Domain.readMesh('{}'.format(self._mesh_file_name))
 
 
     def add_element_material_property(self,pname,ptype,prop):
+        """ adds material properties to elements"""
         self.__materials.add_element_property(pname,ptype,prop)
 
-
     def add_material_function(self,fname,fsign):
+        """adds functions to map material properties when assembling matrices"""
         self.__materials.add_ud_function(fname,fsign)
-
     
     def assemble_matrices(self):
         #Compute the domain connectivity
@@ -115,50 +117,57 @@ class HeatEquation:
         self.__Domain.release_connnectivity()
         self.__Solver.set_matrix(A)
 
-
-    def set_initial_condition(self,X0):
+    def set_initial_condition(self,X0:np.ndarray):
         ndim=len(X0.shape)
-        if ndim==1:
-            self.__X = tf.expand_dims(tf.Variable(X0),axis=1)
+        if X0.ndim==1:
+            self.__X = tf.Variable(X0[:,np.newaxis],name="X")
         else:
-            self.__X = tf.Variable(X0)
+            self.__X = tf.Variable(X0,name="X")
     
     
     def set_stimulus(self,stimreg,stimprops):
         self.__Stimulus = Stimulus(stimprops)
         self.__Stimulus.set_stimregion(stimreg)    
-    
+
     @tf.function
     def solve(self,X):
+        """ Implicit solver """
         self.__Solver.set_X0(X)
         if self.__Stimulus is not None:
-            I0 = self.__Stimulus.stimApp(self.__ctime)  
+            I0 = self.__Stimulus.stimApp(self.__ctime)
             if (I0 is not None ):
-                RHS = tf.sparse.sparse_dense_matmul(self.__MASS,tf.add(X,I0))
+                RHS0 = tf.add(X,self._dt*I0)
             else:            
-                RHS = tf.sparse.sparse_dense_matmul(self.__MASS,X)
+                RHS0 = X
         else:
-            RHS = tf.sparse.sparse_dense_matmul(self.__MASS,X)
+            RHS0 = X
+        RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
         X1 = self.__Solver.X()
-        return(X1)    
+        return(X1)
 
 
     @tf.function
     def run(self, im=None):
+        """
+            Runs the model. 
+
+            Args:
+                im: A Screen/writer used to paint/write the transmembrane potential
+
+            Returns:
+                None
+        """
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
             X1 = self.solve(self.__X)
             self.__X = X1
-            #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
-            #if s2.stimulate_tissue_timestep(i,self.dt):
-            #    U = tf.maximum(U, s2())
             # draw a frame every 1 ms
             if im and i % self._dt_per_plot == 0:
                 image = X1.numpy()
-                im.imshow(X1)
+                im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         if im:
@@ -195,11 +204,11 @@ if __name__=='__main__':
         }
     
     cfgstim = {'tstart': 4, 
-                       'nstim': 2, 
+                       'nstim': 3, 
                        'period':20,
-                       'duration':2*dt,
+                       'duration':3*dt,
                        'dt': dt,
-                       'intensity':2.0
+                       'intensity':5.0
               }
     
     model = HeatEquation(config)

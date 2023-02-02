@@ -49,11 +49,11 @@ class Stimulus:
         """
         return(self._active)
         
-     def deactivate(self):
+    def deactivate(self):
         """deactivate(): sets the flag _active" to False"""
         self._active = False   
             
-     def activate(self):
+    def activate(self):
         """activate(): sets the flag _active" to True """
         self._active = True
     
@@ -64,8 +64,7 @@ class Stimulus:
     
     def set_stimregion(self,streg):
         region = self.intensity*np.squeeze(streg.astype(bool))
-        self.stim = tf.constant(region,name=self.name, dtype=np.float32   )
-
+        self.stim = tf.constant(region,name=self.name, dtype=np.float32 )
         if (region.ndim==1):
             self.stim                = tf.expand_dims(self.stim,axis=1)
             self.depth               = 1

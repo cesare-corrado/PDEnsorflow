@@ -121,7 +121,7 @@ class ConjGrad:
             for self._niters in range(1,1+self._maxiter):
                 Ap             = tf.sparse.sparse_dense_matmul(self._A,p)
                 alpha          = self._residual /tf.reduce_sum(tf.multiply(p, Ap))
-                self._X       += alpha * p 
+                self._X.assign_add(alpha * p) 
                 r             -= alpha * Ap
                 rsnew          = tf.reduce_sum(tf.multiply(r, r))
                 beta           = (rsnew / self._residual)
