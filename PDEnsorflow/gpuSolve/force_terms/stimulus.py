@@ -33,32 +33,32 @@ class Stimulus:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in props.keys():
                     setattr(self, attribute, props[attribute[1:]])
-        self._tend = self._tstart+self._period*(self._nstim-1)+self._duration
+        self.__tend = self._tstart+self._period*(self._nstim-1)+self._duration
 
 
     def set_tstart(self,tstart: float):
         """set_tstart(tstart): sets the staring time of the forcing term to tstart
         """
         self._tstart = tstart
-        self._tend = self._tstart+self._period*(self._nstim-1)+self._duration        
+        self.__tend = self._tstart+self._period*(self._nstim-1)+self._duration        
 
     def set_nstim(self,nstim: int):
         """set_nstim(nstim): sets the total nb of stimuli to nstim
         """
         self._nstim = nstim
-        self._tend = self._tstart+self._period*(self._nstim-1)+self._duration        
+        self.__tend = self._tstart+self._period*(self._nstim-1)+self._duration        
 
     def set_period(self,period: float):
         """set_period(period): sets the period of the forcing term to period
         """
         self._period = period
-        self._tend = self._tstart+self._period*(self._nstim-1)+self._duration        
+        self.__tend = self._tstart+self._period*(self._nstim-1)+self._duration        
 
     def set_duration(self,duration: float):
         """set_duration(duration): sets the duration of the forcing term to duration
         """
         self._duration = duration
-        self._tend = self._tstart+self._period*(self._nstim-1)+self._duration        
+        self.__tend = self._tstart+self._period*(self._nstim-1)+self._duration        
 
     def set_intensity(self,Imax: float):
         """ set_intensity(Imax): sets the intensity of the forcing term to Imax
@@ -123,29 +123,27 @@ class Stimulus:
                         return True
         return False
 
-    def stimulate_tissue_timevalue(self,time: float) -> bool:    
+    def stimulate_tissue_timevalue(self,ctime_sim: float) -> bool:    
         """
-        stimulate_tissue_timevalue(time) tells if stimulating the tissue or not
-        Input is a time value (of type float)
+        stimulate_tissue_timevalue(ctime_sim) tells if stimulating the tissue or not
+        Input is a ctime_sim value (of type float)
         """
-        if not hasattr(self,'_tend'):
-            setattr(self, '_tend', self._tstart+self._period*(self._nstim-1)+self._duration )
-
         #If the stimulus is _active
         if self.__active:
             # ofset the time
-            current_time = time-self._tstart
+            current_time = ctime_sim-self._tstart
             if(current_time>=0):
-                if ((current_time-self._tend) >0.0) :
+                # Passed the last stimulus
+                if ((ctime_sim-self.__tend) >0.0) :
                     self.__active = False
                 else:
                     if (current_time%self._period<= self._duration ):
                         return True
         return False
     
-    def stimApp(self,time: float) -> tf.constant:
-        """stimApp(time): returns the stimulus if applied at current time; None otherwise"""
-        if self.stimulate_tissue_timevalue(time):
+    def stimApp(self,ctime_sim: float) -> tf.constant:
+        """stimApp(ctime_sim): returns the stimulus if applied at current time; None otherwise"""
+        if self.stimulate_tissue_timevalue(ctime_sim):
             return(self._intensity*self.__stim)
         else:
             return(0.0*self.__stim)

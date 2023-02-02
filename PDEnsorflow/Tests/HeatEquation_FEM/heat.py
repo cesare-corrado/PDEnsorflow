@@ -155,7 +155,7 @@ class HeatEquation:
                 None
         """
         then = time.time()
-        for i in tf.range(self.__nt):
+        for i in tf.range(1,self.__nt):
             self.__ctime += self._dt
             X1 = self.solve(self.__X)
             self.__X = X1
@@ -231,6 +231,7 @@ if __name__=='__main__':
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
+    im.imshow(model.X().numpy())
     model.run(im)
     im = None
 
