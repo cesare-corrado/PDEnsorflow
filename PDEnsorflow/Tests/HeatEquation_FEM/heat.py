@@ -118,13 +118,11 @@ class HeatEquation:
         self.__Solver.set_matrix(A)
 
     def set_initial_condition(self,X0:np.ndarray):
-        ndim=len(X0.shape)
         if X0.ndim==1:
             self.__X = tf.Variable(X0[:,np.newaxis],name="X")
         else:
             self.__X = tf.Variable(X0,name="X")
-    
-    
+   
     def set_stimulus(self,stimreg,stimprops):
         self.__Stimulus = Stimulus(stimprops)
         self.__Stimulus.set_stimregion(stimreg)    
@@ -135,10 +133,7 @@ class HeatEquation:
         self.__Solver.set_X0(X)
         if self.__Stimulus is not None:
             I0 = self.__Stimulus.stimApp(self.__ctime)
-            if (I0 is not None ):
-                RHS0 = tf.add(X,self._dt*I0)
-            else:            
-                RHS0 = X
+            RHS0 = tf.add(X,self._dt*I0)
         else:
             RHS0 = X
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
@@ -195,33 +190,38 @@ class HeatEquation:
         return(self.__ctime)
 
 if __name__=='__main__':
-    dt     = 0.1
-    config = {
+    dt      = 0.1
+    diffusl = 0.1
+    diffust = 0.1
+    config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
         'dt' : dt,
         'dt_per_plot': 10,
-        'Tend': 100
+        'Tend': 1000
         }
     
-    cfgstim = {'tstart': 4, 
+    cfgstim = {'tstart': 100, 
                        'nstim': 3, 
-                       'period':20,
-                       'duration':3*dt,
-                       'dt': dt,
-                       'intensity':5.0
+                       'period':100,
+                       'duration':2*dt,
+                       'intensity':5.0,
+                       'name':'crossstim'
               }
     
     model = HeatEquation(config)
     
     # Define the materials
-    model.add_element_material_property('sigma_l','region',{1: 1.0, 2: 1.0, 3: 2.0, 4: 2.0})
-    model.add_element_material_property('sigma_t','region',{1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0})
+    model.add_element_material_property('sigma_l','region',{1: diffusl, 2: diffusl, 3: diffusl, 4: diffusl})
+    model.add_element_material_property('sigma_t','region',{1: diffust, 2: diffust, 3: diffust, 4: diffust})
     model.add_material_function('mass',dfmass)
     model.add_material_function('stiffness',sigmaTens)
     model.assemble_matrices()
-    model.set_initial_condition(5*(model.domain().Pts()[:,0]<2).astype(np.float32) )
-    model.set_stimulus(np.logical_and(model.domain().Pts()[:,0]<5,model.domain().Pts()[:,1]>5),cfgstim )
-    
+    X0 = 5.0*(model.domain().Pts()[:,0]<2.).astype(np.float32)
+    S2 = np.logical_and(model.domain().Pts()[:,0]<10.,model.domain().Pts()[:,1]<5.)
+    model.set_initial_condition(X0 )
+    model.set_stimulus(S2,cfgstim )
+    U0 = None    
+    S2 = None
     model.solver().set_maxiter(model.domain().Pts().shape[0]//2)
     model.domain().exportCarpFormat('square')
     nt = 1 + model.nt()//model.dt_per_plot()
@@ -234,7 +234,5 @@ if __name__=='__main__':
     model.run(im)
     im = None
 
-    
-    
 
 
