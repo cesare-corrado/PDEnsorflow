@@ -68,6 +68,7 @@ class Fenton4vSimple(Fenton4v):
     """
 
     def __init__(self, props):
+        super().__init__()
         self._domain     = Domain3D(props)
         self.min_v       = 0.0
         self.max_v       = 1.0

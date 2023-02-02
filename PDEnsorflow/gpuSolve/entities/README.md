@@ -60,6 +60,7 @@ The existing formats are:
   * Carp mesh format
   * Binary format (pkl file) with data as numpy arrays
 * `saveMesh(fileName)`: saves the mesh in a *.pkl* format.
+* `exportCarpFormat(foutSuffix)`: exports the mesh in carp format (*.pts*, *.elem*, *.lon*), with suffix `foutSuffix`.
 * `mesh_connectivity(storeConn=False)`: returns the mesh connectivity. When `storeConn=True`, it keeps the connectivity as an internal variable, avoiding recomputing in subsequent calls.
 * `contravariant_basis(storeCbas=False)`: returns the contravariant basis evaluated on each element. For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!). When `storeCbas=True`, it keeps a copy of the contravariant_basis as an internal variable, avoiding recomputing in subsequent calls.
 * `point_region_ids(storeIDs=False)`: returns the region *ID* associated to each vertex. When `storeIDs=True`, it keeps a copy of the point IDs as an internal variable, avoiding recomputing in subsequent calls.

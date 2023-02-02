@@ -57,7 +57,7 @@ class Fenton4v:
         Heart Rhythm. 2007 Dec;4(12):1553-62.
     """
 
-    def __init__(self, props=[]):
+    def __init__(self):
         self._tau_vp = tf.constant(3.33)
         self._tau_vn = tf.constant(19.2)
         self._tau_wp = tf.constant(160.0)
@@ -79,24 +79,6 @@ class Fenton4v:
         self._a_so = tf.constant(0.115)
         self._b_so = tf.constant(0.84)
         self._c_so = tf.constant(0.02)
-        
-
-       if props is not None:
-            for key in self.__dict__.keys():
-                prop_key = key[1:]
-                if prop_key in props.keys():
-                    prop_value = tf.constant(props[prop_key])
-                    prop_rank  = tf.rank(prop_value).numpy()
-                    rankmax    = max(rankmax,prop_rank)
-                     setattr(self, key, prop_value) 
-            if rankmax>0:
-                newrank = np.ones(shape=rankmax,dtype=int)
-                for key in self.__dict__.keys():
-                    prop_value = getattr(self,key)
-                    prop_rank  = tf.rank(prop_value).numpy()
-                    if prop_rank<rankmax:
-                        prop_value = tf.constant(prop_value.numpy(),shape= newrank,dtype=np.float32 )
-                        setattr(self, key, prop_value)
 
     def tau_vp(self):
         return(self._tau_vp)

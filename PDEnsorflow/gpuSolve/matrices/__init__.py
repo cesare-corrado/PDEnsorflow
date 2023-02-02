@@ -24,4 +24,5 @@ from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import compute_coo_pattern
 from gpuSolve.matrices.globalMatrices import assemble_mass_matrix
 from gpuSolve.matrices.globalMatrices import assemble_stiffness_matrix
+from gpuSolve.matrices.globalMatrices import assemble_vectmat_dict
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict

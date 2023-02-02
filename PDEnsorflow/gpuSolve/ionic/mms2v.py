@@ -46,30 +46,13 @@ class ModifiedMS2v:
         This class implements the transmembrane potential within the interval [0,1]
     """
 
-    def __init__(self, props=None):
-        rankmax = 0
+    def __init__(self):
         self._tau_in    = tf.constant(0.1)
         self._tau_out   = tf.constant(9.0)
         self._tau_open  = tf.constant(100.0)
         self._tau_close = tf.constant(120.0)
         self._u_gate    = tf.constant(0.13)
         self._u_crit    = tf.constant(0.13)
-        if props is not None:
-            for key in self.__dict__.keys():
-                prop_key = key[1:]
-                if prop_key in props.keys():
-                    prop_value = tf.constant(props[prop_key])
-                    prop_rank  = tf.rank(prop_value).numpy()
-                    rankmax    = max(rankmax,prop_rank)
-                     setattr(self, key, prop_value) 
-            if rankmax>0:
-                newrank = np.ones(shape=rankmax,dtype=int)
-                for key in self.__dict__.keys():
-                    prop_value = getattr(self,key)
-                    prop_rank  = tf.rank(prop_value).numpy()
-                    if prop_rank<rankmax:
-                        prop_value = tf.constant(prop_value.numpy(),shape= newrank,dtype=np.float32 )
-                        setattr(self, key, prop_value)
                 
     def tau_in(self):
         return(self._tau_in)        
