@@ -140,7 +140,7 @@ class MaterialProperties:
         """
         try:
             value = None        
-            ptype = _nodal_properties[pname]['type']
+            ptype = self._nodal_properties[pname]['type']
             if ptype=='region':
                 value = self._nodal_properties[pname]['idmap'][regionID]
             elif ptype=='nodal':
