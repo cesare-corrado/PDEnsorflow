@@ -151,6 +151,12 @@ class Fenton4v:
         if internal_name in self.__dict__.keys():
             setattr(self, internal_name, tf.constant(pvalue))
 
+    def get_parameter(self,pname:str) -> tf.constant:
+        """
+        get_parameter(pname) returns the parameter values of pname  in pname exists; None otherwise
+        """
+        internal_name = '_{}'.format(pname)
+        return( getattr(self, internal_name, None))
 
     @tf.function
     def differentiate(self, U: tf.Variable, V: tf.Variable, W: tf.Variable, S: tf.Variable)->(tf.Variable, tf.Variable,tf.Variable,tf.Variable):

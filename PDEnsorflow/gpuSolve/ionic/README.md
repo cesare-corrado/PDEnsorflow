@@ -6,3 +6,5 @@ This is the sub-directory of gpuSolve contains the ionic models:
 * `mms2v`: The modified Mitchell-Shaeffer (2v) human left-atrial model (Math Biosci. 2016 Nov 281:46-54)
 
 The method `set_parameter(pname,pvalue)`  sets the parameter `pname` to the value specified in `pvalue` (if `pname` exists)
+
+The method `get_parameter(pname)` returns the parameter values of `pname` in `pname` exists; `None` otherwise
