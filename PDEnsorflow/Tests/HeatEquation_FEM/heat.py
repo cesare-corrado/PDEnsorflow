@@ -114,7 +114,8 @@ class HeatEquation:
         self.__MASS = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = tf.sparse.add(self.__MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
-        self.__Domain.release_connnectivity()
+        self.__Domain.release_connectivity()
+        self.__materials.remove_all_element_properties()
         self.__Solver.set_matrix(A)
 
     def set_initial_condition(self,X0:np.ndarray):

@@ -302,8 +302,8 @@ class Triangulation:
             del self._contravbasis
             self._contravbasis = None 
     
-    def release_connnectivity(self):
-        """function  release_connnectivity
+    def release_connectivity(self):
+        """function  release_connectivity
         deletes the connectivity dictionary and releases the memory
         """    
         if self._connectivity is not None:

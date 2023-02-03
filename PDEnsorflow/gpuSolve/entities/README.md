@@ -66,7 +66,7 @@ The existing formats are:
 * `point_region_ids(storeIDs=False)`: returns the region *ID* associated to each vertex. When `storeIDs=True`, it keeps a copy of the point IDs as an internal variable, avoiding recomputing in subsequent calls.
 * `element_contravariant_basis(elemtype,elemID,localcoords=[])`: computes the contravariant basis at coordinates localcoords for the element elemID of type elemType and returns a python dict with the contravariant bais vectors ( v{1,2,3}) and the element measure
 * `release_contravariant_basis()`: deletes the contravariant basis dictionary and releases the memory 
-* `release_connnectivity()`: deletes the connectivity dictionary and releases the memory
+* `release_connectivity()`: deletes the connectivity dictionary and releases the memory
 * `release_point_region_ids()`: deletes the point region IDs array and releases the memory
 
 
