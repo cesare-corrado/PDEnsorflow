@@ -101,3 +101,7 @@ Other attributes:
 * `add_ud_function(fname,fdef)`: assigns to `_ud_functions` dict the user-defined function `fdef` with the key `fname`
 * `execute_ud_func(fname,*kwargs)`: executes the user defined function with key `fname`, passing the arguments `*kwargs`
 * `remove_ud_function(fname)`: removes the function `fname` from the `_ud_functions` dict
+* `element_property_names()`: returns the names (keys) of the element material properties; `None` if no properties are defined
+* `odal_property_names()`: returns the names (keys) of the nodal material properties; `None` if no properties are defined
+
+
