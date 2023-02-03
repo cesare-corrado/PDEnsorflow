@@ -80,71 +80,80 @@ class Fenton4v:
         self._b_so = tf.constant(0.84)
         self._c_so = tf.constant(0.02)
 
-    def tau_vp(self):
+    def tau_vp(self)  -> tf.constant:
         return(self._tau_vp)
 
-    def tau_vn(self):
+    def tau_vn(self) -> tf.constant:
         return(self._tau_vn)
 
-    def tau_wp(self):
+    def tau_wp(self) -> tf.constant:
         return(self._tau_wp)
 
-    def tau_wn1(self):
+    def tau_wn1(self) -> tf.constant:
         return(self._tau_wn1)
 
-    def tau_wn2(self):
+    def tau_wn2(self) -> tf.constant:
         return(self._tau_wn2)
 
-    def tau_d(self):
+    def tau_d(self) -> tf.constant:
         return(self._tau_d)
 
-    def tau_si(self):
+    def tau_si(self) -> tf.constant:
         return(self._tau_si)
         
-    def tau_so(self):
+    def tau_so(self) -> tf.constant:
         return(self._tau_so)
 
-    def tau_a(self):
+    def tau_a(self) -> tf.constant:
         return(self._tau_a)
 
-    def u_c(self):
+    def u_c(self) -> tf.constant:
         return(self._u_c)
 
-    def u_w(self):
+    def u_w(self) -> tf.constant:
         return(self._u_w)
 
-    def u_0(self):
+    def u_0(self) -> tf.constant:
         return(self._u_0)
 
-    def u_m(self):
+    def u_m(self) -> tf.constant:
         return(self._u_m)
 
-    def u_csi(self):
+    def u_csi(self) -> tf.constant:
         return(self._u_csi)
 
-    def u_so(self):
+    def u_so(self) -> tf.constant:
         return(self._u_so)
 
-    def r_sp(self):
+    def r_sp(self) -> tf.constant:
         return(self._r_sp)
 
-    def r_sn(self):
+    def r_sn(self) -> tf.constant:
         return(self._r_sn)
 
-    def k_(self):
+    def k_(self) -> tf.constant:
         return(self._k_)
 
-    def a_so(self):
+    def a_so(self) -> tf.constant:
         return(self._a_so)
 
-    def b_so(self):
+    def b_so(self) -> tf.constant:
         return(self._b_so)
 
-    def c_so(self):
+    def c_so(self) -> tf.constant:
         return(self._c_so)
 
+    def set_parameter(self,pname:str, pvalue: np.ndarray):
+        """
+        set_parameter(pname,pvalue) if pname exists, sets the parameter value to pvalue
+        """
+        internal_name = '_{}'.format(pname)
+        if internal_name in self.__dict__.keys():
+            setattr(self, internal_name, tf.constant(pvalue))
+
+
     @tf.function
-    def differentiate(self, U, V, W, S):
+    def differentiate(self, U: tf.Variable, V: tf.Variable, W: tf.Variable, S: tf.Variable)->(tf.Variable, tf.Variable,tf.Variable,tf.Variable):
         """ the state differentiation for the 4v model """
         # constants for the Fenton 4v left atrial action potential model
         I_fi = -V * H(U - self._u_c) * (U - self._u_c) * (self._u_m - U) / self._tau_d
