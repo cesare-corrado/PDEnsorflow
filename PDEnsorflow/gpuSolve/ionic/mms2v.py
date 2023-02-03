@@ -54,27 +54,41 @@ class ModifiedMS2v:
         self._u_gate    = tf.constant(0.13)
         self._u_crit    = tf.constant(0.13)
                 
-    def tau_in(self):
+    def tau_in(self) -> tf.constant:
         return(self._tau_in)        
 
-    def tau_out(self):
+    def tau_out(self) -> tf.constant:
         return(self._tau_out)        
 
-    def tau_open(self):
+    def tau_open(self) -> tf.constant:
         return(self._tau_open)        
 
-    def tau_close(self):
+    def tau_close(self) -> tf.constant:
         return(self._tau_close)        
 
-    def u_gate(self):
+    def u_gate(self) -> tf.constant:
         return(self._u_gate)        
 
-    def u_crit(self):
+    def u_crit(self) -> tf.constant:
         return(self.u_crit)        
 
+    def set_parameter(self,pname:str, pvalue: np.ndarray):
+        """
+        set_parameter(pname,pvalue) if pname exists, sets the parameter value to pvalue
+        """
+        internal_name = '_{}'.format(pname)
+        if internal_name in self.__dict__.keys():
+            setattr(self, internal_name, tf.constant(pvalue))
  
+    def get_parameter(self,pname:str) -> tf.constant:
+        """
+        get_parameter(pname) returns the parameter values of pname  in pname exists; None otherwise
+        """
+        internal_name = '_{}'.format(pname)
+        return( getattr(self, internal_name, None))
+
     @tf.function
-    def differentiate(self, U, H):
+    def differentiate(self, U: tf.Variable, H: tf.Variable) ->(tf.Variable, tf.Variable):
         """ the state differentiation for the 2v model """
         # constants for the modified Mitchell Schaeffer 2v left atrial action potential model
         J_in  =  -1.0 * H * U * (U-self._u_crit) * (1.0-U)/self._tau_in

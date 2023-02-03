@@ -302,8 +302,8 @@ class Triangulation:
             del self._contravbasis
             self._contravbasis = None 
     
-    def release_connnectivity(self):
-        """function  release_connnectivity
+    def release_connectivity(self):
+        """function  release_connectivity
         deletes the connectivity dictionary and releases the memory
         """    
         if self._connectivity is not None:
@@ -421,7 +421,7 @@ class Triangulation:
                     regions[ID].append(rID)
         pointRegIDs = np.zeros(npt)-1 
         for ipt in range(npt):    
-            pointRegIDs = np.argmax(np.bincount(regions[ipt])).astype(np.int32)
+            pointRegIDs[ipt] = np.argmax(np.bincount(regions[ipt])).astype(np.int32)
         elapsed = time() - t0
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(pointRegIDs)

@@ -140,7 +140,7 @@ class MaterialProperties:
         """
         try:
             value = None        
-            ptype = _nodal_properties[pname]['type']
+            ptype = self._nodal_properties[pname]['type']
             if ptype=='region':
                 value = self._nodal_properties[pname]['idmap'][regionID]
             elif ptype=='nodal':
@@ -151,5 +151,26 @@ class MaterialProperties:
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
+
+    def element_property_names(self) -> list:
+        """ element_property_names() returns the names (keys) of the element material properties;
+        None if no properties are defined
+        """
+        if self._element_properties is not None:
+            return(list(self._element_properties.keys())) 
+        else:
+            return(None)
+
+    def nodal_property_names(self) -> list:
+        """ nodal_property_names() returns the names (keys) of the nodal material properties;
+        None if no properties are defined
+        """
+        if self._nodal_properties is not None:  
+            return(list(self._nodal_properties.keys()))         
+        else:
+            return(None)
+           
         
+        self._element_properties = None
+        self._nodal_properties   = None
 
