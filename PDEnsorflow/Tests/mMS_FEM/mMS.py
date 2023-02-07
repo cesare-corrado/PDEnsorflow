@@ -147,9 +147,9 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     
         if H0 is not None:
             if H0.ndim==1:
-                self.__H = tf.Variable(V0[:,np.newaxis], name="H")
+                self.__H = tf.Variable(H0[:,np.newaxis], name="H")
             else:
-                self.__H = tf.Variable(V0, name="H")
+                self.__H = tf.Variable(H0, name="H")
         else:
             self.__H = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="H",dtype=U0.dtype)
 
