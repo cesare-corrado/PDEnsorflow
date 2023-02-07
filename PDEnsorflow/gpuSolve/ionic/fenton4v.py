@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-    A TensorFlow-based 2D Cardiac Electrophysiology Modeler
+    A TensorFlow-based Cardiac Electrophysiology Modeler
 
     Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
 
@@ -28,6 +28,7 @@
 
 import numpy as np
 import time
+from gpuSolve.ionic.ionicmodel import IonicModel
 
 
 import tensorflow as tf
@@ -49,7 +50,7 @@ def G(x):
 
 
 
-class Fenton4v:
+class Fenton4v(IonicModel):
     """
         The Cherry-Ehrlich-Nattel-Fenton (4v) canine left-atrial model
         Cherry EM, Ehrlich JR, Nattel S, Fenton FH. Pulmonary vein reentry--
@@ -58,6 +59,7 @@ class Fenton4v:
     """
 
     def __init__(self):
+        super().__init__()
         self._tau_vp = tf.constant(3.33)
         self._tau_vn = tf.constant(19.2)
         self._tau_wp = tf.constant(160.0)
@@ -142,21 +144,6 @@ class Fenton4v:
 
     def c_so(self) -> tf.constant:
         return(self._c_so)
-
-    def set_parameter(self,pname:str, pvalue: np.ndarray):
-        """
-        set_parameter(pname,pvalue) if pname exists, sets the parameter value to pvalue
-        """
-        internal_name = '_{}'.format(pname)
-        if internal_name in self.__dict__.keys():
-            setattr(self, internal_name, tf.constant(pvalue))
-
-    def get_parameter(self,pname:str) -> tf.constant:
-        """
-        get_parameter(pname) returns the parameter values of pname  in pname exists; None otherwise
-        """
-        internal_name = '_{}'.format(pname)
-        return( getattr(self, internal_name, None))
 
     @tf.function
     def differentiate(self, U: tf.Variable, V: tf.Variable, W: tf.Variable, S: tf.Variable)->(tf.Variable, tf.Variable,tf.Variable,tf.Variable):
