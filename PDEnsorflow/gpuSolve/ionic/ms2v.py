@@ -37,23 +37,21 @@ tf.config.run_functions_eagerly(True)
 
 
 
-class ModifiedMS2v(IonicModel):
+class MitchellSchaeffer2v(IonicModel):
     """
-        The modified Mitchell Schaeffer (2v) left-atrial model
-        Corrado C, Niederer S. A two-variable model 
-        robust to pacemaker behaviour for the dynamics of the cardiac action potential. 
-        Math Biosci. 2016 Nov;281:46-54.
+        The Mitchell Schaeffer (2v) cell model
+        C.C. Mitchell, D.G. Schaeffer. A two current model for the dynamics of cardiac membrane.
+        Bull. Math. Biol. 2003 Sep;65(5):767-93.
         This class implements the transmembrane potential within the interval [0,1]
     """
 
     def __init__(self):
         super().__init__()
-        self._tau_in    = tf.constant(0.1)
-        self._tau_out   = tf.constant(9.0)
-        self._tau_open  = tf.constant(100.0)
-        self._tau_close = tf.constant(120.0)
+        self._tau_in    = tf.constant(0.3)
+        self._tau_out   = tf.constant(6.0)
+        self._tau_open  = tf.constant(120.0)
+        self._tau_close = tf.constant(150.0)
         self._u_gate    = tf.constant(0.13)
-        self._u_crit    = tf.constant(0.13)
                 
     def tau_in(self) -> tf.constant:
         return(self._tau_in)        
@@ -70,16 +68,13 @@ class ModifiedMS2v(IonicModel):
     def u_gate(self) -> tf.constant:
         return(self._u_gate)        
 
-    def u_crit(self) -> tf.constant:
-        return(self._u_crit)        
-
 
     @tf.function
     def differentiate(self, U: tf.Variable, H: tf.Variable) ->(tf.Variable, tf.Variable):
         """ the state differentiation for the 2v model """
         # constants for the modified Mitchell Schaeffer 2v left atrial action potential model
-        J_in  =  -1.0 * H * U * (U-self._u_crit) * (1.0-U)/self._tau_in
-        J_out =  (1.0-H)*U/self._tau_out
+        J_in  =  -1.0 * H * U * U * (1.0-U)/self._tau_in
+        J_out =  U/self._tau_out
         dU    = - (J_in +J_out)
         dH = tf.where(U > self._u_gate, -H / self._tau_close, (1.0 - H) / self._tau_open)        
         return dU, dH
