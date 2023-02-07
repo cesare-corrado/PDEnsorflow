@@ -147,11 +147,11 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     
         if H0 is not None:
             if H0.ndim==1:
-                self.__H = tf.Variable(V0[:,np.newaxis], name="V")
+                self.__H = tf.Variable(V0[:,np.newaxis], name="H")
             else:
-                self.__H = tf.Variable(V0, name="V")
+                self.__H = tf.Variable(V0, name="H")
         else:
-            self.__H = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="V",dtype=U0.dtype)
+            self.__H = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="H",dtype=U0.dtype)
 
 
     def set_stimulus(self,stimreg:np.ndarray,stimprops:dict):
@@ -226,6 +226,9 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def ctime(self) -> float:
         return(self.__ctime)
 
+    def Tend(self) ->float:
+        return(self._Tend)
+
 if __name__=='__main__':
     dt      = 0.1
     diffusl = 0.001
@@ -268,7 +271,7 @@ if __name__=='__main__':
     nt = 1 + model.nt()//model.dt_per_plot()
         
     im = IGBWriter({'fname': 'square.igb', 
-                    'Tend': 100, 
+                    'Tend': model.Tend(), 
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
