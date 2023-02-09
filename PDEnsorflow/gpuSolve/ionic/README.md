@@ -3,7 +3,12 @@ This package implements the ionic models for cardiac simulations. All the models
 
 * `set_parameter(pname,pvalue)`  sets the parameter `pname` to the value specified in `pvalue` (if `pname` exists; otherwise id does nothing)
 * `get_parameter(pname)` returns the parameter values of `pname` in `pname` exists; `None` otherwise
-
+* `set_vmin(vmin = 0.0)` sets the minimum value of the potential for rescaling to `vmin`
+* `set_vmax(vmax = 1.0)` sets the maximum value of the potential for rescaling to `vmax`
+* `vmin()` returns the minimum value of the potential vmin
+* `vmax()` returns the maximum value of the potential vmax
+* `to_dimensionless(U)` rescales U to its dimensionless values (range [0,1])
+* `to_dimensional(U)` rescales U to its dimensional values (range [vmin,vmax])
 
 ## Ionic models implemented
 

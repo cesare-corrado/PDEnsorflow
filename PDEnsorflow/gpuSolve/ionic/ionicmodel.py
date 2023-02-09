@@ -41,7 +41,31 @@ class IonicModel:
     """
 
     def __init__(self):
-        pass
+        self.__vmin : tf.constant = tf.constant(0.0, name = "vmin")
+        self.__vmax : tf.constant = tf.constant(1.0, name = "vmax")
+        self.__DV   : tf.constant = self.__vmax-self.__vmin
+
+    def set_vmin(self, vmin:float = 0.0):
+        """ set_vmin(vmin = 0.0): sets the minimum value of the potential for rescaling to vmin
+        """
+        self.__vmin = tf.constant(vmin, name="vmin")
+        self.__DV   = self.__vmax-self.__vmin
+
+    def set_vmax(self, vmax:float = 1.0):
+        """ set_vmax(vmax = 1.0): sets the maximum value of the potential for rescaling to vmax
+        """
+        self.__vmax = tf.constant(vmax, name="vmax")
+        self.__DV   = self.__vmax-self.__vmin
+
+    def vmin(self) ->tf.constant:
+        """ vmin(): returns the minimum value of the potential vmin
+        """
+        return(self.__vmin)
+
+    def vmax(self) ->tf.constant:
+        """ vmax(): returns the maximum value of the potential vmax
+        """
+        return(self.__vmax)
 
     def set_parameter(self,pname:str, pvalue: np.ndarray):
         """
@@ -57,5 +81,18 @@ class IonicModel:
         """
         internal_name = '_{}'.format(pname)
         return( getattr(self, internal_name, None))
+
+    def to_dimensionless(self,U: tf.Variable) -> tf.Variable:
+        """ to_dimensionless(U) rescales U to its dimensionless values (range [0,1])
+        """
+        return(U-self.__vmin)/self.__DV
+
+
+    def to_dimensional(self,U: tf.Variable) -> tf.Variable:
+        """ to_dimensional(U) rescales U to its dimensional values (range [vmin,vmax])
+        """
+        return(self.__DV*U+self.__vmin)
+
+
 
     
