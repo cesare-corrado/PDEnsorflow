@@ -26,6 +26,7 @@
 import os
 import numpy as np
 import time
+from gpuSolve.IO.writers import IGBWriter
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -43,14 +44,13 @@ from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
 from gpuSolve.force_terms import Stimulus
-from gpuSolve.IO.writers import IGBWriter
 
 
-def dfmass(elemtype, iElem,domain,matprop):
+def dfmass(elemtype:str, iElem:int,domain:Triangulation,matprop:MaterialProperties):
     """ empty function for mass properties"""
     return(None)
 
-def sigmaTens(elemtype, iElem,domain,matprop):
+def sigmaTens(elemtype:str, iElem:int,domain:Triangulation,matprop:MaterialProperties) -> np.ndarray :
     """ function to evaluate the diffusion tensor """
     fib   = domain.Fibres()[iElem,:]
     rID   = domain.Elems()[elemtype][iElem,-1]
@@ -69,17 +69,18 @@ class HeatEquation:
     """
 
     def __init__(self, cfgdict=None):
-        self._mesh_file_name = None
-        self._dt             = 0.1
-        self._dt_per_plot    = 2
-        self._Tend           = 10
-        self.__Domain        = Triangulation()
-        self.__materials     = MaterialProperties()
-        self.__Solver        = ConjGrad()
-        self.__Stimulus      = None
-        self.__MASS          = None
-        self.__X             = None
-        self.__ctime         = 0.0
+        self._mesh_file_name: str               = None
+        self._dt: float                         = 0.1
+        self._dt_per_plot: int                  = 2
+        self._Tend: float                       = 10
+        self.__Domain: Triangulation            = Triangulation()
+        self.__materials:MaterialProperties     = MaterialProperties()
+        self.__Solver:ConjGrad                  = ConjGrad()
+        self.__StimulusDict: dict               = None
+        self.__MASS                             = None
+        self.__X: tf.Variable                   = None
+        self.__ctime:float                      = 0.0
+        self.__nbstim:int                       = 0
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in cfgdict.keys():
@@ -88,19 +89,19 @@ class HeatEquation:
         if self._mesh_file_name is not None:
             self.__Domain.readMesh('{}'.format(self._mesh_file_name))
 
-        self.__nt = self._Tend//self._dt 
+        self.__nt: int = int(self._Tend//self._dt) 
 
-    def loadMesh(self,fname):
+    def loadMesh(self,fname: str):
         """ Loads the mesh"""
         self._mesh_file_name = fname
         self.__Domain.readMesh('{}'.format(self._mesh_file_name))
 
 
-    def add_element_material_property(self,pname,ptype,prop):
+    def add_element_material_property(self,pname:str,ptype:str,prop:dict):
         """ adds material properties to elements"""
         self.__materials.add_element_property(pname,ptype,prop)
 
-    def add_material_function(self,fname,fsign):
+    def add_material_function(self,fname:str,fsign):
         """adds functions to map material properties when assembling matrices"""
         self.__materials.add_ud_function(fname,fsign)
     
@@ -118,25 +119,33 @@ class HeatEquation:
         self.__materials.remove_all_element_properties()
         self.__Solver.set_matrix(A)
 
-    def set_initial_condition(self,X0:np.ndarray):
-        if X0.ndim==1:
-            self.__X = tf.Variable(X0[:,np.newaxis],name="X")
+    def set_initial_condition(self,X0:np.ndarray = None):
+        npt = self.__Domain.Pts().shape[0]
+        if X0 is not None:
+            if X0.ndim==1:
+                self.__X = tf.Variable(X0[:,np.newaxis], name="X")
+            else:
+                self.__X = tf.Variable(X0, name="X")
         else:
-            self.__X = tf.Variable(X0,name="X")
-   
-    def set_stimulus(self,stimreg,stimprops):
-        self.__Stimulus = Stimulus(stimprops)
-        self.__Stimulus.set_stimregion(stimreg)    
+            self.__X = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="X",dtype=tf.float32)
+
+    def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
+        self.__nbstim +=1
+        if self.__StimulusDict is None:
+            self.__StimulusDict = {}
+        self.__StimulusDict[self.__nbstim] = Stimulus(stimprops)
+        self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
 
     @tf.function
     def solve(self,X):
         """ Implicit solver """
         self.__Solver.set_X0(X)
-        if self.__Stimulus is not None:
-            I0 = self.__Stimulus.stimApp(self.__ctime)
-            RHS0 = tf.add(X,self._dt*I0)
-        else:
-            RHS0 = X
+        RHS0 = X
+        if self.__StimulusDict is not None:
+            for stimname,stimulus in self.__StimulusDict.items():
+                I0   = stimulus.stimApp(self.__ctime)
+                RHS0 = tf.add(RHS0,self._dt*I0)
+
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
@@ -168,67 +177,72 @@ class HeatEquation:
         print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
-    
-    def domain(self):
+
+    def domain(self) -> Triangulation:
         return(self.__Domain)
     
-    def solver(self):
+    def solver(self) -> ConjGrad:
         return(self.__Solver)
     
-    def stimulus(self):
-        return(self.__Stimulus)
+    def stimulus(self) ->dict:
+        return(self.__StimulusDict)
 
-    def X(self):
+    def X(self) -> tf.Variable:
         return(self.__X)        
 
-    def nt(self):
+    def nt(self) -> int:
         return(self.__nt)
 
-    def dt_per_plot(self):
+    def dt_per_plot(self) -> int:
         return(self._dt_per_plot)
 
-    def ctime(self):
+    def ctime(self) -> float:
         return(self.__ctime)
+
+    def Tend(self) ->float:
+        return(self._Tend)
 
 if __name__=='__main__':
     dt      = 0.1
-    diffusl = 0.1
-    diffust = 0.1
+    TS2     = 100.0
+    diffusl = {1: 0.001, 2: 0.001, 3: 0.001, 4: 0.001}
+    diffust = {1: 0.001, 2: 0.001, 3: 0.001, 4: 0.001}
+
     config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
         'dt' : dt,
-        'dt_per_plot': 10,
+        'dt_per_plot': int(1.0/dt),   #record every ms
         'Tend': 1000
         }
     
-    cfgstim = {'tstart': 100, 
+    cfgstim2 = {'tstart': TS2, 
                        'nstim': 3, 
-                       'period':100,
-                       'duration':2*dt,
+                       'period':200,
+                       'duration':np.max([0.4,dt]),
                        'intensity':5.0,
                        'name':'crossstim'
               }
     
     model = HeatEquation(config)
-    
     # Define the materials
-    model.add_element_material_property('sigma_l','region',{1: diffusl, 2: diffusl, 3: diffusl, 4: diffusl})
-    model.add_element_material_property('sigma_t','region',{1: diffust, 2: diffust, 3: diffust, 4: diffust})
+    model.add_element_material_property('sigma_l','region',diffusl)
+    model.add_element_material_property('sigma_t','region',diffust)
     model.add_material_function('mass',dfmass)
     model.add_material_function('stiffness',sigmaTens)
     model.assemble_matrices()
+    Lx = model.domain().Pts()[:,0].max()
+    Ly = model.domain().Pts()[:,1].max()
     X0 = 5.0*(model.domain().Pts()[:,0]<2.).astype(np.float32)
-    S2 = np.logical_and(model.domain().Pts()[:,0]<10.,model.domain().Pts()[:,1]<5.)
+    S2 = np.logical_and(model.domain().Pts()[:,0]<Lx,model.domain().Pts()[:,1]<0.5*Ly)
     model.set_initial_condition(X0 )
-    model.set_stimulus(S2,cfgstim )
+    model.add_stimulus(S2,cfgstim2 )
     U0 = None    
     S2 = None
     model.solver().set_maxiter(model.domain().Pts().shape[0]//2)
     model.domain().exportCarpFormat('square')
     nt = 1 + model.nt()//model.dt_per_plot()
-    
     im = IGBWriter({'fname': 'square.igb', 
-                    'Tend': 100, 
+                    'Tend': model.Tend(), 
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
