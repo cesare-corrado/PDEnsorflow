@@ -8,14 +8,17 @@ This is a gpuSolve package that implements functions to solve PDEs using tensorf
 """
 
 if not 'LD_LIBRARY_PATH' in os.environ.keys():
-    os.environ['LD_LIBRARY_PATH']=''
+    os.environ['LD_LIBRARY_PATH']='/lib64'
 
 
 if 'CONDA_PREFIX' in os.environ:
     conda_prefix = pathlib.Path(os.environ['CONDA_PREFIX'])
     conda_lib = (conda_prefix / 'lib').as_posix()
     if not conda_lib in os.environ['LD_LIBRARY_PATH']:
-        os.environ['LD_LIBRARY_PATH'] += ':'+conda_prefix
+        if os.environ['LD_LIBRARY_PATH']=='':
+            os.environ['LD_LIBRARY_PATH'] = conda_lib
+        else:
+            os.environ['LD_LIBRARY_PATH'] += ':'+conda_lib
         try:
             os.execv(sys.executable, ['python'] + [sys.argv[0]])            
         except Exception as e:
