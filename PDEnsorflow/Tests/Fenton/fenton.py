@@ -26,16 +26,6 @@
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
-try:
-  import vedo 
-  is_vedo = True
-  from  gpuSolve.IO.writers import VedoPlotter
-
-except:  
-    is_vedo = False
-    print('Warning: no vedo found; using matplotlib',flush=True)
-
-
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -64,7 +54,7 @@ def enforce_boundary(X):
 
 class Fenton4vSimple(Fenton4v):
     """
-    The heat monodomain model with Fenton-Cherry ionic model
+    The monodomain model with Fenton-Cherry ionic model
     """
 
     def __init__(self, props):
@@ -211,4 +201,3 @@ if __name__ == '__main__':
 
 
 
-  
