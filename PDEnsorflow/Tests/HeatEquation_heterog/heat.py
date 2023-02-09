@@ -27,17 +27,6 @@ import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 from gpuSolve.IO.readers.imagedata import ImageData
-
-try:
-  import vedo 
-  is_vedo = True
-  from  gpuSolve.IO.writers import VedoPlotter
-
-except:  
-    is_vedo = False
-    print('Warning: no vedo found; using matplotlib',flush=True)
-
-
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -72,13 +61,12 @@ class HeatEquation:
         self.min_v       = 0.0
         self.max_v       = 1.0
         self.dt          = 0.1
+        self.diff        = 1.0
         self.samples     = 10000
         self.s2_time     = 200
-        self.dt_per_plot = 10        
-        self.diff        = 1.0
+        self.dt_per_plot = 10
         self.tinit       = 0.0
         self.fname       = ''
-        
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -107,7 +95,6 @@ class HeatEquation:
         tf.print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit += elapsed
 
-
     def  domain(self):
         return(self._domain.geometry())
 
@@ -130,7 +117,7 @@ class HeatEquation:
             Returns:
                 None
         """
-        width  = self._domain.width()        
+        width  = self._domain.width()
         height = self._domain.height()
         depth  = self._domain.depth()
 
@@ -174,6 +161,9 @@ class HeatEquation:
         
         s2_init=[]
         then = time.time()
+        if im:
+            image = U.numpy()
+            im.imshow(image)
         for i in tf.range(self.samples):
             U1 = self.solve(U)
             U = U1
@@ -183,7 +173,7 @@ class HeatEquation:
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
                 image = tf.where(self.domain()>0.0, U, -1.0).numpy()
-                im.imshow(image)                
+                im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         print('TOTAL, elapsed: %f sec' % (elapsed+self.tinit))

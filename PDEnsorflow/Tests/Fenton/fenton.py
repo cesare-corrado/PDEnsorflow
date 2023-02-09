@@ -59,7 +59,7 @@ class Fenton4vSimple(Fenton4v):
 
     def __init__(self, props):
         super().__init__()
-        self._domain = Domain3D(props)
+        self._domain     = Domain3D(props)
         self.min_v       = 0.0
         self.max_v       = 1.0
         self.dt          = 0.1
@@ -68,7 +68,7 @@ class Fenton4vSimple(Fenton4v):
         self.samples     = 10000
         self.s2_time     = 200
         self.dt_per_plot = 10
-
+        self.tinit       = 0.0
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -80,11 +80,10 @@ class Fenton4vSimple(Fenton4v):
         self.DZ = self._domain.DZ()
         elapsed = (time.time() - then)
         tf.print('initialisation, elapsed: %f sec' % elapsed)
-        self.tinit = elapsed
+        self.tinit += elapsed
 
     def  domain(self):
         return(self._domain.geometry())
-
 
     @tf.function
     def solve(self, state):
@@ -149,6 +148,9 @@ class Fenton4vSimple(Fenton4v):
         
         s2_init=[]
         then = time.time()
+        if im:
+            image = U.numpy()
+            im.imshow(image)
         for i in tf.range(self.samples):
             state = [U, V, W, S]
             U1, V1, W1, S1 = self.solve(state)
