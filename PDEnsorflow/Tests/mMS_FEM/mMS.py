@@ -26,6 +26,7 @@
 import os
 import numpy as np
 import time
+from gpuSolve.IO.writers import IGBWriter
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -43,7 +44,6 @@ from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
 from gpuSolve.force_terms import Stimulus
-from gpuSolve.IO.writers import IGBWriter
 
 
 def dfmass(elemtype:str, iElem:int,domain:Triangulation,matprop:MaterialProperties):
@@ -70,18 +70,19 @@ class ModifiedMS2vSimple(ModifiedMS2v):
 
     def __init__(self, cfgdict=None):
         super().__init__()
-        self._mesh_file_name: str = None
-        self._dt: float           = 0.1
-        self._dt_per_plot: int    = 2
-        self._Tend: float         = 10
-        self.__Domain             = Triangulation()
-        self.__materials          = MaterialProperties()
-        self.__Solver             = ConjGrad()
-        self.__Stimulus           = None
-        self.__MASS               = None
-        self.__U                  = None
-        self.__H                  = None
-        self.__ctime              = 0.0
+        self._mesh_file_name: str               = None
+        self._dt: float                         = 0.1
+        self._dt_per_plot: int                  = 2
+        self._Tend: float                       = 10
+        self.__Domain: Triangulation            = Triangulation()
+        self.__materials:MaterialProperties     = MaterialProperties()
+        self.__Solver:ConjGrad                  = ConjGrad()
+        self.__StimulusDict: dict               = None
+        self.__MASS                             = None
+        self.__U: tf.Variable                   = None
+        self.__H: tf.Variable                   = None
+        self.__ctime:float                      = 0.0
+        self.__nbstim:int                       = 0
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in cfgdict.keys():
@@ -90,7 +91,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         if self._mesh_file_name is not None:
             self.__Domain.readMesh('{}'.format(self._mesh_file_name))
 
-        self.__nt = self._Tend//self._dt 
+        self.__nt: int = int(self._Tend//self._dt) 
 
     def loadMesh(self,fname: str):
         """ Loads the mesh"""
@@ -101,7 +102,6 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         """ adds material properties to elements"""
         self.__materials.add_nodal_property(pname,ptype,prop)
 
-
     def add_element_material_property(self,pname:str,ptype:str,prop:dict):
         """ adds material properties to elements"""
         self.__materials.add_element_property(pname,ptype,prop)
@@ -109,7 +109,6 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def add_material_function(self,fname:str,fsign):
         """adds functions to map material properties when assembling matrices"""
         self.__materials.add_ud_function(fname,fsign)
-
 
     def assign_nodal_properties(self):
         nodal_properties = self.__materials.nodal_property_names() 
@@ -124,7 +123,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                         new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
                         pvals[pointID] = new_val
                     self.set_parameter(mat_prop, pvals)
-        self.__materials.remove_all_nodal_properties()    
+        self.__materials.remove_all_nodal_properties()
+    
     def assemble_matrices(self):
         #Compute the domain connectivity
         connectivity = self.__Domain.mesh_connectivity('True')
@@ -139,35 +139,43 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self.__materials.remove_all_element_properties()
         self.__Solver.set_matrix(A)
 
-    def set_initial_condition(self,U0:np.ndarray,H0:np.ndarray = None):
-        if U0.ndim==1:
-            self.__U = tf.Variable(U0[:,np.newaxis], name="U")
+    def set_initial_condition(self,U0:np.ndarray = None, H0:np.ndarray = None):
+        npt = self.__Domain.Pts().shape[0]
+        if U0 is not None:
+            if U0.ndim==1:
+                self.__U = tf.Variable(U0[:,np.newaxis], name="U")
+            else:
+                self.__U = tf.Variable(U0, name="U")
         else:
-            self.__U = tf.Variable(U0, name="U")
-    
+            self.__U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)            
+
         if H0 is not None:
             if H0.ndim==1:
                 self.__H = tf.Variable(H0[:,np.newaxis], name="H")
             else:
                 self.__H = tf.Variable(H0, name="H")
         else:
-            self.__H = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="H",dtype=U0.dtype)
+            self.__H = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="H",dtype=self.__U.dtype)
 
 
-    def set_stimulus(self,stimreg:np.ndarray,stimprops:dict):
-        self.__Stimulus = Stimulus(stimprops)
-        self.__Stimulus.set_stimregion(stimreg)    
+    def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
+        self.__nbstim +=1
+        if self.__StimulusDict is None:
+            self.__StimulusDict = {}
+        self.__StimulusDict[self.__nbstim] = Stimulus(stimprops)
+        self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
 
     @tf.function
     def solve(self,U:tf.Variable, H:tf.Variable) -> (tf.Variable, tf.Variable):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dH = self.differentiate(U, H)
         self.__Solver.set_X0(U)
-        if self.__Stimulus is not None:
-            I0 = self.__Stimulus.stimApp(self.__ctime)
-            RHS0 = tf.add_n([U,self._dt*dU,self._dt*I0])
-        else:
-            RHS0 = tf.add(U,self._dt*dU)
+        RHS0 = tf.add(U,self._dt*dU)
+        if self.__StimulusDict is not None:
+            for stimname,stimulus in self.__StimulusDict.items():
+                I0   = stimulus.stimApp(self.__ctime)
+                RHS0 = tf.add(RHS0,self._dt*I0)
+
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
@@ -190,10 +198,10 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         then = time.time()
         for i in tf.range(1,self.__nt):
             self.__ctime += self._dt
-            U1,H1,= self.solve(self.__U,self.__H)
+            U1,H1    = self.solve(self.__U,self.__H)
             self.__U = U1
             self.__H = H1
-            # draw a frame every 1 ms
+            # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = U1.numpy()
                 im.imshow(image)
@@ -201,15 +209,15 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
-    
+
     def domain(self) -> Triangulation:
         return(self.__Domain)
     
     def solver(self) -> ConjGrad:
         return(self.__Solver)
     
-    def stimulus(self):
-        return(self.__Stimulus)
+    def stimulus(self) ->dict:
+        return(self.__StimulusDict)
 
     def U(self) -> tf.Variable:
         return(self.__U)        
@@ -231,52 +239,58 @@ class ModifiedMS2vSimple(ModifiedMS2v):
 
 if __name__=='__main__':
     dt      = 0.1
-    diffusl = 0.001
-    diffust = 0.001
-    tclose0 = 120
-    tclose3 = 60
+    TS2     = 260.0
+    diffusl = {1: 0.001, 2: 0.001, 3: 0.001, 4: 0.001}
+    diffust = {1: 0.001, 2: 0.001, 3: 0.001, 4: 0.001}
+    tin     = {1: 0.15,  2: 0.15,  3: 0.15,  4: 0.15}
+    tout    = {1: 1.5,   2: 1.5,   3: 1.5,   4: 1.5}
+    topen   = {1: 105,   2: 105,   3: 105,   4: 105}
+    tclose  = {1:   120,   2: 120,   3:  60, 4:   120}
+
     config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
         'dt' : dt,
-        'dt_per_plot': 10,
+        'dt_per_plot': int(1.0/dt),   #record every ms
         'Tend': 1000
         }
     
-    cfgstim = {'tstart': 210, 
+    cfgstim2 = {'tstart': TS2, 
                        'nstim': 1, 
                        'period':100,
-                       'duration':2*dt,
+                       'duration':np.max([0.4,dt]),
                        'intensity':1.0,
                        'name':'crossstim'
               }
     
     model = ModifiedMS2vSimple(config)
-    
     # Define the materials
-    model.add_element_material_property('sigma_l','region',{1: diffusl, 2: diffusl, 3: diffusl, 4: diffusl})
-    model.add_element_material_property('sigma_t','region',{1: diffust, 2: diffust, 3: diffust, 4: diffust})
-    model.add_nodal_material_property('tau_close','region',{1: tclose0, 2: tclose0, 3: tclose3, 4: tclose0})
+    model.add_element_material_property('sigma_l','region',diffusl)
+    model.add_element_material_property('sigma_t','region',diffust)
+    model.add_nodal_material_property('tau_in','region',tin)
+    model.add_nodal_material_property('tau_out','region',tout)
+    model.add_nodal_material_property('tau_open','region',topen)
+    model.add_nodal_material_property('tau_close','region',tclose)
     model.add_material_function('mass',dfmass)
     model.add_material_function('stiffness',sigmaTens)
     model.assign_nodal_properties()
     model.assemble_matrices()
-    U0 = 1.0*(model.domain().Pts()[:,0]<2.).astype(np.float32)
-    S2 = np.logical_and(model.domain().Pts()[:,0]<10.,model.domain().Pts()[:,1]<5.)
-    model.set_initial_condition(U0 )
-    model.set_stimulus(S2,cfgstim )
+    Lx = model.domain().Pts()[:,0].max()
+    Ly = model.domain().Pts()[:,1].max()
+    U0 = (model.domain().Pts()[:,0]<0.05*Lx).astype(np.float32)
+    S2 = np.logical_and(model.domain().Pts()[:,0]<Lx,model.domain().Pts()[:,1]<0.5*Ly)
+    model.set_initial_condition(U0)
+    model.add_stimulus(S2,cfgstim2 )
     U0 = None    
     S2 = None
     model.solver().set_maxiter(model.domain().Pts().shape[0]//2)
     model.domain().exportCarpFormat('square')
     nt = 1 + model.nt()//model.dt_per_plot()
-        
     im = IGBWriter({'fname': 'square.igb', 
                     'Tend': model.Tend(), 
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
     im.imshow(model.U().numpy())
-    
     model.run(im)
     im = None
 

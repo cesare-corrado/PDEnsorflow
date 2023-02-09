@@ -26,16 +26,6 @@
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
-try:
-  import vedo 
-  is_vedo = True
-  from  gpuSolve.IO.writers import VedoPlotter
-
-except:  
-    is_vedo = False
-    print('Warning: no vedo found; using matplotlib',flush=True)
-
-
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -76,7 +66,7 @@ class HeatEquation:
         self.samples     = 10000
         self.s2_time     = 200
         self.dt_per_plot = 10
-
+        self.tinit       = 0.0
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -88,11 +78,10 @@ class HeatEquation:
         self.DZ = self._domain.DZ()
         elapsed = (time.time() - then)
         tf.print('initialisation, elapsed: %f sec' % elapsed)
-        self.tinit = elapsed
+        self.tinit += elapsed
 
     def  domain(self):
         return(self._domain.geometry())
-
 
     @tf.function
     def solve(self, U):
@@ -148,6 +137,9 @@ class HeatEquation:
         
         s2_init=[]
         then = time.time()
+        if im:
+            image = U.numpy()
+            im.imshow(image)
         for i in tf.range(self.samples):
             U1 = self.solve(U)
             U = U1

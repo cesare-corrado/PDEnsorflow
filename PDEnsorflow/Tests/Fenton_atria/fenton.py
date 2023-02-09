@@ -27,17 +27,6 @@ import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 from gpuSolve.IO.readers.imagedata import ImageData
-
-try:
-  import vedo 
-  is_vedo = True
-  from  gpuSolve.IO.writers import VedoPlotter
-
-except:  
-    is_vedo = False
-    print('Warning: no vedo found; using matplotlib',flush=True)
-
-
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -45,7 +34,6 @@ if(tf.config.list_physical_devices('GPU')):
 else:
       print('CPU device' )
 print('Tensorflow version is: {0}'.format(tf.__version__))
-
 
 from gpuSolve.ionic.fenton4v import *
 from gpuSolve.entities.domain3D import Domain3D
@@ -66,7 +54,7 @@ def enforce_boundary(X):
 
 class Fenton4vSimple(Fenton4v):
     """
-    The heat monodomain model with Fenton-Cherry ionic model
+    The monodomain model with Fenton-Cherry ionic model
     """
 
     def __init__(self, props):
@@ -75,13 +63,12 @@ class Fenton4vSimple(Fenton4v):
         self.min_v       = 0.0
         self.max_v       = 1.0
         self.dt          = 0.1
+        self.diff        = 1.0
         self.samples     = 10000
         self.s2_time     = 200
-        self.dt_per_plot = 10        
-        self.diff        = 1.0
+        self.dt_per_plot = 10
         self.tinit       = 0.0
         self.fname       = ''
-        
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -110,7 +97,6 @@ class Fenton4vSimple(Fenton4v):
         tf.print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit += elapsed
 
-
     def  domain(self):
         return(self._domain.geometry())
 
@@ -138,7 +124,7 @@ class Fenton4vSimple(Fenton4v):
             Returns:
                 None
         """
-        width  = self._domain.width()        
+        width  = self._domain.width()
         height = self._domain.height()
         depth  = self._domain.depth()
 
@@ -186,6 +172,9 @@ class Fenton4vSimple(Fenton4v):
         
         s2_init=[]
         then = time.time()
+        if im:
+            image = U.numpy()
+            im.imshow(image)
         for i in tf.range(self.samples):
             state = [U, V, W, S]
             U1, V1, W1, S1 = self.solve(state)
@@ -199,7 +188,7 @@ class Fenton4vSimple(Fenton4v):
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
                 image = tf.where(self.domain()>0.0, U, -1.0).numpy()
-                im.imshow(image)                
+                im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         print('TOTAL, elapsed: %f sec' % (elapsed+self.tinit))
