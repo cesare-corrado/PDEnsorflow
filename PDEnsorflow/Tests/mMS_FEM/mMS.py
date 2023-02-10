@@ -196,7 +196,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                 None
         """
         then = time.time()
-        for i in tf.range(1,self.__nt):
+        for i in tf.range(self.__nt):
             self.__ctime += self._dt
             U1,H1    = self.solve(self.__U,self.__H)
             self.__U = U1

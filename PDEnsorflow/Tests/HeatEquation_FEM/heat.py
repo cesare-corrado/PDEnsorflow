@@ -165,7 +165,7 @@ class HeatEquation:
                 None
         """
         then = time.time()
-        for i in tf.range(1,self.__nt):
+        for i in tf.range(self.__nt):
             self.__ctime += self._dt
             X1 = self.solve(self.__X)
             self.__X = X1

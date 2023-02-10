@@ -215,7 +215,7 @@ class Fenton4vSimple(Fenton4v):
                 None
         """
         then = time.time()
-        for i in tf.range(1,self.__nt):
+        for i in tf.range(self.__nt):
             self.__ctime += self._dt
             U1,V1,W1,S1 = self.solve(self.__U,self.__V,self.__W,self.__S)
             self.__U = U1
