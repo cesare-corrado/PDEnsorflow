@@ -41,7 +41,7 @@ class MaterialProperties:
         the element_properties dict.
         Inputs:
            pname: the name of the property (e.g.: conductivity')
-           ptype: the type of the property (possible values are: 'region', 'elem')
+           ptype: the type of the property (possible values are: 'uniform', 'region', 'elem')
            pmap: the property mapping that associates to a region/element ID the property value
         """
         print('adding the element property {} of type {}'.format(pname,ptype),flush=True)
@@ -57,7 +57,7 @@ class MaterialProperties:
         the nodal_properties dict.
         Inputs:
            pname: the name of the property (e.g.: gNa')
-           ptype: the type of the property (possible values are: 'region', 'nodal')
+           ptype: the type of the property (possible values are: 'uniform','region', 'nodal')
            pmap: the property mapping that associates to a region/point ID the property value
         """
         print('adding the nodal property {} of type {}'.format(pname,ptype),flush=True)    
@@ -116,7 +116,9 @@ class MaterialProperties:
         try:
             value = None
             ptype = self._element_properties[pname]['type']
-            if ptype=='region':
+            if ptype=='uniform':
+                value = self._element_properties[pname]['idmap']            
+            elif ptype=='region':
                 value = self._element_properties[pname]['idmap'][regionID]
             elif ptype=='elem':
                 value = self._element_properties[pname]['idmap'][elemtype][elemID]
@@ -141,7 +143,9 @@ class MaterialProperties:
         try:
             value = None        
             ptype = self._nodal_properties[pname]['type']
-            if ptype=='region':
+            if ptype=='uniform':
+                value = self._nodal_properties[pname]['idmap']            
+            elif ptype=='region':
                 value = self._nodal_properties[pname]['idmap'][regionID]
             elif ptype=='nodal':
                 value = self._nodal_properties[pname]['idmap'][pointID]
@@ -171,6 +175,30 @@ class MaterialProperties:
             return(None)
            
         
-        self._element_properties = None
-        self._nodal_properties   = None
+    def element_property_type(self,pname:str) -> str:
+        """ element_property_type(pname) returns the type of the element material property pname;
+        None if pname does not exist
+        """
+        if self._element_properties is not None:  
+            if pname in self._element_properties.keys():
+                return(self._element_properties[pname]['type'])
+            else:
+                return(None)         
+        else:
+            return(None)
+
+    def nodal_property_type(self,pname:str) -> str:
+        """ nodal_property_type(pname) returns the type of the nodal material property pname;
+        None if pname does not exist
+        """
+        if self._nodal_properties is not None:  
+            if pname in self._nodal_properties.keys():
+                return(self._nodal_properties[pname]['type'])
+            else:
+                return(None)         
+        else:
+            return(None)
+
+
+
 

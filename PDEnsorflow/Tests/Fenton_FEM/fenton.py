@@ -118,12 +118,16 @@ class Fenton4vSimple(Fenton4v):
             point_region_ids = self.__Domain.point_region_ids()
             npt = point_region_ids.shape[0]
             for mat_prop in nodal_properties:
+                prtype = self.__materials.nodal_property_type(mat_prop)
                 refval = self.get_parameter(mat_prop)
                 if refval is not None:
-                    pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
-                    for pointID,regionID in enumerate(point_region_ids):
-                        new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
-                        pvals[pointID] = new_val
+                    if prtype =='uniform':
+                        pvals = self.__materials.NodalProperty(mat_prop,pointID,regionID)
+                    else:
+                        pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
+                        for pointID,regionID in enumerate(point_region_ids):
+                            new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
+                            pvals[pointID] = new_val
                     self.set_parameter(mat_prop, pvals)
         self.__materials.remove_all_nodal_properties()
     

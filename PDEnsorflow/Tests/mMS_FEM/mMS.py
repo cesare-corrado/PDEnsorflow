@@ -116,12 +116,16 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             point_region_ids = self.__Domain.point_region_ids()
             npt = point_region_ids.shape[0]
             for mat_prop in nodal_properties:
+                prtype = self.__materials.nodal_property_type(mat_prop)
                 refval = self.get_parameter(mat_prop)
                 if refval is not None:
-                    pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
-                    for pointID,regionID in enumerate(point_region_ids):
-                        new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
-                        pvals[pointID] = new_val
+                    if prtype =='uniform':
+                        pvals = self.__materials.NodalProperty(mat_prop,pointID,regionID)
+                    else:
+                        pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
+                        for pointID,regionID in enumerate(point_region_ids):
+                            new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
+                            pvals[pointID] = new_val
                     self.set_parameter(mat_prop, pvals)
         self.__materials.remove_all_nodal_properties()
     
@@ -240,12 +244,13 @@ class ModifiedMS2vSimple(ModifiedMS2v):
 if __name__=='__main__':
     dt      = 0.1
     TS2     = 260.0
+    vg      = 0.1
     diffusl = {1: 0.001, 2: 0.001, 3: 0.001, 4: 0.001}
     diffust = {1: 0.001, 2: 0.001, 3: 0.001, 4: 0.001}
     tin     = {1: 0.15,  2: 0.15,  3: 0.15,  4: 0.15}
     tout    = {1: 1.5,   2: 1.5,   3: 1.5,   4: 1.5}
     topen   = {1: 105,   2: 105,   3: 105,   4: 105}
-    tclose  = {1:   120,   2: 120,   3:  60, 4:   120}
+    tclose  = {1: 120,   2: 120,   3:  60, 4:   120}
 
     config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
@@ -270,6 +275,9 @@ if __name__=='__main__':
     model.add_nodal_material_property('tau_out','region',tout)
     model.add_nodal_material_property('tau_open','region',topen)
     model.add_nodal_material_property('tau_close','region',tclose)
+    model.add_nodal_material_property('u_gate','uniform',vg)
+    model.add_nodal_material_property('u_crit','uniform',vg)
+
     model.add_material_function('mass',dfmass)
     model.add_material_function('stiffness',sigmaTens)
     model.assign_nodal_properties()
