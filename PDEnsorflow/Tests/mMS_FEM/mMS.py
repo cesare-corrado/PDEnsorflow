@@ -120,7 +120,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                 refval = self.get_parameter(mat_prop)
                 if refval is not None:
                     if prtype =='uniform':
-                        pvals = self.__materials.NodalProperty(mat_prop,pointID,regionID)
+                        pvals = self.__materials.NodalProperty(mat_prop,-1,-1)
                     else:
                         pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
                         for pointID,regionID in enumerate(point_region_ids):
