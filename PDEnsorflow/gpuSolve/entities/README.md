@@ -90,8 +90,8 @@ Other attributes:
 
 ### Member functions
 
-* `add_element_property(pname,ptype,pmap)`:  adds the element material property `pname` of type `ptype` (*region* or *elem*) with the mapping `pmap`.
-* `add_nodal_property(pname,ptype,pmap)`: adds the nodal material property `pname` of type `ptype` (*region* or *nodal*) with the mapping `pmap`.
+* `add_element_property(pname,ptype,pmap)`:  adds the element material property `pname` of type `ptype` (*uniform*, *region* or *elem*) with the mapping `pmap`.
+* `add_nodal_property(pname,ptype,pmap)`: adds the nodal material property `pname` of type `ptype` (*uniform*, *region* or *nodal*) with the mapping `pmap`.
 * `remove_element_property(pname)`: removes the property `pname` from the `_element_properties` dict
 * `remove_nodal_property(pname)`: removes the property `pname` from the `_nodal_properties` dict
 * `remove_all_element_properties()`: deletes all the material properties associated to elements and releases memory
@@ -102,6 +102,7 @@ Other attributes:
 * `execute_ud_func(fname,*kwargs)`: executes the user defined function with key `fname`, passing the arguments `*kwargs`
 * `remove_ud_function(fname)`: removes the function `fname` from the `_ud_functions` dict
 * `element_property_names()`: returns the names (keys) of the element material properties; `None` if no properties are defined
-* `odal_property_names()`: returns the names (keys) of the nodal material properties; `None` if no properties are defined
-
+* `nodal_property_names()`: returns the names (keys) of the nodal material properties; `None` if no properties are defined
+* `element_property_type(pname)`: returns the type of the element material property `pname`; `None` if `pname` does not exist
+* `nodal_property_type(pname)`: returns the type of the nodal material property `pname`; `None` if `pname` does not exist
 
