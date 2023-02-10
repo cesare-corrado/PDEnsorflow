@@ -37,7 +37,7 @@ class IGBReader:
             
             if(nentries>ntot):
                 # More values than expected
-                print('Warning: problem with the ifgb file',flush=True)
+                print('Warning: problem with the igb file',flush=True)
                 print('Discarding the last {} elements'.format(self.__ndiff))
                 y  = y[:ntot] 
             elif(nentries<ntot):  
@@ -45,7 +45,7 @@ class IGBReader:
                 nt = nentries//nx
                 if(nt==0):
                     print('ERROR: y too short!')
-                    print('({} elements; expected {} (problems in igb file)'.format(nentries,ntot))
+                    print('({} elements; expected {} (problems with the igb file)'.format(nentries,ntot))
                     sys.exit()
                 else:
                     ntot     = nt*nx
