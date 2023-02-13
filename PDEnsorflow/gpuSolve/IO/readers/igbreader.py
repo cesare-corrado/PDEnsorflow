@@ -149,7 +149,7 @@ class IGBReader:
             if not 'org_t' in parsed_header.keys():
                 parsed_header['org_t'] = float(0)
             if not 'dim_t' in parsed_header.keys():
-                parsed_header['dim_t'] = float(1)
+                parsed_header['dim_t'] = float(parsed_header['t']-1 )
             if not 'unites_x' in parsed_header.keys():
                 parsed_header['unites_x'] = 'unk'
             if not 'unites_y' in parsed_header.keys():
