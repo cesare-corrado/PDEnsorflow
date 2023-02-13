@@ -87,12 +87,20 @@ class IonicModel:
         """
         return(U-self.__vmin)/self.__DV
 
-
     def to_dimensional(self,U: tf.Variable) -> tf.Variable:
         """ to_dimensional(U) rescales U to its dimensional values (range [vmin,vmax])
         """
         return(self.__DV*U+self.__vmin)
 
 
+    def derivative_to_dimensionless(self,dU: tf.Variable) -> tf.Variable:
+        """ derivative_to_dimensionless(U) rescales the derivative of U (dU) to dimensionless units
+        """
+        return (dU/self.__DV)
+
+    def derivative_to_dimensional(self,dU: tf.Variable) -> tf.Variable:
+        """ derivative_to_dimensional(U) rescales the derivative of U (dU) to dimensional values
+        """
+        return(self.__DV*dU)
 
     

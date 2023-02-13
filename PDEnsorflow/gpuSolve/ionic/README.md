@@ -9,6 +9,8 @@ This package implements the ionic models for cardiac simulations. All the models
 * `vmax()` returns the maximum value of the potential vmax
 * `to_dimensionless(U)` rescales U to its dimensionless values (range [0,1])
 * `to_dimensional(U)` rescales U to its dimensional values (range [vmin,vmax])
+* `derivative_to_dimensionless(U)` rescales the derivative of U (*dU*) to dimensionless units
+* `derivative_to_dimensional(U)` rescales the derivative of U (*dU*) to dimensional values
 
 ## Ionic models implemented
 
