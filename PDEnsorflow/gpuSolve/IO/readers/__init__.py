@@ -2,9 +2,10 @@
 readers
 submodule of IO
 Contains:
-    * ImageData: a class to read images and transform to numpy data type
+    * ImageData:      a class to read images and transform to numpy data type
+    * CarpMeshReader: a class to read carp meshes
+    * IGBReader:      a class to read igb files
 """
-
 
 
 __version__=['1','1','0']
@@ -19,5 +20,5 @@ def version():
 
 
 from gpuSolve.IO.readers.imagedata import ImageData
-
-
+from gpuSolve.IO.readers.carpmeshreader import CarpMeshReader
+from gpuSolve.IO.readers.igbreader import IGBReader

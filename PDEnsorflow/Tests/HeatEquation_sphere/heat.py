@@ -26,17 +26,6 @@
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
-
-try:
-  import vedo 
-  is_vedo = True
-  from  gpuSolve.IO.writers import VedoPlotter
-
-except:  
-    is_vedo = False
-    print('Warning: no vedo found; using matplotlib',flush=True)
-
-
 import tensorflow as tf
 tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
@@ -71,16 +60,14 @@ class HeatEquation:
         self.min_v       = 0.0
         self.max_v       = 1.0
         self.dt          = 0.1
+        self.diff        = 1.0
         self.samples     = 10000
         self.s2_time     = 200
-        self.dt_per_plot = 10        
-        self.diff        = 1.0
+        self.dt_per_plot = 10
         self.tinit       = 0.0
-
         self.radius      = 1.0
         self.hole        = False
         self.cylindric   = False
-
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -89,14 +76,12 @@ class HeatEquation:
         self.DX = self._domain.DX()
         self.DY = self._domain.DY()
         self.DZ = self._domain.DZ()
-
         dx     = self.DX.numpy()
         dy     = self.DY.numpy()
         dz     = self.DZ.numpy()
         width  = self._domain.width()
         height = self._domain.height()
         depth  = self._domain.depth()
-        
         c0        = 0.5*np.array([dx*width, dy*height, dz*depth])
         xx, yy,zz = np.meshgrid(dx*np.arange(width), dy*np.arange(height),dz*np.arange(depth) )
         cyl_coef  = np.logical_not(self.cylindric).astype(np.float32)        
@@ -112,12 +97,11 @@ class HeatEquation:
         self._domain.assign_geometry(img_vox)
         self._domain.assign_conductivity(self.diff*img_vox) 
         elapsed = (time.time() - then)
+        tf.print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit += elapsed
-        tf.print('initialisation,elapsed: %f sec' % elapsed)
 
     def  domain(self):
         return(self._domain.geometry())
-
 
     @tf.function
     def solve(self, U):
@@ -138,7 +122,7 @@ class HeatEquation:
             Returns:
                 None
         """
-        width  = self._domain.width()        
+        width  = self._domain.width()
         height = self._domain.height()
         depth  = self._domain.depth()
 
@@ -149,11 +133,10 @@ class HeatEquation:
         if self.hole:
             # first stimulus on one side; second stimulus on a brick
             u_init[0:2,:,:] = self.max_v
-            s2_init[:width//2,:height//2,:] = self.max_v            
+            s2_init[:width//2,:height//2,:] = self.max_v
         else:
             u_init[(width//2-10):(width//2+10),:,:]    = self.max_v
-            s2_init[:,(height//2-10):(height//2+10),:] = self.max_v            
-
+            s2_init[:,(height//2-10):(height//2+10),:] = self.max_v
         then = time.time()
         U = tf.Variable(u_init, name="U" )
         U = tf.where(self.domain()>0.0, U, self.min_v)
@@ -178,6 +161,9 @@ class HeatEquation:
         
         s2_init=[]
         then = time.time()
+        if im:
+            image = U.numpy()
+            im.imshow(image)
         for i in tf.range(self.samples):
             U1 = self.solve(U)
             U = U1
@@ -193,7 +179,6 @@ class HeatEquation:
         print('TOTAL, elapsed: %f sec' % (elapsed+self.tinit))
         if im:
             im.wait()   # wait until the window is closed
-
 
 
 if __name__ == '__main__':
@@ -226,4 +211,3 @@ if __name__ == '__main__':
 
 
 
-  
