@@ -7,8 +7,8 @@
 Install `TensorFlow 2.X` using anaconda. First create an environment and activate it; e.g.: 
 
 ```
-conda create --name tf_gpu python=3.9
-conda activate tf_gpu
+conda create --name PDEnsorflow python=3.9
+conda activate PDEnsorflow
 ```
 
 If you want to just install *TensorFlow*, follows  [this link](https://www.tensorflow.org/install/pip). 
