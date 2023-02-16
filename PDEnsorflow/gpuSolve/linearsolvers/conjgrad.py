@@ -133,6 +133,10 @@ class ConjGrad:
                 elapsed = time() - t0
                 print('done in {:3.2f} s'.format(elapsed),flush=True)            
                 self.summary()
+            if(self._niters>=self._maxiter):
+                tf.print('WARNING: max nb of iteration reached (residual: {:4.3f})'.format(self._residual))
+                
+            
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
