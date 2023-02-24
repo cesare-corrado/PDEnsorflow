@@ -1,12 +1,15 @@
 import tensorflow as tf
 import numpy as np
+from scipy.sparse import csr_matrix, coo_matrix
+from scipy.sparse.csgraph import reverse_cuthill_mckee
+
 import sys
 from time import time
 from gpuSolve.matrices.localMass import localMass 
 from gpuSolve.matrices.localStiffness import localStiffness
 
 
-def compute_coo_pattern(connectivity):
+def compute_coo_pattern(connectivity: dict) -> dict:
     """ function compute_coo_pattern(connectivity)
     computes the patterns of a COO matrix from
     the mesh connectivity.
@@ -19,6 +22,8 @@ def compute_coo_pattern(connectivity):
                     I and J that corresponds to the begin of 
                     each row. E.g., entries of row k are in
                     the range StartIndex[k]:(StartIndex[k+1]-1)
+    Note: this function also provides the CSR pattern, as StartIndex provides
+          the starting/ending indices of each row
     """
     npt     = len(connectivity)
     nzero   = 0
@@ -43,7 +48,30 @@ def compute_coo_pattern(connectivity):
     
     return({'I': I.astype(np.int32), 'J': J.astype(np.int32), 'StartIndex':StartIndex.astype(np.int32)})
 
-def assemble_mass_matrix(matrix_pattern,domain,connectivity=None):
+def compute_reverse_cuthill_mckee_indexing(matrix_pattern : dict, sym_mat : bool=True) -> dict:
+    """ function compute_reverse_cuthill_mckee_indexing(matrix_pattern, sym_mat = True)
+    computes the reverse_cuthill_mckee indexing to concentrate the entries aroud the diagonal.
+    This function evaluates the permutaion and the inverse permutation to map back to the original indexing.
+    Permutations are numpy arrays of integers.
+    Input:
+        matrix_pattern:         the sparsity pattern of the matrix
+        sym_mat (default True): a boolean flag that tells if the original matrix is symmetric or not
+    Output:
+        indexmap:  a dict with direct ('perm') and inverse ('iperm') permutations
+    """
+    indptr    = matrix_pattern['StartIndex']
+    indices   = matrix_pattern['J']
+    data      = np.ones(shape = indices.shape,dtype=np.float32)
+    npt       = indptr.shape[0] - 1
+    A0        = csr_matrix((data, indices, indptr), shape=(npt, npt))
+    perm_rcm  = reverse_cuthill_mckee(A0,symmetric_mode=sym_mat).astype(np.int32)
+    iperm_rcm = np.zeros(shape=npt,dtype=np.int32)
+    for js,jt in enumerate(perm_rcm):
+        iperm_rcm[jt] = js
+    return({'perm': perm_rcm, 'iperm': iperm_rcm })    
+
+
+def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None):
     """ function assemble_mass_matrix(matrix_pattern,domain,connectivity=None)
     computes the sparse mass matrix using the domain connectivity and the matrix pattern.
     It returs a TensorFlow sparse tensor.
@@ -78,7 +106,7 @@ def assemble_mass_matrix(matrix_pattern,domain,connectivity=None):
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(MASS)
 
-def assemble_stiffness_matrix(matrix_pattern,domain,matprops,stif_pname='Sigma',connectivity=None):
+def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: str = 'Sigma',connectivity :dict =None):
     """ function assemble_stiffness_matrix(matrix_pattern,domain,matprops,connectivity=None)
     computes the sparse stiffness matrix using the domain connectivity and the matrix pattern.
     It returs a TensorFlow sparse tensor.
@@ -117,7 +145,7 @@ def assemble_stiffness_matrix(matrix_pattern,domain,matprops,stif_pname='Sigma',
     return(STIFFNESS)
 
 
-def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None):
+def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity: dict = None):
     """ function assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
     Given a python dict of functions to compute local matrices, this function computes all the 
     vectors of the entries of the global sparse matrices using the domain connectivity and the matrix pattern.
@@ -164,7 +192,7 @@ def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,con
 
 
 
-def assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None):
+def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,domain,matprops,connectivity : dict = None) -> dict[tf.sparse.SparseTensor]:
     """ function assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
     Given a python dict of functions to compute local matrices, this function computes all the 
     global the sparse matrices using the domain connectivity and the matrix pattern.
