@@ -10,7 +10,7 @@ setup(
     version='1.1.0',
     url='https://github.com/cesare-corrado/PDEnsorflow',
     author='Cesare Corrado',
-    install_requires=['nibabel', 'imageio', 'numpy', 'tensorflow>=2.9'],
+    install_requires=['nibabel', 'imageio', 'numpy','scipy', 'tensorflow>=2.9'],
     author_email='cesare.corrado@kcl.ac.uk',
     description='A PDE solver using Tensorflow',
     packages=find_packages('PDEnsorflow'),
