@@ -89,15 +89,17 @@ class MaterialProperties:
         """
         remove_all_element_properties() deletes all properties in element_properties
         """
-        self._element_properties.clear()
-        self._element_properties = None
+        if self._element_properties is not None:
+            self._element_properties.clear()
+            self._element_properties = None
 
     def remove_all_nodal_properties(self):
         """
         remove_all_nodal_properties() deletes all properties in nodal_properties
         """
-        self._nodal_properties.clear()
-        self._nodal_properties = None
+        if self._nodal_properties is not None:
+            self._nodal_properties.clear()
+            self._nodal_properties = None
 
 
     def ElementProperty(self,pname,elemtype,elemID,regionID):
