@@ -27,7 +27,7 @@ class Stimulus:
         self._intensity : float = 1.0
         self._name      : str   = "s2"
         self.__active: bool     = True
-        self.__stim     = None
+        self.__stim : tf.constant = None
 
         if props:
             for attribute in self.__dict__.keys():
@@ -65,12 +65,12 @@ class Stimulus:
         """
         self._intensity = Imax
 
-    def set_name(self,name: str):
+    def set_name(self,name : str):
         """ set_name(name): sets the name of the forcing term to name
         """
         self._name = name
 
-    def set_stimregion(self,streg:np.ndarray):
+    def set_stimregion(self,streg : np.ndarray):
         """
         set_stimregion(streg): sets to 1 the points/voxels where the forcing term is applied (takes a boolean mask streg as input)
         """
@@ -79,11 +79,24 @@ class Stimulus:
             region=region[:,np.newaxis]
         self.__stim = tf.constant(region,name=self._name, dtype=np.float32 )
 
-    def deactivate(self) -> bool:
+    def get_stimregion(self) -> tf.constant:
+        """ get_stimeregion() returns the stimulus region
+        """
+        return(self.__stim)
+
+    def apply_indices_permutation(self, perm_array: np.ndarray):
+        """apply_indices_permutation(perm_array) applies the permutation specified 
+        in perm_array to the stimulated region.
+        Useful when a permutation is used to reduce the breadthwidth of the matrices.
+        """
+        if self.__stim is not None:
+            self.__stim = tf.gather(self.__stim, perm_array,name=self._name)
+        
+    def deactivate(self):
         """deactivate(): sets the flag _active" to False"""
         self.__active = False   
             
-    def activate(self) -> bool:
+    def activate(self):
         """activate(): sets the flag _active" to True """
         self.__active = True
 

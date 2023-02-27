@@ -26,6 +26,9 @@ This class implements a source term with a temporal law. Its configuration param
 * `set_intensity(Imax)`: sets the intensity of the forcing term to *Imax*
 * `set_name(name)`: sets the name of the forcing term to *name*
 * `set_stimregion(streg)` sets to 1 the points/voxels where the forcing term is applied (takes a boolean mask *streg* as input)
+* `get_stimregion()` returns the region where the stimulus is applied
+* `apply_indices_permutation(perm_array)` applies the permutation specified in perm_array to the stimulated region. 
+   Useful when a permutation is used to reduce the breadthwidth of the matrices.
 * `deactivate()`: deactivates the stimulus
 * `activate()`: activates the stimulus
 * `is_active()`: tells if the stimulus is still active
