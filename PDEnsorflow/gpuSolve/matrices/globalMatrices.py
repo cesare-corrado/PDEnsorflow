@@ -71,7 +71,7 @@ def compute_reverse_cuthill_mckee_indexing(matrix_pattern : dict, sym_mat : bool
     return({'perm': perm_rcm, 'iperm': iperm_rcm })    
 
 
-def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None):
+def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None, renumbering: dict = None) -> tf.sparse.SparseTensor:
     """ function assemble_mass_matrix(matrix_pattern,domain,connectivity=None)
     computes the sparse mass matrix using the domain connectivity and the matrix pattern.
     It returs a TensorFlow sparse tensor.
@@ -79,6 +79,7 @@ def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None)
         matrix_pattern: the sparsity pattern of the matrix
         domain:         the domain object
         connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+        renumbering:    the node renumbering to reduce breadwidth (default = None)
     Output:
         MASS:  a TensorFlow sparse tensor storing the mass matrix.
     """
@@ -100,13 +101,21 @@ def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None)
                 for jEntry,jcol in enumerate(Elem):
                     indexEntry      = k0[irow]+np.where(connectivity[irow]==jcol)[0]
                     VM[indexEntry] += lmass[iEntry,jEntry]
-    indices   = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+    
+    if renumbering is None:
+        indices   = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+    else:
+        iperm   = renumbering['iperm']
+        I_rnmb  = iperm[I].astype(I.dtype)
+        J_rnmb  = iperm[J].astype(J.dtype)
+        indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])    
+
     MASS      = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(MASS)
 
-def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: str = 'Sigma',connectivity :dict =None):
+def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: str = 'Sigma',connectivity : dict =None, renumbering : dict = None) -> tf.sparse.SparseTensor:
     """ function assemble_stiffness_matrix(matrix_pattern,domain,matprops,connectivity=None)
     computes the sparse stiffness matrix using the domain connectivity and the matrix pattern.
     It returs a TensorFlow sparse tensor.
@@ -116,6 +125,7 @@ def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: 
         matprops:       a MaterialProperties object that implements functions to provide local properties 
         stif_pname:     the name of the function that evaluates the matertial properties
         connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+        renumbering:    the node renumbering to reduce breadwidth (default = None)        
     Output:
         STIFFNESS:  a TensorFlow sparse tensor storing the mass matrix.
     """
@@ -138,7 +148,13 @@ def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: 
                 for jEntry,jcol in enumerate(Elem):
                     indexEntry      = k0[irow]+np.where(connectivity[irow]==jcol)[0]
                     VM[indexEntry] += lstiffness[iEntry,jEntry]
-    indices   = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+    if renumbering is None:
+        indices   = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+    else:
+        iperm   = renumbering['iperm']
+        I_rnmb  = iperm[I].astype(I.dtype)
+        J_rnmb  = iperm[J].astype(J.dtype)
+        indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])
     STIFFNESS = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
@@ -192,7 +208,7 @@ def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,con
 
 
 
-def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,domain,matprops,connectivity : dict = None) -> dict[tf.sparse.SparseTensor]:
+def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,domain,matprops,connectivity : dict = None, renumbering : dict = None) -> dict[tf.sparse.SparseTensor]:
     """ function assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
     Given a python dict of functions to compute local matrices, this function computes all the 
     global the sparse matrices using the domain connectivity and the matrix pattern.
@@ -203,6 +219,7 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
         domain:              the domain object
         matprops:            a MaterialProperties object that implements functions to provide local properties
         connectivity:        the domain connectivity (if None, it is computed and kept in memory)
+        renumbering:         the node renumbering to reduce breadwidth (default = None)
     Output:
         MATRICES:  a python dict with the TensorFlow sparse tensors storing the matrices.
     """
@@ -210,7 +227,15 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
     I   = matrix_pattern['I']
     J   = matrix_pattern['J']
     VM  = assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity)
-    indices  = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+
+    if renumbering is None:
+        indices   = np.hstack([I[:,np.newaxis], J[:,np.newaxis]])
+    else:
+        iperm   = renumbering['iperm']
+        I_rnmb  = iperm[I].astype(I.dtype)
+        J_rnmb  = iperm[J].astype(J.dtype)
+        indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])
+
     MATRICES = {}
     for matr_name,VMAT in VM.items():
         MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=VMAT.astype(np.float32), dense_shape=[npt,npt])
