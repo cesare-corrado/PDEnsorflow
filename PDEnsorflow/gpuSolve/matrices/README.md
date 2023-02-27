@@ -70,6 +70,7 @@ This function computes the sparse mass matrix using the domain connectivity and 
 * matrix_pattern: the sparsity pattern of the matrix
 * domain:         the domain object
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+* renumbering:    the node renumbering to reduce breadwidth (default = None does not renumber nodes)
 
 ### assemble_stiffness_matrix(matrix_pattern,domain,matprops,stif_pname='Sigma',connectivity=None)
 
@@ -80,7 +81,7 @@ This function computes the sparse stiffness matrix using the domain connectivity
 * matprops:       a MaterialProperties object that implements functions to provide local properties 
 * stif_pname:     the name of the function that evaluates the matertial properties
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
-
+* renumbering:    the node renumbering to reduce breadwidth (default = None does not renumber nodes)
 
 ### assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
 
@@ -102,5 +103,6 @@ Given a python dict of functions to compute local matrices, this function comput
 * domain:         the domain object
 * matprops:       a MaterialProperties object that implements functions to provide local properties
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+* renumbering:    the node renumbering to reduce breadwidth (default = None)
 
 
