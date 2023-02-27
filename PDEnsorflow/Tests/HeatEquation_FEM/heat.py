@@ -42,6 +42,7 @@ from gpuSolve.matrices.globalMatrices import compute_coo_pattern
 from gpuSolve.matrices.localMass import localMass
 from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
+from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
 from gpuSolve.force_terms import Stimulus
 
@@ -73,6 +74,7 @@ class HeatEquation:
         self._dt: float                         = 0.1
         self._dt_per_plot: int                  = 2
         self._Tend: float                       = 10
+        self._use_renumbering : bool            = False
         self.__Domain: Triangulation            = Triangulation()
         self.__materials:MaterialProperties     = MaterialProperties()
         self.__Solver:ConjGrad                  = ConjGrad()
@@ -81,6 +83,8 @@ class HeatEquation:
         self.__X: tf.Variable                   = None
         self.__ctime:float                      = 0.0
         self.__nbstim:int                       = 0
+        self.__renumbering                      = None
+        self.__ready_for_run                    = False
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in cfgdict.keys():
@@ -110,8 +114,10 @@ class HeatEquation:
         connectivity = self.__Domain.mesh_connectivity('True')
         # Assemble the matrices
         pattern     = compute_coo_pattern(connectivity)
+        if self._use_renumbering:
+            self.__renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
-        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity)
+        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity, renumbering=self.__renumbering)
         self.__MASS = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = tf.sparse.add(self.__MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
@@ -164,6 +170,9 @@ class HeatEquation:
             Returns:
                 None
         """
+        if not self.__ready_for_run:
+            raise Exception("model not initialised for run!")
+            
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
@@ -171,12 +180,21 @@ class HeatEquation:
             self.__X = X1
             # draw a frame every 1 ms
             if im and i % self._dt_per_plot == 0:
-                image = X1.numpy()
+                image = self.X().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
+
+    def finalize_for_run(self):
+        if self._use_renumbering:
+            # permutation of the initial condition
+            self.__X = tf.Variable(tf.gather(self.__X,self.__renumbering['perm']),name=self.__X.name )
+            # permutation of the stimulus indices
+            for key ,stim in self.__StimulusDict.items():
+                stim.apply_indices_permutation(self.__renumbering['perm'])
+        self.__ready_for_run = True
 
     def domain(self) -> Triangulation:
         return(self.__Domain)
@@ -188,7 +206,10 @@ class HeatEquation:
         return(self.__StimulusDict)
 
     def X(self) -> tf.Variable:
-        return(self.__X)        
+        if self._use_renumbering:
+            return(tf.gather(self.__X,self.__renumbering['iperm']) )
+        else:
+            return(self.__X)
 
     def nt(self) -> int:
         return(self.__nt)
@@ -210,6 +231,7 @@ if __name__=='__main__':
 
     config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
+        'use_renumbering': True,
         'dt' : dt,
         'dt_per_plot': int(1.0/dt),   #record every ms
         'Tend': 1000
@@ -246,6 +268,7 @@ if __name__=='__main__':
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
+    model.finalize_for_run()
     im.imshow(model.X().numpy())
     model.run(im)
     im = None

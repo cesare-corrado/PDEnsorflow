@@ -42,6 +42,7 @@ from gpuSolve.matrices.globalMatrices import compute_coo_pattern
 from gpuSolve.matrices.localMass import localMass
 from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
+from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
 from gpuSolve.force_terms import Stimulus
 
@@ -74,6 +75,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._dt: float                         = 0.1
         self._dt_per_plot: int                  = 2
         self._Tend: float                       = 10
+        self._use_renumbering : bool            = False
         self.__Domain: Triangulation            = Triangulation()
         self.__materials:MaterialProperties     = MaterialProperties()
         self.__Solver:ConjGrad                  = ConjGrad()
@@ -83,6 +85,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self.__H: tf.Variable                   = None
         self.__ctime:float                      = 0.0
         self.__nbstim:int                       = 0
+        self.__renumbering                      = None
+        self.__ready_for_run                    = False
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in cfgdict.keys():
@@ -111,6 +115,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self.__materials.add_ud_function(fname,fsign)
 
     def assign_nodal_properties(self):
+        uniform_only = True
         nodal_properties = self.__materials.nodal_property_names() 
         if nodal_properties is not None:
             point_region_ids = self.__Domain.point_region_ids()
@@ -122,20 +127,24 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                     if prtype =='uniform':
                         pvals = self.__materials.NodalProperty(mat_prop,-1,-1)
                     else:
+                        uniform_only = False
                         pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
                         for pointID,regionID in enumerate(point_region_ids):
                             new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
                             pvals[pointID] = new_val
                     self.set_parameter(mat_prop, pvals)
-        self.__materials.remove_all_nodal_properties()
+        if( uniform_only or (not self._use_renumbering)):
+            self.__materials.remove_all_nodal_properties()
     
     def assemble_matrices(self):
         #Compute the domain connectivity
         connectivity = self.__Domain.mesh_connectivity('True')
         # Assemble the matrices
         pattern     = compute_coo_pattern(connectivity)
+        if self._use_renumbering:
+            self.__renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
-        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity)
+        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity, renumbering=self.__renumbering)
         self.__MASS = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = tf.sparse.add(self.__MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
@@ -199,20 +208,42 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             Returns:
                 None
         """
+        if not self.__ready_for_run:
+            raise Exception("model not initialised for run!")
+            
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
-            U1,H1    = self.solve(self.__U,self.__H)
+            U1,H1 = self.solve(self.__U,self.__H)
             self.__U = U1
             self.__H = H1
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
-                image = U1.numpy()
+                image = self.U().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
+
+    def finalize_for_run(self):
+        if self._use_renumbering:
+            # permutation of the initial condition
+            self.__U = tf.Variable(tf.gather(self.__U,self.__renumbering['perm']),name=self.__U.name )
+            self.__H = tf.Variable(tf.gather(self.__H,self.__renumbering['perm']),name=self.__H.name )
+            # permutation of the stimulus indices
+            for key ,stim in self.__StimulusDict.items():
+                stim.apply_indices_permutation(self.__renumbering['perm'])    
+            nodal_properties = self.__materials.nodal_property_names() 
+            if nodal_properties is not None:
+                for mat_prop in nodal_properties:
+                    prtype = self.__materials.nodal_property_type(mat_prop)
+                    refval = self.get_parameter(mat_prop)
+                    if refval is not None and not (prtype =='uniform'):
+                        pvals = tf.gather(refval,self.__renumbering['perm']).numpy()
+                        self.set_parameter(mat_prop, pvals)                        
+                self.__materials.remove_all_nodal_properties()
+        self.__ready_for_run = True
 
     def domain(self) -> Triangulation:
         return(self.__Domain)
@@ -224,10 +255,17 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         return(self.__StimulusDict)
 
     def U(self) -> tf.Variable:
-        return(self.__U)        
+        if self._use_renumbering:
+            return(tf.gather(self.__U,self.__renumbering['iperm']) )
+        else:
+            return(self.__U)
 
     def H(self) -> tf.Variable:
-        return(self.__H)        
+        if self._use_renumbering:
+            return(tf.gather(self.__H,self.__renumbering['iperm']) )
+        else:
+            return(self.__H)
+
 
     def nt(self) -> int:
         return(self.__nt)
@@ -254,6 +292,7 @@ if __name__=='__main__':
 
     config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
+        'use_renumbering': True,
         'dt' : dt,
         'dt_per_plot': int(1.0/dt),   #record every ms
         'Tend': 1000
@@ -298,6 +337,7 @@ if __name__=='__main__':
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
+    model.finalize_for_run()
     im.imshow(model.U().numpy())
     model.run(im)
     im = None
