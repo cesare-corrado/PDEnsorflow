@@ -151,7 +151,7 @@ class Domain3D:
             sys.exit("No geometry defined! (assign a geometry first)")
 
 
-    def load_fiber_direction(self, fname='', Mx=0, My=0):
+    def load_fiber_direction(self, fname : str ='', Mx: int =0, My: int =0):
         ''' 
         This function loads the fiber directions from a file
         Arguments:
