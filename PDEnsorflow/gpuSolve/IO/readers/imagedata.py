@@ -69,7 +69,7 @@ class ImageData:
     def __init__(self):
         self.Mx : int      = 1
         self.My : int     = 1
-        self._img nib.Nifti1Image  = None
+        self._img:  nib.Nifti1Image  = None
         self._imgfile: dict = None
 
 
