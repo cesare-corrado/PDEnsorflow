@@ -102,7 +102,7 @@ class IGBReader:
         """dim_t(): returns the temporal dimension""" 
         return(self.__header['dim_t'])
     
-    def dt(self) ->float():
+    def dt(self) ->float:
         """dt(): returns the time step (nan if nt=1)"""
         if(self.nt()>1):
             return(self.dim_t()/(self.nt()-1))

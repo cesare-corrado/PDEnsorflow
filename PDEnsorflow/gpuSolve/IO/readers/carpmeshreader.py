@@ -1,7 +1,7 @@
 import numpy as np
 from time import time
     
-def elemDeCode(elemName):
+def elemDeCode(elemName: str) -> str:
     '''
     elemDecode(elemName) converts the carp file name ElemName
     into the PDEnsorflow elem name.
@@ -28,47 +28,47 @@ class CarpMeshReader:
     """
     
     def __init__(self):
-        self.__Pts    = None
-        self.__nElem  = None
-        self.__Elems  = None
-        self.__Fibres = None
-        self.__timeR  = 0.0
+        self.__Pts  : np.ndarray  = None
+        self.__nElem : int  = None
+        self.__Elems  : np.ndarray = None
+        self.__Fibres : np.ndarray = None
+        self.__timeR : float = 0.0
 
 
-    def Pts(self):
+    def Pts(self) -> np.ndarray:
         return(self.__Pts)
 
-    def Edges(self):
+    def Edges(self) -> np.ndarray:
         return(self.__Elems['Edges'])
 
-    def Trias(self):
+    def Trias(self) -> np.ndarray:
         return(self.__Elems['Trias'])
 
-    def Quads(self):
+    def Quads(self) -> np.ndarray:
         return(self.__Elems['Quads'])
 
-    def Tetras(self):
+    def Tetras(self) -> np.ndarray:
         return(self.__Elems['Tetras'])
 
-    def Hexas(self):
+    def Hexas(self) -> np.ndarray:
         return(self.__Elems['Hexas'])
 
-    def Pyras(self):
+    def Pyras(self) -> np.ndarray:
         return(self.__Elems['Pyras'])
 
-    def Prisms(self):
+    def Prisms(self) -> np.ndarray:
         return(self.__Elems['Prisms'])
     
-    def Elems(self):
+    def Elems(self) -> dict:
         """function Elems()
         Returns the entire dict of elements
         """
         return(self.__Elems)
 
-    def Fibres(self):
+    def Fibres(self) -> np.ndarray:
         return(self.__Fibres)
         
-    def read(self,fsuffix):
+    def read(self,fsuffix: str):
         """
         function read(fsuffix)
         This function reads a mesh in carp format and parses the contents 
@@ -79,7 +79,7 @@ class CarpMeshReader:
         print('total: {:4.2f} s.'.format(self.__timeR) )
 
 
-    def __readPoints(self,fsuffix):
+    def __readPoints(self,fsuffix: str):
         '''
         This function reads the .pts file
         '''
@@ -103,7 +103,7 @@ class CarpMeshReader:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
-    def __readElements(self,fsuffix):
+    def __readElements(self,fsuffix: str):
         '''
         This function reads the .elem file
         '''
@@ -146,7 +146,7 @@ class CarpMeshReader:
             raise
 
 
-    def __readFibres(self,fsuffix):
+    def __readFibres(self,fsuffix: str):
         '''
         This function reads the .lon file
         '''
