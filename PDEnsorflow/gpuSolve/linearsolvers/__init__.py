@@ -17,4 +17,5 @@ def version():
   verstr=verstr=verstr[:-1]
   return(verstr)
 
-from gpuSolve.linearsolvers.conjgrad import ConjGrad 
+from gpuSolve.linearsolvers.conjgrad import ConjGrad
+from gpuSolve.linearsolvers.jacobi_precond import JacobiPrecond
