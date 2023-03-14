@@ -26,12 +26,8 @@
 
 
 
-import numpy as np
-import time
 from gpuSolve.ionic.ionicmodel import IonicModel
-
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
 
 
 

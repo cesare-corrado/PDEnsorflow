@@ -26,12 +26,8 @@
 
 
 
-import numpy as np
-import time
 from gpuSolve.ionic.ionicmodel import IonicModel
-
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
 
 
 
@@ -72,7 +68,6 @@ class ModifiedMS2v(IonicModel):
 
     def u_crit(self) -> tf.constant:
         return(self._u_crit)        
-
 
     @tf.function
     def differentiate(self, U: tf.Variable, H: tf.Variable) ->(tf.Variable, tf.Variable):
