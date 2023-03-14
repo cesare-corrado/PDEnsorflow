@@ -5,7 +5,6 @@ Contains:
   * laplace_homogeneous_isotropic_diffusion: 2D laplace solver for homogeneous isotropic diffusion  
   * laplace_heterogeneous_isotropic_diffusion: 2D laplace solver for heterogeneous isotropic diffusion  
 """
-import tensorflow as tf
 
 __version__=['1','1','0']
 
