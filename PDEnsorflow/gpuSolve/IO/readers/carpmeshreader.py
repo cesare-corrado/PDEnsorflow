@@ -1,6 +1,4 @@
 import numpy as np
-import sys
-import os
 from time import time
     
 def elemDeCode(elemName):
