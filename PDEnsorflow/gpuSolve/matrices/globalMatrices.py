@@ -163,7 +163,7 @@ def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None,
         I_rnmb  = iperm[I].astype(I.dtype)
         J_rnmb  = iperm[J].astype(J.dtype)
         indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])
-    MASS      = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
+    MASS      = tf.sparse.SparseTensor(indices=indices, values=VM.astype(tf.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(MASS)
@@ -209,7 +209,7 @@ def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: 
         I_rnmb  = iperm[I].astype(I.dtype)
         J_rnmb  = iperm[J].astype(J.dtype)
         indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])
-    STIFFNESS = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
+    STIFFNESS = tf.sparse.SparseTensor(indices=indices, values=VM.astype(tf.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(STIFFNESS)
@@ -246,6 +246,6 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
 
     MATRICES = {}
     for matr_name,VMAT in VM.items():
-        MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=VMAT.astype(np.float32), dense_shape=[npt,npt])
+        MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=VMAT.astype(tf.float32), dense_shape=[npt,npt])
     return(MATRICES)
 
