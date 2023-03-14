@@ -1,13 +1,12 @@
 import numpy as np
 import pickle
 import os
-import sys
 from time import time
 from gpuSolve.IO.readers.carpmeshreader import CarpMeshReader
 from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
 
 
-def element_contravariant_basis(elemtype,VertPts,localcoords=[]):
+def element_contravariant_basis(elemtype: str,VertPts : np.ndarray,localcoords: list=[]):
     """function element_contravariant_basis(elemType, VertPts,localcoords=[])
     This function evaluates the contravariant basis and the measure
     of an element of type  elemtype.
@@ -31,7 +30,7 @@ def element_contravariant_basis(elemtype,VertPts,localcoords=[]):
     return(function_dict[elemtype](VertPts, localcoords) )
 
 
-def Edge_contravariant_basis(VertPts,localcoords=[]):
+def Edge_contravariant_basis(VertPts: np.ndarray,localcoords: list = []) -> dict:
     """function Edges_contravariant_basis(VertPts,localcoords=[])
     This function evaluates the contravariant basis and the length
     of an edge element.
@@ -69,7 +68,7 @@ def Edge_contravariant_basis(VertPts,localcoords=[]):
 
 
 
-def Triangle_contravariant_basis(VertPts,localcoords=[]):
+def Triangle_contravariant_basis(VertPts: np.ndarray,localcoords: list =[]) -> dict:
     """function Triangle_contravariant_basis(VertPts,localcoords=[])
     This function evaluates the contravariant basis and the surface
     of a triangular element.
@@ -107,7 +106,7 @@ def Triangle_contravariant_basis(VertPts,localcoords=[]):
         print(f"Unexpected {err=}, {type(err)=}")
         raise
 
-def Tetrahedron_contravariant_basis(VertPts,localcoords=[]):
+def Tetrahedron_contravariant_basis(VertPts: np.ndarray,localcoords: list = []) -> dict:
     """function Tetrahedron_contravariant_basis(VertPts,localcoords=[])
     This function evaluates the contravariant basis and the volume
     of a tetrahedral element.
@@ -149,20 +148,22 @@ class Triangulation:
     It collects the domain mesh and the properties such as fibre directions and conductivities.
     """
     def __init__(self):
-        self._Pts          = None
-        self._Elems        = None
-        self._Fibres       = None
-        self._connectivity = None
-        self._contravbasis = None
-        self._pointRegIDs  = None
+        self._Pts : np.ndarray          = None
+        self._Elems : dict              = None
+        self._Fibres : np.ndarray       = None
+        self._connectivity : dict       = None
+        self._contravbasis : dict       = None
+        self._pointRegIDs : np.ndarray  = None
 
-    def Pts(self):
+
+    def Pts(self) -> np.ndarray:
         """ function Pts():
         returns the mesh point coordinates
         """
         return(self._Pts)
+
         
-    def Elems(self):
+    def Elems(self) -> dict:
         """ function Elems():
         returns a python dict of the mesh elements.
         Each entry corresponds to an element type (if present on the mesh)
@@ -171,15 +172,16 @@ class Triangulation:
         """    
         return(self._Elems)
 
-    def Fibres(self):
+
+    def Fibres(self) -> np.ndarray:
         """ function Fibres():
         returns the Fiber directions.
         This field is defined on the elements
         """
-
         return(self._Fibres)
 
-    def readMesh(self,filename):
+
+    def readMesh(self,filename: str):
         """function readMesh(filename)
         determines the mesh format from the file extension
         (carp format of a binary .pkl file) and reads a mesh 
@@ -195,7 +197,7 @@ class Triangulation:
             raise Exception('{}: unknown format'.format(suffix))
             
     
-    def saveMesh(self,foutName):
+    def saveMesh(self,foutName: str):
         """function savemesh(foutName)
         saves the mesh in .pkl format.
         This function saves points, elements and fibres only
@@ -212,7 +214,8 @@ class Triangulation:
         with open(foutName,'wb') as fout:
             pickle.dump(mesh0,fout,protocol=pickle.HIGHEST_PROTOCOL)     
 
-    def exportCarpFormat(self,foutPrefix):
+
+    def exportCarpFormat(self,foutPrefix: str):
         """function exportCarpFormat(foutPrefix)
         exports the mesh in carp format (*.pts*, *.elem*, *.lon*), with prefix `foutPrefix`
         Prefix must contain the path.
@@ -225,8 +228,9 @@ class Triangulation:
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
-        
-    def mesh_connectivity(self,storeConn=False):
+
+
+    def mesh_connectivity(self,storeConn: bool = False) -> dict:
         """ function connectivity=mesh_connectivity(storeConn=False)
         returns the mesh connectivity. When storeConn=True, it keeps 
         the connectivity as an internal variable, 
@@ -241,7 +245,8 @@ class Triangulation:
         else:
             return(self._connectivity)
 
-    def contravariant_basis(self,storeCbas=False):
+
+    def contravariant_basis(self,storeCbas: bool = False) -> dict:
         """ function connectivity=contravariant_basis(storeCbas=False)
         returns the contravariant basis evaluated on each element.
         For non-linear elements, it is evaluated at Gauss Points (NOT implemented yet!)
@@ -257,7 +262,7 @@ class Triangulation:
         else:
             return(self._contravbasis)
 
-    def point_region_ids(self,storeIDs=False):
+    def point_region_ids(self,storeIDs: bool = False) -> np.ndarray:
         """ function regionIds = point_region_ids(storeIDs=False)
         returns the region IDs associated to the mesh vertices.
         When storeIDs = True, it keeps a copy of the point IDs
@@ -272,7 +277,7 @@ class Triangulation:
         else:
             return(self._pointRegIDs)
 
-    def element_contravariant_basis(self,elemtype,elemID,localcoords=[]):
+    def element_contravariant_basis(self,elemtype : str, elemID : int, localcoords : list =[]) -> dict:
         """function element_contravariant_basis(elemtype,elemID,localcoords=[])
         computes the contravariant basis at coordinates localcoords for the 
         element elemID of type elemType
@@ -318,7 +323,7 @@ class Triangulation:
             del self._pointRegIDs
             self._pointRegIDs = None 
     
-    def __readMeshPickleFormat(self,fname):
+    def __readMeshPickleFormat(self,fname: str):
         '''This function reads a mesh in .pkl format
         The input data is a pkl file with a mesh having
         data of type numpy and containing the basic entries 
@@ -336,7 +341,7 @@ class Triangulation:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
-    def __readMeshCarpFormat(self,fsuffix):
+    def __readMeshCarpFormat(self,fsuffix: str):
         '''This function reads a mesh in a carp format. It takes
         the prefix of the carp files (.elem, .lon, .pts) as the input
         '''
@@ -353,7 +358,7 @@ class Triangulation:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
-    def __compute_mesh_connectivity(self):
+    def __compute_mesh_connectivity(self) -> dict:
         print('computing mesh connectivity')
         npt = self._Pts.shape[0]
         connectivity = {}
@@ -378,7 +383,7 @@ class Triangulation:
         return(connectivity)
 
 
-    def __compute_contravariant_basis(self):
+    def __compute_contravariant_basis(self) -> dict:
         '''Temporary implementation; will be modified in the future
         to take into account of Gauss Nodes for non-linear Elements
         '''
@@ -402,7 +407,7 @@ class Triangulation:
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(contravbasis)
 
-    def __compute_point_region_ids(self):
+    def __compute_point_region_ids(self) -> np.ndarray:
         '''This function assigns to each point the region ID
         taking the most recurrent region ID of the elements
         that have the point as a vertex.       
