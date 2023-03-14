@@ -44,6 +44,7 @@ from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
 from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
+from gpuSolve.linearsolvers.jacobi_precond import JacobiPrecond
 from gpuSolve.force_terms import Stimulus
 
 
@@ -78,6 +79,7 @@ class HeatEquation:
         self.__Domain: Triangulation            = Triangulation()
         self.__materials:MaterialProperties     = MaterialProperties()
         self.__Solver:ConjGrad                  = ConjGrad()
+        self.__Precond : JacobiPrecond          = JacobiPrecond()
         self.__StimulusDict: dict               = None
         self.__MASS                             = None
         self.__X: tf.Variable                   = None
@@ -124,6 +126,8 @@ class HeatEquation:
         self.__Domain.release_connectivity()
         self.__materials.remove_all_element_properties()
         self.__Solver.set_matrix(A)
+        self.__Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
+        self.__Solver.set_precond(self.__Precond)
 
     def set_initial_condition(self,X0:np.ndarray = None):
         npt = self.__Domain.Pts().shape[0]
@@ -201,7 +205,10 @@ class HeatEquation:
     
     def solver(self) -> ConjGrad:
         return(self.__Solver)
-    
+
+    def precond(self) -> JacobiPrecond:
+        return(self.__Precond)
+
     def stimulus(self) ->dict:
         return(self.__StimulusDict)
 
