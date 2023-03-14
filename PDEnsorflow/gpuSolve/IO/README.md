@@ -6,3 +6,4 @@ This is the sub-directory of gpuSolve contains functions for I/O:
 * `writers`: functions to output (either on files or on screen)
 
 
+These functions do not require Tensorflow.
