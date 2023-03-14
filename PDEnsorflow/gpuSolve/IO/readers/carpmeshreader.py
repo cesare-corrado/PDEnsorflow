@@ -89,7 +89,7 @@ class CarpMeshReader:
             tstart       = time()
             with open(nodeFname,'r') as fnod:
                 npt       = int(fnod.readline().strip())
-                self.__Pts = np.zeros(shape=(npt,3),dtype=np.float32)
+                self.__Pts = np.zeros(shape=(npt,3),dtype=float)
                 for jj in range(npt):
                     row = fnod.readline()
                     row = row.strip().split()
@@ -158,9 +158,9 @@ class CarpMeshReader:
             with open(fibFname,'r') as ffib:
                 ftype    = int(ffib.readline().strip())
                 if ftype==1:
-                    self.__Fibres = np.zeros(shape=(self.__nElem,3),dtype=np.float32)
+                    self.__Fibres = np.zeros(shape=(self.__nElem,3),dtype=float)
                 else:
-                    self.__Fibres = np.zeros(shape=(self.__nElem,6),dtype=np.float32)
+                    self.__Fibres = np.zeros(shape=(self.__nElem,6),dtype=float)
                 for jj in range(self.__nElem):
                     row = ffib.readline()
                     row = row.strip().split()
