@@ -173,7 +173,7 @@ class Domain3D:
                 Image.load_image(fname,Mx,My)
                 img_vox = Image.get_fdata()
                 [W,H,D,_] = img_vox.shape
-                fibtens=np.zeros(shape=(W,H,D,6),dtype=np.float32)
+                fibtens=np.zeros(shape=(W,H,D,6))
                 fibtens[:,:,:,0] = img_vox[:,:,:,0] *img_vox[:,:,:,0]
                 fibtens[:,:,:,1] = img_vox[:,:,:,0] *img_vox[:,:,:,1]
                 fibtens[:,:,:,2] = img_vox[:,:,:,0] *img_vox[:,:,:,2]

@@ -52,7 +52,7 @@ def Edge_contravariant_basis(VertPts: np.ndarray,localcoords: list = []) -> dict
         v30   = u[:,2]
         E_len = np.linalg.norm(v10,keepdims=True)        
         # Covariant basis: each row is a vector of the basis
-        covbT = np.zeros(shape=(3,3),dtype=np.float32)
+        covbT = np.zeros(shape=(3,3),dtype=float)
         covbT[0,:] = v10
         covbT[1,:] = v20
         covbT[2,:] = v30
@@ -91,7 +91,7 @@ def Triangle_contravariant_basis(VertPts: np.ndarray,localcoords: list =[]) -> d
         area  = np.linalg.norm(N12,keepdims=True)
         v12   = N12/area
         # Covariant basis: each row is a vector of the basis
-        covbT = np.zeros(shape=(3,3),dtype=np.float32)
+        covbT = np.zeros(shape=(3,3),dtype=float)
         covbT[0,:] = v10
         covbT[1,:] = v20
         covbT[2,:] = v12
@@ -127,7 +127,7 @@ def Tetrahedron_contravariant_basis(VertPts: np.ndarray,localcoords: list = []) 
         v30   = VertPts[3,:]-VertPts[0,:]            
         vprod = np.cross(v10,v20)        
         T_vol = np.array(np.abs(np.dot(vprod,v30))/6.0,ndmin=1)
-        covbT = np.zeros(shape=(3,3),dtype=np.float32)
+        covbT = np.zeros(shape=(3,3),dtype=float)
         covbT[0,:] = v10
         covbT[1,:] = v20
         covbT[2,:] = v30
