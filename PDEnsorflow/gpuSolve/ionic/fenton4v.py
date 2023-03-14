@@ -33,12 +33,12 @@ import tensorflow as tf
 
 
 @tf.function
-def H(x: tf.Variable) -> : tf.Variable:
+def H(x: tf.Variable) ->  tf.Variable:
     """ the step function """
     return (1.0 + tf.sign(x)) * 0.5
 
 @tf.function
-def G(x: tf.Variable) -> : tf.Variable:
+def G(x: tf.Variable) ->  tf.Variable:
     """ the step function """
     return (1.0 - tf.sign(x)) * 0.5
 
