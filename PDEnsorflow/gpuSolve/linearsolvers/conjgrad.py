@@ -1,7 +1,7 @@
 import numpy as np
 from time import time
 import tensorflow as tf
-
+from gpuSolve.linearsolvers.abstract_precond import AbstractPrecond
 
 class ConjGrad:
     """
@@ -11,11 +11,12 @@ class ConjGrad:
     """
     def __init__(self,config : dict = None):
         self._maxiter : int = 100
-        self._toll : float   = 1.e-8
+        self._toll : float   = 1.e-5
         self._verbose: bool = False
         self._A : tf.sparse.SparseTensor = None
         self._RHS : tf.constant = None
         self._X : tf.Variable = None
+        self.__Precond : AbstractPrecond = None
         
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -26,6 +27,12 @@ class ConjGrad:
         self._niters : int = 0
         self._residual: float = 1.e32
 
+
+    def set_precond(self, prcnd: AbstractPrecond):
+        """
+        set_precond(prcnd) assigns the preconditioner prcnd
+        """
+        self.__Precond = prcnd
 
     def set_maxiter(self, maxit:int):
         """ 
@@ -56,6 +63,11 @@ class ConjGrad:
         set_X0(X0) assigns the inital guess X0 to the solver 
         """
         self._X = X0 
+
+    def Precond(self) -> AbstractPrecond:
+        """Precond() returns the preconditioner object
+        """
+        return(self.__Precond)
 
     def maxiter(self) -> int:
         """ 
@@ -102,6 +114,7 @@ class ConjGrad:
         else:
             tf.print('WARNING: max nb of iteration reached (residual: {:4.3f})'.format(self._residual))
 
+
     @tf.function    
     def solve(self):
         """
@@ -113,21 +126,38 @@ class ConjGrad:
             if self._verbose:
                 t0             = time()
             r              = self._RHS - tf.sparse.sparse_dense_matmul(self._A,self._X)
-            p              = r
             self._residual = tf.reduce_sum(tf.multiply(r, r))
+            if self.__Precond:
+                z      = self.__Precond.solve_precond_system(r)
+                p      = z
+                rzold  = tf.reduce_sum(tf.multiply(r, z)) 
+                
+            else:
+                p      = r
+                rzold  = self._residual
+            
             if self._verbose:
                 tf.print('initial residual: {:4.3f}'.format(self._residual))    
-            for self._niters in range(1,1+self._maxiter):
+            for self._niters in tf.range(1,1+self._maxiter):
                 Ap             = tf.sparse.sparse_dense_matmul(self._A,p)
-                alpha          = self._residual /tf.reduce_sum(tf.multiply(p, Ap))
+                alpha          = rzold /tf.reduce_sum(tf.multiply(p, Ap))
                 self._X.assign_add(alpha * p) 
                 r             -= alpha * Ap
-                rsnew          = tf.reduce_sum(tf.multiply(r, r))
-                beta           = (rsnew / self._residual)
-                p              = r + beta * p
-                self._residual = rsnew 
+                self._residual = tf.reduce_sum(tf.multiply(r, r))               
                 if (tf.sqrt(self._residual) < self._toll):
                     break
+                else:
+                    if self.__Precond:
+                        z     = self.__Precond.solve_precond_system(r)
+                        rznew = tf.reduce_sum(tf.multiply(r, z)) 
+                        beta  = (rznew / rzold)
+                        p     = z + beta * p
+                    else:
+                        rznew = self._residual
+                        beta  = (rznew / rzold)
+                        p     = r + beta * p
+                    rzold = rznew
+
             if self._verbose:
                 elapsed = time() - t0
                 print('done in {:3.2f} s'.format(elapsed),flush=True)            
