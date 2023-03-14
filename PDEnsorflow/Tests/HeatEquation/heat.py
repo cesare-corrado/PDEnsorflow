@@ -73,11 +73,11 @@ class HeatEquation:
 
         then = time.time()
         self._domain.load_geometry_file()
-        self.DX = self._domain.DX()
-        self.DY = self._domain.DY()
-        self.DZ = self._domain.DZ()
+        self.DX = tf.constant(self._domain.dx(), dtype=np.float32)
+        self.DY = tf.constant(self._domain.dy(), dtype=np.float32)
+        self.DZ = tf.constant(self._domain.dz(), dtype=np.float32)
         elapsed = (time.time() - then)
-        tf.print('initialisation, elapsed: %f sec' % elapsed)
+        print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit += elapsed
 
     def  domain(self):
@@ -182,10 +182,8 @@ if __name__ == '__main__':
     print('=======================================================================')
     model = HeatEquation(config)
     im = ResultWriter(config)
-    [im.width,im.height,im.depth] = model.domain().numpy().shape
+    [im.width,im.height,im.depth] = model.domain().shape
     model.run(im)
     im = None
 
 
-
-  
