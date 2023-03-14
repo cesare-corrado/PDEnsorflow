@@ -1,5 +1,4 @@
 import numpy as np
-import sys
 from time import time
 import tensorflow as tf
 
@@ -12,7 +11,7 @@ class ConjGrad:
     """
     def __init__(self,config : dict = None):
         self._maxiter : int = 100
-        self._toll : float   = 1.e-5
+        self._toll : float   = 1.e-8
         self._verbose: bool = False
         self._A : tf.sparse.SparseTensor = None
         self._RHS : tf.constant = None

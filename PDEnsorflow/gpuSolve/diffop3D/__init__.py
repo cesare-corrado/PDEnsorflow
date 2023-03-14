@@ -8,7 +8,6 @@ Contains:
   * laplace_convolution_homogeneous_isotropic_diffusion: 3D laplace operator as a convolution layer
 
 """
-import tensorflow as tf
 
 __version__=['1','1','0']
 

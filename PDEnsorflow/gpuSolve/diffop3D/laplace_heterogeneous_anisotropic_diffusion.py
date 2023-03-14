@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 @tf.function
-def laplace_heterogeneous_anisotropic_diffusion(X0,DIFF0,AVEC0,DX,DY,DZ):
+def laplace_heterogeneous_anisotropic_diffusion(X0: tf.Variable, DIFF0: tf.constant, AVEC0: tf.constant, DX: tf.constant, DY: tf.constant, DZ: tf.constant) -> tf.constant:
     """
     This function computes the 3D Laplace operator on X when diffusion is anisotropic and inhomogeneous.
     When the domain is different from a cube, the domain shape must be taken into account in the 

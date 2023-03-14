@@ -27,11 +27,7 @@
 
 
 import numpy as np
-import time
-
-
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
 
 
 
@@ -81,23 +77,26 @@ class IonicModel:
         """
         internal_name = '_{}'.format(pname)
         return( getattr(self, internal_name, None))
-
+    
+    @tf.function
     def to_dimensionless(self,U: tf.Variable) -> tf.Variable:
         """ to_dimensionless(U) rescales U to its dimensionless values (range [0,1])
         """
         return(U-self.__vmin)/self.__DV
-
+    
+    @tf.function
     def to_dimensional(self,U: tf.Variable) -> tf.Variable:
         """ to_dimensional(U) rescales U to its dimensional values (range [vmin,vmax])
         """
         return(self.__DV*U+self.__vmin)
 
-
+    @tf.function
     def derivative_to_dimensionless(self,dU: tf.Variable) -> tf.Variable:
         """ derivative_to_dimensionless(U) rescales the derivative of U (dU) to dimensionless units
         """
         return (dU/self.__DV)
-
+    
+    @tf.function
     def derivative_to_dimensional(self,dU: tf.Variable) -> tf.Variable:
         """ derivative_to_dimensional(U) rescales the derivative of U (dU) to dimensional values
         """

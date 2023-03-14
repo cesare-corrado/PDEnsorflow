@@ -7,7 +7,6 @@ Contains:
   * localStiffness: a collection of functions to assemble local stiffness matrices in cartesian coordinates
   * globalMatrices: a collection of functions to assemble global sparse matrices
 """
-import tensorflow as tf
 
 __version__=['1','1','0']
 

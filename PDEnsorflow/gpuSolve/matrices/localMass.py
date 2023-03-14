@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def localMass(elemtype,elemData,props=None):
+def localMass(elemtype: str,elemData: dict, props = None):
     """function localMass(elemtype,elemData)
     returns the local mass matrix for element of type elemtype.
     Material properties are considered uniform and unitary
@@ -25,7 +25,7 @@ def localMass(elemtype,elemData,props=None):
     return(function_dict[elemtype](elemData,props) )
 
 
-def linear_Edge_local_Mass(elemData,props=None):
+def linear_Edge_local_Mass(elemData : dict, props = None) -> np.ndarray:
     """function linear_Edge_local_Mass(elemData)
     returns the local mass matrix for linear 1D elements.
     Material properties are considered uniform and unitary
@@ -38,7 +38,7 @@ def linear_Edge_local_Mass(elemData,props=None):
     """
     nV      = 2
     el_meas = elemData['meas']
-    lmass = np.zeros(shape=(nV,nV),dtype=np.float32)
+    lmass = np.zeros(shape=(nV,nV),dtype=float)
     iientry = 1.0/3.0
     ijentry = 1.0/6.0
     for ipt in range(nV):
@@ -50,7 +50,7 @@ def linear_Edge_local_Mass(elemData,props=None):
     return(lmass)
 
 
-def linear_triangular_local_Mass(elemData,props=None):
+def linear_triangular_local_Mass(elemData : dict,props=None) -> np.ndarray :
     """function linear_triangular_local_Mass(elemData)
     returns the local mass matrix for linear triangular elements.
     Material properties are considered uniform and unitary
@@ -63,7 +63,7 @@ def linear_triangular_local_Mass(elemData,props=None):
     """
     nV      = 3
     el_meas = elemData['meas']
-    lmass = np.zeros(shape=(nV,nV),dtype=np.float32)
+    lmass = np.zeros(shape=(nV,nV),dtype=float)
     iientry = 1.0/12.0
     ijentry = 1.0/24.0
     for ipt in range(nV):
@@ -76,7 +76,7 @@ def linear_triangular_local_Mass(elemData,props=None):
     return(lmass)
 
 
-def linear_tetrahedral_local_Mass(elemData,props=None):
+def linear_tetrahedral_local_Mass(elemData: dict, props=None) -> np.ndarray:
     """function linear_tetrahedral_local_Mass(elemData)
     returns the local mass matrix for linear tetrahedral elements.
     Material properties are considered uniform and unitary
@@ -89,7 +89,7 @@ def linear_tetrahedral_local_Mass(elemData,props=None):
     """
     nV      = 4
     el_meas = elemData['meas']    
-    lmass = np.zeros(shape=(nV,nV),dtype=np.float32)
+    lmass = np.zeros(shape=(nV,nV),dtype=float)
     iientry = 1.0/60.0
     ijentry = 1.0/120.0
     for ipt in range(nV):

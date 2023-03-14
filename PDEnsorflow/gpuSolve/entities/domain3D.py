@@ -1,4 +1,3 @@
-import tensorflow as tf
 import numpy as np
 import sys
 import time
@@ -12,22 +11,22 @@ class Domain3D:
     it collects domain shape and properties such as fibre directions and conductivities.
     """
 
-    def __init__(self,props={}):
-        self._width             = None
-        self._height            = None
-        self._depth             = None
-        self._dx                = 1.0
-        self._dy                = 1.0
-        self._dz                = 1.0
-        self._geometry          = None
-        self._conductivity      = None
-        self._fibtensor         = None
-        self._geometryfile      = ''
-        self._conductivityfile  = ''
-        self._fibtensorfile     = ''
-        self._timecounter       = 0.0
-        self._anisotropic       = False
-        if(len(props)>0):
+    def __init__(self,props : dict=None):
+        self._width : int                 = None
+        self._height : int                = None
+        self._depth : int                 = None
+        self._dx : float                  = 1.0
+        self._dy : float                  = 1.0
+        self._dz : float                  = 1.0
+        self.__geometry : np.ndarray      = None
+        self.__conductivity : np.ndarray  = None
+        self.__fibtensor : np.ndarray     = None
+        self._geometryfile : str          = ''
+        self._conductivityfile : str      = ''
+        self._fibtensorfile : str         = ''
+        self.__timecounter : float        = 0.0
+        self.__anisotropic : bool         = False
+        if props:
             for attribute in self.__dict__.keys():
                 attr_name = attribute[1:]
                 if attr_name in props.keys():
@@ -35,7 +34,7 @@ class Domain3D:
 
 
 
-    def load_geometry_file(self,fname='',Mx=0,My=0,threshold = 1.e-4):
+    def load_geometry_file(self,fname : str ='', Mx : int = 0, My: int = 0, threshold : float = 1.e-4):
         ''' 
         This function loads the domain geometry from a file
         If no file name is provided, this function 
@@ -50,24 +49,24 @@ class Domain3D:
             self._geometryfile = fname
         if len(self._geometryfile):
             Image = ImageData()
-            tf.print('reading the geometry from the file {0}'.format(fname))
+            print('reading the geometry from the file {0}'.format(fname))
             Image.load_image(fname,Mx,My)
-            img_vox = Image.get_rescaled_data('unit').astype(np.float32)
+            img_vox = Image.get_rescaled_data('unit')
             [self._width,self._height,self._depth] = img_vox.shape 
             img_vox[img_vox>threshold]  = 1.0
             img_vox[img_vox<=threshold] = 0.0
-            self._geometry = tf.constant(img_vox, dtype=np.float32, name='domain' )
-            tf.print('Sizes: ({}X{}X{})'.format(self._width,self._height,self._depth) )
+            self.__geometry = img_vox
+            print('Sizes: ({}X{}X{})'.format(self._width,self._height,self._depth) )
         else:
-            tf.print('Cubic geometry ({}X{}X{})'.format(self._width,self._height,self._depth) )
-            self._geometry = tf.constant(1.0,shape=(self._width,self._height,self._depth), dtype=np.float32, name='domain')
+            print('Cubic geometry ({}X{}X{})'.format(self._width,self._height,self._depth) )
+            self.__geometry = np.ones(shape=(self._width,self._height,self._depth))
         elapsed = (time.time() - then)
-        self._timecounter += elapsed
-        tf.print('geometry initialised; elapsed: %f sec' % elapsed)
+        self.__timecounter += elapsed
+        print('geometry initialised; elapsed: %f sec' % elapsed)
 
 
 
-    def assign_geometry(self,geometryTensor):
+    def assign_geometry(self, geometryTensor: np.ndarray):
         ''' 
         This function assigns a pre-defined tensor to the domain geometry.
         All the pre-processing operations are supposed to be done before calling.
@@ -75,13 +74,13 @@ class Domain3D:
             geometryTensor: a 3D tensor (numpy or tensorflow) with geometry voxel values
         '''
         then = time.time()    
-        self._geometry = tf.constant(geometryTensor, dtype=np.float32, name='domain' )
+        self.__geometry = geometryTensor
         [self._width,self._height,self._depth] = geometryTensor.shape 
         elapsed = (time.time() - then)
-        self._timecounter += elapsed
+        self.__timecounter += elapsed
 
 
-    def load_conductivity(self, fname='', Mx=0, My=0, cond_unif=1.0):
+    def load_conductivity(self, fname : str = '', Mx: int = 0, My: int = 0, cond_unif: float = 1.0):
         ''' 
         This function loads the domain conductivity from a file
         If no file name is provided, this function builds an uniform conductivity 
@@ -94,65 +93,65 @@ class Domain3D:
         if self._conductivityfile =='':
             self._conductivityfile = fname
     
-        if self._geometry is not None:
+        if self.__geometry is not None:
             then = time.time()
             if len(self._conductivityfile):
                 Image = ImageData()
-                tf.print('reading the conductivity from the file {0}'.format(fname))
+                print('reading the conductivity from the file {0}'.format(fname))
                 Image.load_image(fname,Mx,My)
                 img_vox = Image.get_fdata()
                 if(len(img_vox.shape)==4 and img_vox.shape[-1] >1 ):
-                    tf.print('anisotropic conductivity (need fibres)')
-                    self._anisotropic = True
+                    print('anisotropic conductivity (need fibres)')
+                    self.__anisotropic = True
                 else:
-                    tf.print('isotropic conductivity')
-                    self._anisotropic = False
+                    print('isotropic conductivity')
+                    self.__anisotropic = False
                     # remove one dim from the tensor
                     if len(img_vox.shape)==4:
                         img_vox = img_vox[:,:,:,0]
-                if self._anisotropic:
+                if self.__anisotropic:
                     img_vox[:,:,:,1] = img_vox[:,:,:,1] - img_vox[:,:,:,0]
-                    self._conductivity = tf.constant(img_vox, dtype=np.float32, name='diffusion' )
+                    self.__conductivity = img_vox
                 else:
-                    self._conductivity = tf.constant(img_vox, dtype=np.float32, name='diffusion' )
+                    self.__conductivity = img_vox
             else:            
-                tf.print('homogeneous conductivity')
-                self._conductivity = tf.constant(cond_unif*self._geometry, dtype=np.float32, name='diffusion' )
+                print('homogeneous conductivity')
+                self.__conductivity = cond_unif*self.__geometry
             elapsed = (time.time() - then)
-            tf.print('initialisation of conductivity tensor, elapsed: %f sec' % elapsed)
-            self._timecounter += elapsed
+            print('initialisation of conductivity tensor, elapsed: %f sec' % elapsed)
+            self.__timecounter += elapsed
         else:
             sys.exit("No geometry defined! (assign a geometry first)")
 	
 
-    def assign_conductivity(self,conductivityTensor):
+    def assign_conductivity(self,conductivityTensor: np.ndarray):
         ''' 
         This function assigns a pre-defined tensor to the domain conductivity.
         conductivityTensor: a 3D tensor (numpy or tensorflow) with conductivity voxel values
         '''
         then = time.time() 
-        if self._geometry is not None:   
+        if self.__geometry is not None:   
             if(len(conductivityTensor.shape)==4 and conductivityTensor.shape[-1] >1 ):
-                tf.print('anisotropic conductivity (need fibres)')
-                self._anisotropic = True
+                print('anisotropic conductivity (need fibres)')
+                self.__anisotropic = True
             else:
-                tf.print('isotropic conductivity')
-                self._anisotropic = False
+                print('isotropic conductivity')
+                self.__anisotropic = False
                 # remove one dim from the tensor
                 if len(conductivityTensor.shape)==4:
                     conductivityTensor = conductivityTensor[:,:,:,0]
-            if self._anisotropic:
+            if self.__anisotropic:
                 conductivityTensor[:,:,:,1] = conductivityTensor[:,:,:,1] - conductivityTensor[:,:,:,0]
-                self._conductivity = tf.constant(conductivityTensor, dtype=np.float32, name='diffusion' )
+                self.__conductivity = conductivityTensor
             else:
-                self._conductivity = tf.constant(conductivityTensor, dtype=np.float32, name='diffusion' )
+                self.__conductivity = conductivityTensor
             elapsed = (time.time() - then)
-            self._timecounter += elapsed
+            self.__timecounter += elapsed
         else:
             sys.exit("No geometry defined! (assign a geometry first)")
 
 
-    def load_fiber_direction(self, fname='', Mx=0, My=0):
+    def load_fiber_direction(self, fname : str ='', Mx: int =0, My: int =0):
         ''' 
         This function loads the fiber directions from a file
         Arguments:
@@ -166,25 +165,25 @@ class Domain3D:
         if self._fibtensorfile == '':
             self._fibtensorfile = fname
     
-        if self._geometry is not None:
+        if self.__geometry is not None:
             if len(self._fibtensorfile):
                 then = time.time()
                 Image = ImageData()
-                tf.print('reading the fibres from the file {0}'.format(fname))
+                print('reading the fibres from the file {0}'.format(fname))
                 Image.load_image(fname,Mx,My)
                 img_vox = Image.get_fdata()
                 [W,H,D,_] = img_vox.shape
-                fibtens=np.zeros(shape=(W,H,D,6),dtype=np.float32)
+                fibtens=np.zeros(shape=(W,H,D,6))
                 fibtens[:,:,:,0] = img_vox[:,:,:,0] *img_vox[:,:,:,0]
                 fibtens[:,:,:,1] = img_vox[:,:,:,0] *img_vox[:,:,:,1]
                 fibtens[:,:,:,2] = img_vox[:,:,:,0] *img_vox[:,:,:,2]
                 fibtens[:,:,:,3] = img_vox[:,:,:,1] *img_vox[:,:,:,1]
                 fibtens[:,:,:,4] = img_vox[:,:,:,1] *img_vox[:,:,:,2]
                 fibtens[:,:,:,5] = img_vox[:,:,:,2] *img_vox[:,:,:,2]
-                self._fibtensor  = tf.constant(fibtens, dtype=np.float32, name='fibtensor' )
+                self.__fibtensor  = fibtens
                 elapsed = (time.time() - then)
-                self._timecounter += elapsed
-                tf.print('initialisation of fibers tensor, elapsed: %f sec' % elapsed)
+                self.__timecounter += elapsed
+                print('initialisation of fibers tensor, elapsed: %f sec' % elapsed)
             else:            
                 sys.exit("Invalid fiber file!")
         else:
@@ -192,47 +191,46 @@ class Domain3D:
 
 	
     # Set functions
-    def set_dx(self, dx):
+    def set_dx(self, dx: float):
         self._dx = dx
 
-    def set_dy(self, dy):
+    def set_dy(self, dy: float):
         self._dy = dy
 
-    def set_dz(self, dz):
+    def set_dz(self, dz: float):
         self._dz = dz
 
     # Get functions
-    def DX(self):
-        return(tf.constant(self._dx, dtype=np.float32))
+    def dx(self) -> float:
+        return(self._dx)
     
-    def DY(self):
-        return(tf.constant(self._dy, dtype=np.float32))
+    def dy(self)-> float:
+        return(self._dy)
     
-    def DZ(self):
-        return(tf.constant(self._dz, dtype=np.float32))
+    def dz(self)-> float:
+        return(self._dz)
 
-    def width(self):
+    def width(self) -> int :
         return(self._width)
 
-    def height(self):
+    def height(self) -> int :
         return(self._height)
 
-    def depth(self):
+    def depth(self) -> int :
         return(self._depth)
 
-    def anisotropic(self):
-        return(self._anisotropic)
+    def anisotropic(self) -> bool:
+        return(self.__anisotropic)
 
-    def geometry(self):
-        return(self._geometry)
+    def geometry(self) -> np.ndarray:
+        return(self.__geometry)
 
-    def conductivity(self):
-        return(self._conductivity)
+    def conductivity(self) -> np.ndarray:
+        return(self.__conductivity)
         
-    def fibtensor (self):
-        return(self._fibtensor)
+    def fibtensor (self) -> np.ndarray:
+        return(self.__fibtensor)
 
-    def walltime(self):
-        return(self._timecounter)
-
+    def walltime(self) -> float:
+        return(self.__timecounter)
 

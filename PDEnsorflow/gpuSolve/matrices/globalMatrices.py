@@ -1,13 +1,16 @@
-import tensorflow as tf
 import numpy as np
-from scipy.sparse import csr_matrix, coo_matrix
-from scipy.sparse.csgraph import reverse_cuthill_mckee
-
-import sys
 from time import time
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import reverse_cuthill_mckee
 from gpuSolve.matrices.localMass import localMass 
 from gpuSolve.matrices.localStiffness import localStiffness
 
+
+####################################################################################
+#############                                                          #############
+#############         functions that DO NOT require TensorFlow         #############
+#############                                                          #############
+####################################################################################
 
 def compute_coo_pattern(connectivity: dict) -> dict:
     """ function compute_coo_pattern(connectivity)
@@ -71,6 +74,57 @@ def compute_reverse_cuthill_mckee_indexing(matrix_pattern : dict, sym_mat : bool
     return({'perm': perm_rcm, 'iperm': iperm_rcm })    
 
 
+def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity: dict = None) -> dict[np.ndarray]:
+    """ function assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
+    Given a python dict of functions to compute local matrices, this function computes all the 
+    vectors of the entries of the global sparse matrices using the domain connectivity and the matrix pattern.
+    Input:
+        local_matrices_dict: a python dict of functions to compute the local matrices
+        matrix_pattern:      the sparsity pattern of the matrix
+        domain:              the domain object
+        matprops:            a MaterialProperties object that implements functions to provide local properties
+        connectivity:        the domain connectivity (if None, it is computed and kept in memory)
+    Output:
+        VM:  a python dict with the numpy tensors of entries.
+    """
+    npt = domain.Pts().shape[0]
+    k0  = matrix_pattern['StartIndex']    
+    VM  = {}
+    print('Assembly the following sparse matrices:'.format(len(local_matrices_dict.keys())),flush=True)    
+    for matr_name in local_matrices_dict.keys():
+        print('{}'.format(matr_name),flush=True)
+        VM[matr_name]  = np.zeros(shape=matrix_pattern['I'].shape)
+    if connectivity is None:
+        connectivity = domain.mesh_connectivity(True)
+    lmat = {}
+    t0 = time()
+    for elemtype, Elements in domain.Elems().items():
+        for iElem,Elem in enumerate(Elements):
+            Elem       = Elem[:-1]
+            elemData   = domain.element_contravariant_basis(elemtype,iElem)            
+            lmat.clear()
+            # Compute the local matrices
+            for matr_name,lmateval in local_matrices_dict.items():
+                local_props = matprops.execute_ud_func(matr_name,elemtype, iElem,domain,matprops)
+                lmat[matr_name]   = lmateval(elemtype,elemData,local_props)
+            # Assembling
+            for iEntry,irow in enumerate(Elem):
+                for jEntry,jcol in enumerate(Elem):
+                    indexEntry      = k0[irow]+np.where(connectivity[irow]==jcol)[0]
+                    for matr_name,local_matrix in lmat.items():
+                        VM[matr_name][indexEntry] += local_matrix[iEntry,jEntry]
+    elapsed = time() - t0
+    print('done in {:3.2f} s'.format(elapsed),flush=True)    
+    return(VM)
+
+
+####################################################################################
+#############                                                          #############
+#############            functions that REQUIRE TensorFlow             #############
+#############                                                          #############
+####################################################################################
+import tensorflow as tf
+
 def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None, renumbering: dict = None) -> tf.sparse.SparseTensor:
     """ function assemble_mass_matrix(matrix_pattern,domain,connectivity=None)
     computes the sparse mass matrix using the domain connectivity and the matrix pattern.
@@ -108,12 +162,12 @@ def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None,
         iperm   = renumbering['iperm']
         I_rnmb  = iperm[I].astype(I.dtype)
         J_rnmb  = iperm[J].astype(J.dtype)
-        indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])    
-
+        indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])
     MASS      = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(MASS)
+
 
 def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: str = 'Sigma',connectivity : dict =None, renumbering : dict = None) -> tf.sparse.SparseTensor:
     """ function assemble_stiffness_matrix(matrix_pattern,domain,matprops,connectivity=None)
@@ -159,52 +213,6 @@ def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: 
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)    
     return(STIFFNESS)
-
-
-def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity: dict = None):
-    """ function assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
-    Given a python dict of functions to compute local matrices, this function computes all the 
-    vectors of the entries of the global sparse matrices using the domain connectivity and the matrix pattern.
-    Input:
-        local_matrices_dict: a python dict of functions to compute the local matrices
-        matrix_pattern:      the sparsity pattern of the matrix
-        domain:              the domain object
-        matprops:            a MaterialProperties object that implements functions to provide local properties
-        connectivity:        the domain connectivity (if None, it is computed and kept in memory)
-    Output:
-        VM:  a python dict with the numpy tensors of entries.
-    """
-    npt = domain.Pts().shape[0]
-    k0  = matrix_pattern['StartIndex']    
-    VM  = {}
-    print('Assembly the following sparse matrices:'.format(len(local_matrices_dict.keys())),flush=True)    
-    for matr_name in local_matrices_dict.keys():
-        print('{}'.format(matr_name),flush=True)
-        VM[matr_name]  = np.zeros(shape=matrix_pattern['I'].shape)
-    if connectivity is None:
-        connectivity = domain.mesh_connectivity(True)
-    lmat = {}
-    t0 = time()
-    for elemtype, Elements in domain.Elems().items():
-        for iElem,Elem in enumerate(Elements):
-            Elem       = Elem[:-1]
-            elemData   = domain.element_contravariant_basis(elemtype,iElem)            
-            lmat.clear()
-            # Compute the local matrices
-            for matr_name,lmateval in local_matrices_dict.items():
-                local_props = matprops.execute_ud_func(matr_name,elemtype, iElem,domain,matprops)
-                lmat[matr_name]   = lmateval(elemtype,elemData,local_props)
-            # Assembling
-            for iEntry,irow in enumerate(Elem):
-                for jEntry,jcol in enumerate(Elem):
-                    indexEntry      = k0[irow]+np.where(connectivity[irow]==jcol)[0]
-                    for matr_name,local_matrix in lmat.items():
-                        VM[matr_name][indexEntry] += local_matrix[iEntry,jEntry]
-    # Now generate a dict of tf.sparse objects
-    elapsed = time() - t0
-    print('done in {:3.2f} s'.format(elapsed),flush=True)    
-    return(VM)
-
 
 
 
