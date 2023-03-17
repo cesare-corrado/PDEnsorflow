@@ -1,10 +1,7 @@
-import numpy as np
-import sys
 import os
-from time import time
 
 
-def elemCode(elemName):
+def elemCode(elemName : str) -> str:
     '''
     elemcode(elemName) converts the the PDEnsorflow elemName
     into carp file name elem name.
@@ -28,7 +25,7 @@ class CarpMeshWriter:
     """
     def __init__(self):
         self.__Mesh   = None
-        self.__nElems = 0
+        self.__nElems : int = 0
 
     def assignMesh(self, msh):
         """ 
@@ -42,7 +39,7 @@ class CarpMeshWriter:
         """
         return(self._Mesh)
 
-    def writeMesh(self,fprefix):
+    def writeMesh(self,fprefix : str):
         """
         writeMesh(fprefix): writes the mesh in Carp format, using fprefix as the prtefix.
         The prefix must contain the path.
@@ -70,7 +67,7 @@ class CarpMeshWriter:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
-    def __write_carp_nodes(self,prefix):
+    def __write_carp_nodes(self,prefix : str):
         ''' writes the nodes in carp format (.pts file)'''
         Pts    = self.__Mesh.Pts()        
         print('writing points',flush=True)     
@@ -79,7 +76,7 @@ class CarpMeshWriter:
             for pt in Pts:
                 fp.write('{0} {1} {2}\n'.format(pt[0],pt[1],pt[2]) )
     
-    def __write_carp_elements(self,prefix):
+    def __write_carp_elements(self,prefix :str):
         ''' writes the elements in carp format (.elem file)'''    
         Elems  = self.__Mesh.Elems()
         print('writing elements',flush=True)
@@ -94,7 +91,7 @@ class CarpMeshWriter:
                         row=row+'\n'
                         fe.write(row)
 
-    def __write_carp_fibers(self,prefix):
+    def __write_carp_fibers(self,prefix : str):
         ''' writes the fibers in carp format (.lon file)'''    
         Fibres = self.__Mesh.Fibres()
         if Fibres.shape[1]==3:

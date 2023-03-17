@@ -6,6 +6,9 @@ This sub-module of `gpuSolve` defines some general entities as classes that coll
 * `Triangulation`
 * `MaterialProperties`
 
+
+These objects do not require Tensorflow.
+
 ## Domain3D
 
 This class implements a 3D domain; the domain gathers information on:

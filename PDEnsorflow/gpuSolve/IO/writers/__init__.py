@@ -11,7 +11,7 @@ Contains:
 
 
 
-__version__=['1','1','0']
+__version__=['1','2','0']
 
 
 def version():
@@ -23,6 +23,6 @@ def version():
 
 
 from gpuSolve.IO.writers.resultwriter import ResultWriter
-from gpuSolve.IO.writers.vedoplotter import VedoPlotter
+#from gpuSolve.IO.writers.vedoplotter import VedoPlotter
 from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
 from gpuSolve.IO.writers.igbwriter import IGBWriter

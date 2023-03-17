@@ -26,28 +26,21 @@
 
 
 
-import numpy as np
-import time
 from gpuSolve.ionic.ionicmodel import IonicModel
-
-
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+
 
 
 
 @tf.function
-def H(x):
+def H(x: tf.Variable) ->  tf.Variable:
     """ the step function """
     return (1.0 + tf.sign(x)) * 0.5
 
 @tf.function
-def G(x):
+def G(x: tf.Variable) ->  tf.Variable:
     """ the step function """
     return (1.0 - tf.sign(x)) * 0.5
-
-
-
 
 
 class Fenton4v(IonicModel):

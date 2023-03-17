@@ -22,8 +22,8 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
-
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
@@ -42,7 +42,9 @@ from gpuSolve.matrices.globalMatrices import compute_coo_pattern
 from gpuSolve.matrices.localMass import localMass
 from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
+from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
+from gpuSolve.linearsolvers.jacobi_precond import JacobiPrecond
 from gpuSolve.force_terms import Stimulus
 
 
@@ -73,14 +75,18 @@ class HeatEquation:
         self._dt: float                         = 0.1
         self._dt_per_plot: int                  = 2
         self._Tend: float                       = 10
+        self._use_renumbering : bool            = False
         self.__Domain: Triangulation            = Triangulation()
         self.__materials:MaterialProperties     = MaterialProperties()
         self.__Solver:ConjGrad                  = ConjGrad()
+        self.__Precond : JacobiPrecond          = JacobiPrecond()
         self.__StimulusDict: dict               = None
         self.__MASS                             = None
         self.__X: tf.Variable                   = None
         self.__ctime:float                      = 0.0
         self.__nbstim:int                       = 0
+        self.__renumbering                      = None
+        self.__ready_for_run                    = False
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in cfgdict.keys():
@@ -110,14 +116,18 @@ class HeatEquation:
         connectivity = self.__Domain.mesh_connectivity('True')
         # Assemble the matrices
         pattern     = compute_coo_pattern(connectivity)
+        if self._use_renumbering:
+            self.__renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
-        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity)
+        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity, renumbering=self.__renumbering)
         self.__MASS = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = tf.sparse.add(self.__MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
         self.__Domain.release_connectivity()
         self.__materials.remove_all_element_properties()
         self.__Solver.set_matrix(A)
+        self.__Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
+        self.__Solver.set_precond(self.__Precond)
 
     def set_initial_condition(self,X0:np.ndarray = None):
         npt = self.__Domain.Pts().shape[0]
@@ -137,15 +147,10 @@ class HeatEquation:
         self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,X):
+    def solve(self,X,I0:tf.constant):
         """ Implicit solver """
         self.__Solver.set_X0(X)
-        RHS0 = X
-        if self.__StimulusDict is not None:
-            for stimname,stimulus in self.__StimulusDict.items():
-                I0   = stimulus.stimApp(self.__ctime)
-                RHS0 = tf.add(RHS0,self._dt*I0)
-
+        RHS0 = tf.add(X,self._dt*I0)
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
@@ -153,7 +158,7 @@ class HeatEquation:
         return(X1)
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -164,31 +169,53 @@ class HeatEquation:
             Returns:
                 None
         """
+        if not self.__ready_for_run:
+            raise Exception("model not initialised for run!")
+            
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
-            X1 = self.solve(self.__X)
+            I0 = tf.constant(np.zeros(shape=self.__X.shape), name="I", dtype=tf.float32  )
+            if self.__StimulusDict is not None:
+                for stimname,stimulus in self.__StimulusDict.items():
+                    I0 = tf.add(I0, stimulus.stimApp(self.__ctime) )
+            X1 = self.solve(self.__X,I0)
             self.__X = X1
             # draw a frame every 1 ms
             if im and i % self._dt_per_plot == 0:
-                image = X1.numpy()
+                image = self.X().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
 
+    def finalize_for_run(self):
+        if self._use_renumbering:
+            # permutation of the initial condition
+            self.__X = tf.Variable(tf.gather(self.__X,self.__renumbering['perm']),name=self.__X.name )
+            # permutation of the stimulus indices
+            for key ,stim in self.__StimulusDict.items():
+                stim.apply_indices_permutation(self.__renumbering['perm'])
+        self.__ready_for_run = True
+
     def domain(self) -> Triangulation:
         return(self.__Domain)
     
     def solver(self) -> ConjGrad:
         return(self.__Solver)
-    
+
+    def precond(self) -> JacobiPrecond:
+        return(self.__Precond)
+
     def stimulus(self) ->dict:
         return(self.__StimulusDict)
 
     def X(self) -> tf.Variable:
-        return(self.__X)        
+        if self._use_renumbering:
+            return(tf.gather(self.__X,self.__renumbering['iperm']) )
+        else:
+            return(self.__X)
 
     def nt(self) -> int:
         return(self.__nt)
@@ -210,6 +237,7 @@ if __name__=='__main__':
 
     config  = {
         'mesh_file_name': os.path.join('..','..','data','triangulated_square.pkl'),
+        'use_renumbering': True,
         'dt' : dt,
         'dt_per_plot': int(1.0/dt),   #record every ms
         'Tend': 1000
@@ -246,6 +274,7 @@ if __name__=='__main__':
                      'nt':1+nt,
                      'nx':model.domain().Pts().shape[0]
                      })
+    model.finalize_for_run()
     im.imshow(model.X().numpy())
     model.run(im)
     im = None

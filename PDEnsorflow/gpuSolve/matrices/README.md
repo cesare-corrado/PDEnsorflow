@@ -37,13 +37,30 @@ are characterised by a number *nnzero* of non-zero entries proportional to the m
 
 ###  compute_coo_pattern(connectivity)
 
-Given the mesh connectivity (input argument), this function computes three arrays to assemble a sparse matrix in coo form: 
+Given the mesh connectivity (input argument), this function computes three arrays to assemble a sparse matrix in *COO* form: 
 
-* I: an array of shape *nnzero* with the row IDs
-* J: an array of shape *nnzero* with the column IDs
-* StartIndex: an array of shape *npt+1* with the index on I and J that corresponds to the begin of each row. 
+* ``I``: an array of shape *nnzero* with the row IDs
+* ``J``: an array of shape *nnzero* with the column IDs
+* ``StartIndex``: an array of shape *npt+1* with the index on I and J that corresponds to the begin of each row. 
 
 E.g., entries of row k start at index StartIndex[k] and terminate at index StartIndex[k+1]-1.
+
+**Note:** It is also possible to use this function to extract the pattern of a *CSR* matrix, 
+as ``StartIndex`` represents ``indptr`` and ``J`` represents ``indices``.
+
+### compute_reverse_cuthill_mckee_indexing(matrix_pattern, sym_mat = True)
+
+Computes the reverse\_cuthill\_mckee indexing to concentrate the entries aroud the diagonal. 
+This function evaluates the permutaion and the inverse permutation to map back to the original indexing. 
+Permutations are numpy arrays of integers.
+
+* Input:
+   * ``matrix_pattern``: the sparsity pattern of the matrix
+   * ``sym_mat`` (default True): a boolean flag that tells if the original matrix is symmetric or not
+* Output is a dict with:
+   * ``'perm'``: direct permutation (from origin to permuted)
+   * ``'iperm'``: inverse  permutation (to map back to the original indexes)
+
 
 
 ### assemble_mass_matrix(matrix_pattern,domain,connectivity=None)
@@ -53,6 +70,7 @@ This function computes the sparse mass matrix using the domain connectivity and 
 * matrix_pattern: the sparsity pattern of the matrix
 * domain:         the domain object
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+* renumbering:    the node renumbering to reduce breadwidth (default = None does not renumber nodes)
 
 ### assemble_stiffness_matrix(matrix_pattern,domain,matprops,stif_pname='Sigma',connectivity=None)
 
@@ -63,7 +81,7 @@ This function computes the sparse stiffness matrix using the domain connectivity
 * matprops:       a MaterialProperties object that implements functions to provide local properties 
 * stif_pname:     the name of the function that evaluates the matertial properties
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
-
+* renumbering:    the node renumbering to reduce breadwidth (default = None does not renumber nodes)
 
 ### assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
 
@@ -85,5 +103,6 @@ Given a python dict of functions to compute local matrices, this function comput
 * domain:         the domain object
 * matprops:       a MaterialProperties object that implements functions to provide local properties
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
+* renumbering:    the node renumbering to reduce breadwidth (default = None)
 
 

@@ -1,5 +1,3 @@
-import numpy as np
-
 class MaterialProperties:
     """
     Class MaterialProperties
@@ -8,16 +6,16 @@ class MaterialProperties:
     """
 
     def __init__(self):
-        self._element_properties = None
-        self._nodal_properties   = None
-        self._ud_functions       = None
+        self._element_properties : dict = None
+        self._nodal_properties : dict   = None
+        self._ud_functions : dict       = None
         
-    def add_ud_function(self,fname,fdef):
+    def add_ud_function(self,fname : str,fdef):
         if self._ud_functions is None:
             self._ud_functions = {} 
         self._ud_functions[fname]=fdef
 
-    def remove_ud_function(self,fname):
+    def remove_ud_function(self,fname : str):
         """
         remove_ud_function(fname) if function fname exists, it removes 
         it from the the _ud_functions dict 
@@ -26,7 +24,7 @@ class MaterialProperties:
         if not self._ud_functions:
             self._ud_functions = None
 
-    def execute_ud_func(self,fname,*kwargs):
+    def execute_ud_func(self,fname : str,*kwargs):
         """ executes the function with key fname, passing the arguments *kwargs
         If the function does not exists, it returns None
         """
@@ -35,7 +33,7 @@ class MaterialProperties:
         else:
             return(None)
 
-    def add_element_property(self,pname,ptype,pmap):
+    def add_element_property(self,pname : str,ptype : str,pmap):
         """ add_element_property(pname,ptype,pmap)
         adds a material property associated to elements to 
         the element_properties dict.
@@ -51,7 +49,7 @@ class MaterialProperties:
                                            'idmap':pmap
                                           }        
 
-    def add_nodal_property(self,pname,ptype,pmap):
+    def add_nodal_property(self,pname : str, ptype : str, pmap):
         """ add_nodal_property(pname,ptype,pmap)
         adds a material property associated to Nodes to 
         the nodal_properties dict.
@@ -67,7 +65,7 @@ class MaterialProperties:
                                            'idmap':pmap
                                         }
 
-    def remove_element_property(self,pname):
+    def remove_element_property(self,pname : str):
         """
         remove_element_property(pname) if property pname exists, it removes 
         it from the the element_properties dict 
@@ -76,7 +74,7 @@ class MaterialProperties:
         if not self._element_properties:
             self._element_properties = None
 
-    def remove_nodal_property(self,pname):
+    def remove_nodal_property(self,pname : str):
         """
         remove_nodal_property(pname) if property pname exists, it removes 
         it from the the nodal_properties dict 
@@ -89,18 +87,20 @@ class MaterialProperties:
         """
         remove_all_element_properties() deletes all properties in element_properties
         """
-        self._element_properties.clear()
-        self._element_properties = None
+        if self._element_properties is not None:
+            self._element_properties.clear()
+            self._element_properties = None
 
     def remove_all_nodal_properties(self):
         """
         remove_all_nodal_properties() deletes all properties in nodal_properties
         """
-        self._nodal_properties.clear()
-        self._nodal_properties = None
+        if self._nodal_properties is not None:
+            self._nodal_properties.clear()
+            self._nodal_properties = None
 
 
-    def ElementProperty(self,pname,elemtype,elemID,regionID):
+    def ElementProperty(self,pname : str,elemtype : str,elemID : int,regionID : int) -> float:
         """"
         ElementProperty(pname,elemtype,elemID,regionID)
         returns the element property of an element/region
@@ -129,7 +129,7 @@ class MaterialProperties:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
-    def NodalProperty(self,pname,pointID,regionID):
+    def NodalProperty(self,pname : str, pointID : int,regionID: int)  -> float:
         """"
         NodalProperty(pname,pointID,regionID)
         returns the nodal property of a node/region

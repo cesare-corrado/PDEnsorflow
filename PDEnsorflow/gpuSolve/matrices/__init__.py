@@ -7,9 +7,8 @@ Contains:
   * localStiffness: a collection of functions to assemble local stiffness matrices in cartesian coordinates
   * globalMatrices: a collection of functions to assemble global sparse matrices
 """
-import tensorflow as tf
 
-__version__=['1','1','0']
+__version__=['1','2','0']
 
 
 def version():
@@ -22,6 +21,7 @@ def version():
 from gpuSolve.matrices.localMass import localMass 
 from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import compute_coo_pattern
+from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.matrices.globalMatrices import assemble_mass_matrix
 from gpuSolve.matrices.globalMatrices import assemble_stiffness_matrix
 from gpuSolve.matrices.globalMatrices import assemble_vectmat_dict

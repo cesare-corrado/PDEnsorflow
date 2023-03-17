@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def localStiffness(elemtype,elemData, Sigma=np.identity(3)):
+def localStiffness(elemtype : str, elemData : dict, Sigma : np.ndarray = np.identity(3)):
     """function localStiffness(elemtype,elemData, Sigma=np.identity(3))
     returns the local stiffness matrix for element of type elemtype
     and diffusion tensor Sigma (default: identity).
@@ -26,7 +26,7 @@ def localStiffness(elemtype,elemData, Sigma=np.identity(3)):
     return(function_dict[elemtype](elemData,Sigma) )
 
 
-def linear_Edge_local_Stiffness(elemData, Sigma=np.identity(3) ):
+def linear_Edge_local_Stiffness(elemData : dict, Sigma: np.ndarray = np.identity(3) ) -> np.ndarray:
     """linear_Edge_local_Stiffness(elemData, Sigma=np.identity(3) )
     returns the local stiffness matrix for linear 1D elements
     and diffusion tensor Sigma (default: identity).
@@ -48,7 +48,7 @@ def linear_Edge_local_Stiffness(elemData, Sigma=np.identity(3) ):
     return(lstiff)
 
 
-def linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) ):
+def linear_triangular_local_Stiffness(elemData : dict, Sigma: np.ndarray = np.identity(3) )-> np.ndarray:
     """function linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) )
     returns the local stiffness matrix for linear triangular elements
     and diffusion tensor Sigma (default: identity).
@@ -71,7 +71,7 @@ def linear_triangular_local_Stiffness(elemData, Sigma=np.identity(3) ):
     return(lstiff)
 
 
-def linear_tetrahedral_local_Stiffness(elemData, Sigma=np.identity(3) ):
+def linear_tetrahedral_local_Stiffness(elemData : dict, Sigma: np.ndarray = np.identity(3) )-> np.ndarray:
     """function linear_tetrahedral_local_Stiffness(elemData, Sigma=np.identity(3) )
     returns the local stiffness matrix for linear tetrahedral elements
     and diffusion tensor Sigma (default: identity).

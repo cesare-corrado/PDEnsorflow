@@ -3,7 +3,7 @@ import numpy as np
 import nibabel as nib
 import sys
 
-def parse_name(fname):
+def parse_name(fname :str) -> dict:
     """ Function to parse the file name to extraxt file type and compression """
     parsed_name = {'gzipped':False,
                    'type': 'unknown',
@@ -32,13 +32,13 @@ def parse_name(fname):
     return(parsed_name)
 
 
-def load_png_image(imgfile,mx,my): 
+def load_png_image(imgfile: str, mx: int, my: int) -> np.ndarray: 
     """
     Function to load a domain represented in a png image with slices
     organised into a Mx X My grid
     """   
-    im=imageio.imread(imgfile)
-    H,L=im.shape
+    im  = imageio.imread(imgfile)
+    H,L = im.shape
     #im: height, width
     h  = int(H/my)
     l  = int(L/mx)
@@ -67,13 +67,13 @@ class ImageData:
     """
     
     def __init__(self):
-        self.Mx      = 1
-        self.My      = 1
-        self._img     = None
-        self._imgfile = None
+        self.Mx : int      = 1
+        self.My : int     = 1
+        self._img:  nib.Nifti1Image  = None
+        self._imgfile: dict = None
 
 
-    def load_image(self,fname,mx=1,my=1):
+    def load_image(self,fname : str,mx : int =1,my : int =1):
         """ 
         load_image(fname,mx,my)
         loads the image file fname and returns a nibabel image object
@@ -96,7 +96,7 @@ class ImageData:
         self._img = img
 
 
-    def save_nifty(self,fout):
+    def save_nifty(self,fout: str):
         """
         method save_nifty(fout) saves the NIfTI image to a file fout
         """
@@ -105,7 +105,7 @@ class ImageData:
             nib.save(self._img, fout)
 
 
-    def get_data(self):
+    def get_data(self) -> np.ndarray:
         """
         returns the image data as a numpy tensor with same data type
         """
@@ -115,7 +115,7 @@ class ImageData:
             return(None)
 
 
-    def get_fdata(self):
+    def get_fdata(self) -> np.ndarray:
         """
         returns the image data as a float64 numpy tensor
         """
@@ -126,7 +126,7 @@ class ImageData:
 
 
 
-    def get_rescaled_data(self,scaling_type='unit'):
+    def get_rescaled_data(self,scaling_type : str = 'unit') -> np.ndarray:
         """
          get_rescaled_data(scaling_type) returns the image data as a sumpy tensor
          rescaled following one of the following criteria:
@@ -153,7 +153,7 @@ class ImageData:
             return(None)
 
 
-    def image(self):
+    def image(self) -> nib.Nifti1Image:
         """
         returns the NIfTI image (nibabel format)
         """

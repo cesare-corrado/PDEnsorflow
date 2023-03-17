@@ -7,9 +7,8 @@ Contains:
   * MaterialProperties: a container for material properties; allows function definitions.
 
 """
-import tensorflow as tf
 
-__version__=['1','1','0']
+__version__=['1','2','0']
 
 
 def version():

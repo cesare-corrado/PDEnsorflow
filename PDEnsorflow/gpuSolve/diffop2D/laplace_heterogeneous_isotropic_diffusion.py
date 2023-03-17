@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 @tf.function
-def laplace_heterogeneous_isotropic_diffusion(X0,DIFF0,DX,DY):
+def laplace_heterogeneous_isotropic_diffusion(X0: tf.Variable, DIFF0: tf.constant, DX: tf.constant, DY: tf.constant) -> tf.constant:
     """
     This function computes the 2D Laplace operator on X for an heterogeneous isotropic diffusion
     The diffusion encodes the phase field that describes the domain 

@@ -22,13 +22,15 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 from gpuSolve.IO.readers.imagedata import ImageData
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+#tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -88,9 +90,10 @@ class HeatEquation:
         then = time.time()
         self._domain.load_geometry_file(self.fname, Mx,My, image_threshold)
         self._domain.load_conductivity(fname='', cond_unif=self.diff)        
-        self.DX = self._domain.DX()
-        self.DY = self._domain.DY()
-        self.DZ = self._domain.DZ()
+        self.DX   = tf.constant(self._domain.dx(), dtype=np.float32)
+        self.DY   = tf.constant(self._domain.dy(), dtype=np.float32)
+        self.DZ   = tf.constant(self._domain.dz(), dtype=np.float32)
+        self.DIFF = tf.constant(self._domain.conductivity(), dtype=np.float32, name='diffusion' )
         elapsed = (time.time() - then)
         tf.print('initialisation, elapsed: %f sec' % elapsed)
         self.tinit += elapsed
@@ -102,11 +105,11 @@ class HeatEquation:
     def solve(self, U):
         """ Explicit Euler ODE solver """
         U0 = enforce_boundary(U)
-        U1 = U0 + self.dt * laplace(U0,self._domain.conductivity(),self.DX,self.DY,self.DZ)
+        U1 = U0 + self.dt * laplace(U0,self.DIFF,self.DX,self.DY,self.DZ)
         return U1
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -120,13 +123,13 @@ class HeatEquation:
         width  = self._domain.width()
         height = self._domain.height()
         depth  = self._domain.depth()
-
+        Ididx  = tf.constant(self.domain()>0.0,dtype=tf.bool)
         # the initial values of the state variable
         u_init = np.full([width,height,depth], self.min_v, dtype=np.float32)
 
         if len(self.fname):
             u_init[:,:,(depth//2-10):(depth//2+10)] = self.max_v
-            s2_init = self.domain().numpy().astype(np.float32)
+            s2_init = self.domain().astype(np.float32)
             #then set stimulus at half domain to zero
             s2_init[:,:height//2,:] = 0.0
             #Finally, define stimulus ampliture
@@ -139,7 +142,7 @@ class HeatEquation:
 
         then = time.time()
         U = tf.Variable(u_init, name="U" )
-        U = tf.where(self.domain()>0.0, U, self.min_v)
+        U = tf.where(Ididx, U, self.min_v)
         elapsed = (time.time() - then)
         tf.print('U variable, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -172,7 +175,7 @@ class HeatEquation:
                 U = tf.maximum(U, s2())
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
-                image = tf.where(self.domain()>0.0, U, -1.0).numpy()
+                image = tf.where(Ididx, U, -1.0).numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
@@ -203,12 +206,12 @@ if __name__ == '__main__':
 
     print('config:')
     for key,value in config.items():
-        print('{0}\t{1}'.format(key,value))
+        print('{0:9}\t{1}'.format(key,value))
     
     print('=======================================================================')
     model = HeatEquation(config)
     im = ResultWriter(config)
-    [im.width,im.height,im.depth] = model.domain().numpy().shape
+    [im.width,im.height,im.depth] = model.domain().shape
     model.run(im)
     im = None
 

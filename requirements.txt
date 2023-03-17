@@ -2,3 +2,4 @@ tensorflow>=2.9
 nibabel
 imageio
 numpy
+scipy

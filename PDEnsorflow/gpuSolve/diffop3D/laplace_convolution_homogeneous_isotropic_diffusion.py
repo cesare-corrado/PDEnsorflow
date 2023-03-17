@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 @tf.function
-def laplace_convolution_homogeneous_isotropic_diffusion(X0,DX,DY,DZ):
+def laplace_convolution_homogeneous_isotropic_diffusion(X0: tf.Variable, DX: tf.constant, DY: tf.constant, DZ: tf.constant) -> tf.constant:
     """
     This function computes the 3D Laplace operator on X for homogeneous isotropic diffusion.
     Using the conv3d convolution operator. Conv3d si the extension of conv2d to 3d images,
