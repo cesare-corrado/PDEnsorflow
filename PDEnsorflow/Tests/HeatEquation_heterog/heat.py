@@ -22,13 +22,15 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 from gpuSolve.IO.readers.imagedata import ImageData
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+#tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -107,7 +109,7 @@ class HeatEquation:
         return U1
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -204,7 +206,7 @@ if __name__ == '__main__':
 
     print('config:')
     for key,value in config.items():
-        print('{0}\t{1}'.format(key,value))
+        print('{0:9}\t{1}'.format(key,value))
     
     print('=======================================================================')
     model = HeatEquation(config)
