@@ -22,12 +22,14 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+#tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -101,7 +103,7 @@ class Fenton4vSimple(Fenton4v):
         return U1, V1, W1, S1
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -151,7 +153,7 @@ class Fenton4vSimple(Fenton4v):
         if im:
             image = U.numpy()
             im.imshow(image)
-        for i in tf.range(self.samples):
+        for i in range(self.samples):
             state = [U, V, W, S]
             U1, V1, W1, S1 = self.solve(state)
             U = U1
@@ -192,7 +194,7 @@ if __name__ == '__main__':
 
     print('config:')
     for key,value in config.items():
-        print('{0}\t{1}'.format(key,value))
+        print('{0:9}\t{1}'.format(key,value))
     
     print('=======================================================================')
     model = Fenton4vSimple(config)

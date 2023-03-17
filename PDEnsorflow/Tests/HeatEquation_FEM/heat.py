@@ -22,8 +22,8 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
-
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
@@ -147,15 +147,10 @@ class HeatEquation:
         self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,X):
+    def solve(self,X,I0:tf.constant):
         """ Implicit solver """
         self.__Solver.set_X0(X)
-        RHS0 = X
-        if self.__StimulusDict is not None:
-            for stimname,stimulus in self.__StimulusDict.items():
-                I0   = stimulus.stimApp(self.__ctime)
-                RHS0 = tf.add(RHS0,self._dt*I0)
-
+        RHS0 = tf.add(X,self._dt*I0)
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
@@ -163,7 +158,7 @@ class HeatEquation:
         return(X1)
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -180,7 +175,11 @@ class HeatEquation:
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
-            X1 = self.solve(self.__X)
+            I0 = tf.constant(np.zeros(shape=self.__X.shape), name="I", dtype=tf.float32  )
+            if self.__StimulusDict is not None:
+                for stimname,stimulus in self.__StimulusDict.items():
+                    I0 = tf.add(I0, stimulus.stimApp(self.__ctime) )
+            X1 = self.solve(self.__X,I0)
             self.__X = X1
             # draw a frame every 1 ms
             if im and i % self._dt_per_plot == 0:
