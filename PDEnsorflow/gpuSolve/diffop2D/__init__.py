@@ -6,7 +6,7 @@ Contains:
   * laplace_heterogeneous_isotropic_diffusion: 2D laplace solver for heterogeneous isotropic diffusion  
 """
 
-__version__=['1','1','0']
+__version__=['1','2','0']
 
 
 def version():
