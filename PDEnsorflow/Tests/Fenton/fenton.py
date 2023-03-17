@@ -194,7 +194,7 @@ if __name__ == '__main__':
 
     print('config:')
     for key,value in config.items():
-        print('{0}\t{1}'.format(key,value))
+        print('{0:9}\t{1}'.format(key,value))
     
     print('=======================================================================')
     model = Fenton4vSimple(config)
