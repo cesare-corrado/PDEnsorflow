@@ -22,8 +22,8 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
-
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
@@ -183,16 +183,12 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, H:tf.Variable) -> (tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, H:tf.Variable,I0:tf.constant) -> (tf.Variable, tf.Variable):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dH = self.differentiate(U, H)
+        dU     = tf.add(dU,I0)
         self.__Solver.set_X0(U)
         RHS0 = tf.add(U,self._dt*dU)
-        if self.__StimulusDict is not None:
-            for stimname,stimulus in self.__StimulusDict.items():
-                I0   = stimulus.stimApp(self.__ctime)
-                RHS0 = tf.add(RHS0,self._dt*I0)
-
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
@@ -201,7 +197,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         return(U1, H1)
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -218,7 +214,11 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
-            U1,H1 = self.solve(self.__U,self.__H)
+            I0 = tf.constant(np.zeros(shape=self.__U.shape), name="I", dtype=tf.float32  )
+            if self.__StimulusDict is not None:
+                for stimname,stimulus in self.__StimulusDict.items():
+                    I0 = tf.add(I0, stimulus.stimApp(self.__ctime) )
+            U1,H1 = self.solve(self.__U,self.__H,I0)
             self.__U = U1
             self.__H = H1
             # draw a frame every dt_per_plot ms

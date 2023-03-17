@@ -200,16 +200,12 @@ class Fenton4vSimple(Fenton4v):
         self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable)-> (tf.Variable, tf.Variable,tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable,I0:tf.constant)-> (tf.Variable, tf.Variable,tf.Variable, tf.Variable):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dV, dW, dS = self.differentiate(U, V, W, S)
+        dU     = tf.add(dU,I0)
         self.__Solver.set_X0(U)
         RHS0 = tf.add(U,self._dt*dU)
-        if self.__StimulusDict is not None:
-            for stimname,stimulus in self.__StimulusDict.items():
-                I0   = stimulus.stimApp(self.__ctime)
-                RHS0 = tf.add(RHS0,self._dt*I0)
-
         RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
         self.__Solver.set_RHS(RHS)
         self.__Solver.solve()
@@ -220,7 +216,7 @@ class Fenton4vSimple(Fenton4v):
         return(U1, V1, W1, S1)
 
 
-    @tf.function
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -237,7 +233,11 @@ class Fenton4vSimple(Fenton4v):
         then = time.time()
         for i in tf.range(self.__nt):
             self.__ctime += self._dt
-            U1,V1,W1,S1 = self.solve(self.__U,self.__V,self.__W,self.__S)
+            I0 = tf.constant(np.zeros(shape=self.__U.shape), name="I", dtype=tf.float32  )
+            if self.__StimulusDict is not None:
+                for stimname,stimulus in self.__StimulusDict.items():
+                    I0 = tf.add(I0, stimulus.stimApp(self.__ctime) )
+            U1,V1,W1,S1 = self.solve(self.__U,self.__V,self.__W,self.__S,I0)
             self.__U = U1
             self.__V = V1
             self.__W = W1
