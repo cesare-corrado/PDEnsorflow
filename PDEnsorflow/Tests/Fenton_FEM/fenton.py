@@ -72,144 +72,146 @@ class Fenton4vSimple(Fenton4v):
 
     def __init__(self, cfgdict=None):
         super().__init__()
-        self._mesh_file_name: str               = None
-        self._dt: float                         = 0.1
-        self._dt_per_plot: int                  = 2
-        self._Tend: float                       = 10
-        self._use_renumbering : bool            = False
-        self.__Domain: Triangulation            = Triangulation()
-        self.__materials:MaterialProperties     = MaterialProperties()
-        self.__Solver:ConjGrad                  = ConjGrad()
-        self.__Precond : JacobiPrecond          = JacobiPrecond()
-        self.__StimulusDict: dict               = None
-        self.__MASS                             = None
-        self.__U: tf.Variable                   = None
-        self.__V: tf.Variable                   = None
-        self.__W: tf.Variable                   = None
-        self.__S: tf.Variable                   = None
-        self.__ctime:float                      = 0.0
-        self.__nbstim:int                       = 0
-        self.__renumbering                      = None
-        self.__ready_for_run                    = False
+        self._mesh_file_name : str               = None
+        self._dt : float                         = 0.1
+        self._dt_per_plot : int                  = 2
+        self._Tend : float                       = 10
+        self._use_renumbering : bool             = False
+
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
                 if attribute[1:] in cfgdict.keys():
                     setattr(self, attribute, cfgdict[attribute[1:]])
 
-        if self._mesh_file_name is not None:
-            self.__Domain.readMesh('{}'.format(self._mesh_file_name))
+        self._Domain : Triangulation             = Triangulation()
+        self._materials : MaterialProperties     = MaterialProperties()
+        self._Solver : ConjGrad                  = ConjGrad()
+        self._Precond : JacobiPrecond            = JacobiPrecond()
+        self._MASS                               = None
+        self._U: tf.Variable                     = None
+        self._V: tf.Variable                     = None
+        self._W: tf.Variable                     = None
+        self._S: tf.Variable                     = None
+        self._ready_for_run : bool               = False
+        self._ctime : float                      = 0.0
+        self._nbstim : int                       = 0
+        self._renumbering : dict                 = None
+        self._StimulusDict: dict                 = None        
+        self._nt : int                           = int(self._Tend//self._dt) 
 
-        self.__nt: int = int(self._Tend//self._dt) 
+        if self._mesh_file_name is not None:
+            self._Domain.readMesh('{}'.format(self._mesh_file_name))
+
 
     def loadMesh(self,fname: str):
         """ Loads the mesh"""
         self._mesh_file_name = fname
-        self.__Domain.readMesh('{}'.format(self._mesh_file_name))
+        self._Domain.readMesh('{}'.format(self._mesh_file_name))
 
     def add_nodal_material_property(self,pname:str,ptype:str,prop:dict):
         """ adds material properties to elements"""
-        self.__materials.add_nodal_property(pname,ptype,prop)
+        self._materials.add_nodal_property(pname,ptype,prop)
 
     def add_element_material_property(self,pname:str,ptype:str,prop:dict):
         """ adds material properties to elements"""
-        self.__materials.add_element_property(pname,ptype,prop)
+        self._materials.add_element_property(pname,ptype,prop)
 
     def add_material_function(self,fname:str,fsign):
         """adds functions to map material properties when assembling matrices"""
-        self.__materials.add_ud_function(fname,fsign)
+        self._materials.add_ud_function(fname,fsign)
 
     def assign_nodal_properties(self):
         uniform_only = True
-        nodal_properties = self.__materials.nodal_property_names() 
+        nodal_properties = self._materials.nodal_property_names() 
         if nodal_properties is not None:
-            point_region_ids = self.__Domain.point_region_ids()
+            point_region_ids = self._Domain.point_region_ids()
             npt = point_region_ids.shape[0]
             for mat_prop in nodal_properties:
-                prtype = self.__materials.nodal_property_type(mat_prop)
+                prtype = self._materials.nodal_property_type(mat_prop)
                 refval = self.get_parameter(mat_prop)
                 if refval is not None:
                     if prtype =='uniform':
-                        pvals = self.__materials.NodalProperty(mat_prop,-1,-1)
+                        pvals = self._materials.NodalProperty(mat_prop,-1,-1)
                     else:
                         uniform_only = False
                         pvals  = np.full(shape=(npt,1),fill_value=refval.numpy())
                         for pointID,regionID in enumerate(point_region_ids):
-                            new_val = self.__materials.NodalProperty(mat_prop,pointID,regionID)
+                            new_val = self._materials.NodalProperty(mat_prop,pointID,regionID)
                             pvals[pointID] = new_val
                     self.set_parameter(mat_prop, pvals)
         if( uniform_only or (not self._use_renumbering)):
-            self.__materials.remove_all_nodal_properties()
+            self._materials.remove_all_nodal_properties()
     
     def assemble_matrices(self):
         #Compute the domain connectivity
-        connectivity = self.__Domain.mesh_connectivity('True')
+        connectivity = self._Domain.mesh_connectivity('True')
         # Assemble the matrices
         pattern     = compute_coo_pattern(connectivity)
         if self._use_renumbering:
-            self.__renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
+            self._renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
-        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self.__Domain,self.__materials,connectivity, renumbering=self.__renumbering)
-        self.__MASS = MATRICES['mass']
+        MATRICES    =  assemble_matrices_dict(lmatr,pattern,self._Domain,self._materials,connectivity, renumbering=self._renumbering)
+        self._MASS = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
-        A           = tf.sparse.add(self.__MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
-        self.__Domain.release_connectivity()
-        self.__materials.remove_all_element_properties()
-        self.__Solver.set_matrix(A)
-        self.__Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
-        self.__Solver.set_precond(self.__Precond)
+        A           = tf.sparse.add(self._MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
+        self._Domain.release_connectivity()
+        self._materials.remove_all_element_properties()
+        self._Solver.set_matrix(A)
+        self._Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
+        self._Solver.set_precond(self._Precond)
 
     def set_initial_condition(self,U0:np.ndarray = None, V0:np.ndarray = None, W0:np.ndarray = None,S0:np.ndarray = None):
-        npt = self.__Domain.Pts().shape[0]
+        npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
-                self.__U = tf.Variable(U0[:,np.newaxis], name="U")
+                self._U = tf.Variable(U0[:,np.newaxis], name="U")
             else:
-                self.__U = tf.Variable(U0, name="U")
+                self._U = tf.Variable(U0, name="U")
         else:
-            self.__U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)            
+            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
 
         if V0 is not None:
             if V0.ndim==1:
-                self.__V = tf.Variable(V0[:,np.newaxis], name="V")
+                self._V = tf.Variable(V0[:,np.newaxis], name="V")
             else:
-                self.__V = tf.Variable(V0, name="V")
+                self._V = tf.Variable(V0, name="V")
         else:
-            self.__V = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="V",dtype=self.__U.dtype)
+            self._V = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="V",dtype=self._U.dtype)
 
         if W0 is not None:
             if W0.ndim==1:
-                self.__W = tf.Variable(W0[:,np.newaxis], name="W")
+                self._W = tf.Variable(W0[:,np.newaxis], name="W")
             else:
-                self.__W = tf.Variable(W0, name="W")
+                self._W = tf.Variable(W0, name="W")
         else:
-            self.__W = tf.Variable(np.full(shape=self.__U.shape,fill_value=1.0), name="W",dtype=self.__U.dtype)
+            self._W = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="W",dtype=self._U.dtype)
 
         if S0 is not None:
             if S0.ndim==1:
-                self.__S = tf.Variable(S0[:,np.newaxis], name="S")
+                self._S = tf.Variable(S0[:,np.newaxis], name="S")
             else:
-                self.__S = tf.Variable(S0, name="S")
+                self._S = tf.Variable(S0, name="S")
         else:
-            self.__S = tf.Variable(np.full(shape=self.__U.shape,fill_value=0.0), name="S",dtype=self.__U.dtype)
+            self._S = tf.Variable(np.full(shape=self._U.shape,fill_value=0.0), name="S",dtype=self._U.dtype)
 
     def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
-        self.__nbstim +=1
-        if self.__StimulusDict is None:
-            self.__StimulusDict = {}
-        self.__StimulusDict[self.__nbstim] = Stimulus(stimprops)
-        self.__StimulusDict[self.__nbstim].set_stimregion(stimreg) 
+        self._nbstim +=1
+        if self._StimulusDict is None:
+            self._StimulusDict = {}
+        self._StimulusDict[self._nbstim] = Stimulus(stimprops)
+        self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable,I0:tf.constant)-> (tf.Variable, tf.Variable,tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable,I0:tf.constant) -> (tf.Variable, tf.Variable, tf.Variable, tf.Variable):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dV, dW, dS = self.differentiate(U, V, W, S)
         dU     = tf.add(dU,I0)
-        self.__Solver.set_X0(U)
+        self._Solver.set_X0(U)
         RHS0 = tf.add(U,self._dt*dU)
-        RHS = tf.sparse.sparse_dense_matmul(self.__MASS,RHS0)
-        self.__Solver.set_RHS(RHS)
-        self.__Solver.solve()
-        U1 = self.__Solver.X()
+        RHS = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
+        self._Solver.set_RHS(RHS)
+        self._Solver.solve()
+        U1 = self._Solver.X()
         V1 = V + self._dt * dV
         W1 = W + self._dt * dW
         S1 = S + self._dt * dS
@@ -227,21 +229,21 @@ class Fenton4vSimple(Fenton4v):
             Returns:
                 None
         """
-        if not self.__ready_for_run:
+        if not self._ready_for_run:
             raise Exception("model not initialised for run!")
             
         then = time.time()
-        for i in tf.range(self.__nt):
-            self.__ctime += self._dt
-            I0 = tf.constant(np.zeros(shape=self.__U.shape), name="I", dtype=tf.float32  )
-            if self.__StimulusDict is not None:
-                for stimname,stimulus in self.__StimulusDict.items():
-                    I0 = tf.add(I0, stimulus.stimApp(self.__ctime) )
-            U1,V1,W1,S1 = self.solve(self.__U,self.__V,self.__W,self.__S,I0)
-            self.__U = U1
-            self.__V = V1
-            self.__W = W1
-            self.__S = S1
+        for i in tf.range(self._nt):
+            self._ctime += self._dt
+            I0 = tf.constant(np.zeros(shape=self._U.shape), name="I", dtype=tf.float32  )
+            if self._StimulusDict is not None:
+                for stimname,stimulus in self._StimulusDict.items():
+                    I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
+            U1,V1,W1,S1 = self.solve(self._U,self._V,self._W,self._S,I0)
+            self._U = U1
+            self._V = V1
+            self._W = W1
+            self._S = S1
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
@@ -254,68 +256,68 @@ class Fenton4vSimple(Fenton4v):
     def finalize_for_run(self):
         if self._use_renumbering:
             # permutation of the initial condition
-            self.__U = tf.Variable(tf.gather(self.__U,self.__renumbering['perm']),name=self.__U.name )
-            self.__V = tf.Variable(tf.gather(self.__V,self.__renumbering['perm']),name=self.__V.name )
-            self.__W = tf.Variable(tf.gather(self.__W,self.__renumbering['perm']),name=self.__W.name )
-            self.__S = tf.Variable(tf.gather(self.__S,self.__renumbering['perm']),name=self.__S.name )
+            self._U = tf.Variable(tf.gather(self._U,self._renumbering['perm']),name=self._U.name )
+            self._V = tf.Variable(tf.gather(self._V,self._renumbering['perm']),name=self._V.name )
+            self._W = tf.Variable(tf.gather(self._W,self._renumbering['perm']),name=self._W.name )
+            self._S = tf.Variable(tf.gather(self._S,self._renumbering['perm']),name=self._S.name )
             # permutation of the stimulus indices
-            for key ,stim in self.__StimulusDict.items():
-                stim.apply_indices_permutation(self.__renumbering['perm'])    
-            nodal_properties = self.__materials.nodal_property_names() 
+            for key ,stim in self._StimulusDict.items():
+                stim.apply_indices_permutation(self._renumbering['perm'])    
+            nodal_properties = self._materials.nodal_property_names() 
             if nodal_properties is not None:
                 for mat_prop in nodal_properties:
-                    prtype = self.__materials.nodal_property_type(mat_prop)
+                    prtype = self._materials.nodal_property_type(mat_prop)
                     refval = self.get_parameter(mat_prop)
                     if refval is not None and not (prtype =='uniform'):
-                        pvals = tf.gather(refval,self.__renumbering['perm']).numpy()
+                        pvals = tf.gather(refval,self._renumbering['perm']).numpy()
                         self.set_parameter(mat_prop, pvals)                        
-                self.__materials.remove_all_nodal_properties()
-        self.__ready_for_run = True
+                self._materials.remove_all_nodal_properties()
+        self._ready_for_run = True
 
     def domain(self) -> Triangulation:
-        return(self.__Domain)
+        return(self._Domain)
     
     def solver(self) -> ConjGrad:
-        return(self.__Solver)
+        return(self._Solver)
 
     def precond(self) -> JacobiPrecond:
-        return(self.__Precond)
+        return(self._Precond)
 
     def stimulus(self) ->dict:
-        return(self.__StimulusDict)
+        return(self._StimulusDict)
 
     def U(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self.__U,self.__renumbering['iperm']) )
+            return(tf.gather(self._U,self._renumbering['iperm']) )
         else:
-            return(self.__U)
+            return(self._U)
 
     def V(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self.__V,self.__renumbering['iperm']) )
+            return(tf.gather(self._V,self._renumbering['iperm']) )
         else:
-            return(self.__V)
+            return(self._V)
 
     def W(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self.__W,self.__renumbering['iperm']) )
+            return(tf.gather(self._W,self._renumbering['iperm']) )
         else:
-            return(self.__W)
+            return(self._W)
 
     def S(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self.__S,self.__renumbering['iperm']) )
+            return(tf.gather(self._S,self._renumbering['iperm']) )
         else:
-            return(self.__S)
+            return(self._S)
 
     def nt(self) -> int:
-        return(self.__nt)
+        return(self._nt)
 
     def dt_per_plot(self) -> int:
         return(self._dt_per_plot)
 
     def ctime(self) -> float:
-        return(self.__ctime)
+        return(self._ctime)
 
     def Tend(self) ->float:
         return(self._Tend)
