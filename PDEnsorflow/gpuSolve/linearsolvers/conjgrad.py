@@ -13,12 +13,12 @@ class ConjGrad:
         self._maxiter : int = 100
         self._toll : float   = 1.e-5
         self._verbose: bool = False
-        self.__A : tf.sparse.SparseTensor = None
-        self.__RHS : tf.Variable = None
-        self.__X : tf.Variable = None
-        self.__r : tf.constant = None
-        self.__p : tf.constant = None
-        self.__Precond : AbstractPrecond = None
+        self._A : tf.sparse.SparseTensor = None
+        self._RHS : tf.Variable = None
+        self._X : tf.Variable = None
+        self._r : tf.constant = None
+        self._p : tf.constant = None
+        self._Precond : AbstractPrecond = None
         
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -26,7 +26,7 @@ class ConjGrad:
                 if attribute_name in config.keys():
                     setattr(self, attribute, config[attribute_name])
             if 'precond' in config.keys():
-                self.__Precond = config['precond']
+                self._Precond = config['precond']
             
         self._niters : int = 0
         self._residual: float = 1.e32
@@ -36,7 +36,7 @@ class ConjGrad:
         """
         set_precond(prcnd) assigns the preconditioner prcnd
         """
-        self.__Precond = prcnd
+        self._Precond = prcnd
 
     def set_maxiter(self, maxit:int):
         """ 
@@ -54,30 +54,30 @@ class ConjGrad:
         """
         set_matrix(Amat) assigns the sparse matrix that defines the linear system to the solver
         """
-        self.__A = Amat 
+        self._A = Amat
 
     def set_RHS(self, RHS: tf.constant):
         """
         set_RHS(RHS) assigns  the righ-hand side of the linear problem to the solver
         """
-        if self.__RHS is not None:
-            self.__RHS.assign(RHS)
+        if self._RHS is not None:
+            self._RHS.assign(RHS)
         else:
-            self.__RHS = tf.Variable(RHS, trainable=False)
+            self._RHS = tf.Variable(RHS, trainable=False)
 
     def set_X0(self, X0: tf.Variable):
         """
         set_X0(X0) assigns the inital guess X0 to the solver 
         """
-        if self.__X is not None:
-            self.__X.assign(X0)
+        if self._X is not None:
+            self._X.assign(X0)
         else:
-            self.__X = tf.Variable(X0)
+            self._X = tf.Variable(X0)
 
     def Precond(self) -> AbstractPrecond:
         """Precond() returns the preconditioner object
         """
-        return(self.__Precond)
+        return(self._Precond)
 
     def maxiter(self) -> int:
         """ 
@@ -95,19 +95,19 @@ class ConjGrad:
         """
         matrix() returns the sparse matrix that defines the linear system
         """
-        return(self.__A) 
+        return(self._A)
 
     def RHS(self) ->  tf.constant :
         """
         RHS() returns the right-hand side of the linear problem
         """
-        return(self.__RHS) 
+        return(self._RHS)
 
     def X(self) ->  tf.Variable :
         """
         X() returns the solution/initial value
         """
-        return(self.__X) 
+        return(self._X)
 
     def verbose(self):
         """
@@ -126,35 +126,35 @@ class ConjGrad:
 
 
     @tf.function
-    def __iterate(self,rzold:tf.constant) -> tf.constant:
-        Ap             = tf.sparse.sparse_dense_matmul(self.__A,self.__p)
-        alpha          = rzold /tf.reduce_sum(tf.multiply(self.__p, Ap))
-        self.__X.assign_add(alpha *self.__p) 
-        self.__r      -= alpha * Ap
-        self._residual = tf.reduce_sum(tf.multiply(self.__r, self.__r))
-        if self.__Precond:
-            z        = self.__Precond.solve_precond_system(self.__r)
-            rznew    = tf.reduce_sum(tf.multiply(self.__r, z)) 
+    def _iterate(self,rzold:tf.constant) -> tf.constant:
+        Ap             = tf.sparse.sparse_dense_matmul(self._A,self._p)
+        alpha          = rzold /tf.reduce_sum(tf.multiply(self._p, Ap))
+        self._X.assign_add(alpha *self._p)
+        self._r      -= alpha * Ap
+        self._residual = tf.reduce_sum(tf.multiply(self._r, self._r))
+        if self._Precond:
+            z        = self._Precond.solve_precond_system(self._r)
+            rznew    = tf.reduce_sum(tf.multiply(self._r, z))
             beta     = (rznew / rzold)
-            self.__p = z + beta * self.__p
+            self._p = z + beta * self._p
         else:
             rznew    = self._residual
             beta     = (rznew / rzold)
-            self.__p = self.__r + beta * self.__p
+            self._p = self._r + beta * self._p
         return(rznew)
 
     
     @tf.function    
-    def __initialize(self) -> tf.constant:    
-        AX             = tf.sparse.sparse_dense_matmul(self.__A,self.__X)
-        self.__r       = tf.subtract(self.__RHS, AX)
-        self._residual = tf.reduce_sum(tf.multiply(self.__r, self.__r))
-        if self.__Precond:
-            z         = self.__Precond.solve_precond_system(self.__r)
-            self.__p  = z
-            rzold     = tf.reduce_sum(tf.multiply(self.__r, z)) 
+    def _initialize(self) -> tf.constant:
+        AX             = tf.sparse.sparse_dense_matmul(self._A,self._X)
+        self._r       = tf.subtract(self._RHS, AX)
+        self._residual = tf.reduce_sum(tf.multiply(self._r, self._r))
+        if self._Precond:
+            z         = self._Precond.solve_precond_system(self._r)
+            self._p  = z
+            rzold     = tf.reduce_sum(tf.multiply(self._r, z))
         else:
-            self.__p = self.__r
+            self._p = self._r
             rzold    = self._residual
         return(rzold)
 
@@ -168,12 +168,12 @@ class ConjGrad:
             self._niters   = 0
             if self._verbose:
                 t0             = time()
-            rzold = self.__initialize()
+            rzold = self._initialize()
             
             if self._verbose:
                 tf.print('initial residual: {:4.3f}'.format(self._residual))    
             for self._niters in range(1,1+self._maxiter):
-                rznew = self.__iterate(rzold)
+                rznew = self._iterate(rzold)
                 if (tf.sqrt(self._residual) < self._toll):
                     break
                 rzold = rznew
