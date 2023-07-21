@@ -16,11 +16,11 @@ class ResultWriter:
         self.not_saved: bool       = True
         self.prefix_name: str      = 'cube3D'
         self._sparse: bool         = False
-        self.__save_on_exit: bool  = True
+        self._save_on_exit: bool  = True
         self.initval: float        = 0.0
-        self.__cube: np.ndarray    = None
-        self.__cube_exists: bool   = False
-        self.__counter: int        = None
+        self._cube: np.ndarray    = None
+        self._cube_exists: bool   = False
+        self._counter: int        = None
 
         if(config):
             for attribute in self.__dict__.keys():
@@ -32,19 +32,19 @@ class ResultWriter:
     def initialise_cube(self):
         """Initialise the  cube to store results"""
         n                  = 1+int(self.samples//self.dt_per_plot)
-        self.__cube        = np.full(shape=(n, self.width, self.height,  self.depth),fill_value=self.initval ,dtype=np.float32)
-        self.__counter     = 0
-        self.__cube_exists = True
+        self._cube        = np.full(shape=(n, self.width, self.height,  self.depth),fill_value=self.initval ,dtype=np.float32)
+        self._counter     = 0
+        self._cube_exists = True
 
 
     def disable_save_on_exit(self):
         """ disable saving theresults when the destructor is invoked"""
-        self.__save_on_exit  = False
+        self._save_on_exit  = False
 
 
     def enable_save_on_exit(self):
         """ enable saving theresults when the destructor is invoked"""
-        self.__save_on_exit  = True
+        self._save_on_exit  = True
 
 
     def set_sparse_domain(self,domain: np.ndarray):
@@ -53,10 +53,10 @@ class ResultWriter:
 
 
     def imshow(self,VolData: np.ndarray):
-        if not self.__cube_exists:
+        if not self._cube_exists:
             self.initialise_cube()        
-        self.__cube[self.__counter,:,:,:] = VolData
-        self.__counter = self.__counter + 1
+        self._cube[self._counter,:,:,:] = VolData
+        self._counter = self._counter + 1
 
 
     def wait(self):
@@ -69,9 +69,9 @@ class ResultWriter:
 
     def save(self):
         if self._sparse:
-            dimensions = self.__cube.shape
+            dimensions = self._cube.shape
             indices  = np.where(self._domain)
-            values   = self.__cube[:,self._domain]
+            values   = self._cube[:,self._domain]
             cube_sparse = {'dimensions':dimensions,'indices':indices,'values':values}
             fname = '{0}_sparse_{1}_{2}_{3}'.format(self.prefix_name,self.height,self.width,self.depth)
             print('saving file {0}'.format(fname))
@@ -79,11 +79,11 @@ class ResultWriter:
         else:          
             fname = '{0}_{1}_{2}_{3}'.format(self.prefix_name,self.height,self.width,self.depth)
             print('saving file {0}'.format(fname))
-            np.save(fname, self.__cube)
+            np.save(fname, self._cube)
 
 
     def __del__(self):
-        if self.not_saved and self.__save_on_exit:
+        if self.not_saved and self._save_on_exit:
             self.save()
 
 

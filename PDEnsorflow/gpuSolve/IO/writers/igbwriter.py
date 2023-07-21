@@ -24,9 +24,9 @@ class IGBWriter:
         self._units_z : str        = None
         self._units_t : str        = None
         self._units   : str        = None
-        self.__fobj                = None
-        self.__hwrt   : bool       = True
-        self.__data   : np.ndarray = None         # used for manual operations
+        self._fobj                 = None
+        self._hwrt   : bool        = True
+        self._data   : np.ndarray  = None         # used for manual operations
 
         if(config is not None):
             for attribute in self.__dict__.keys():
@@ -98,7 +98,7 @@ class IGBWriter:
     def set_data(self,data:np.ndarray):
         """set_data(data): sets the internal variable of the data to the data data-array
         """
-        self.__data = data
+        self._data = data
         
     def nx(self) -> int:
         """ nx(): returns the space dimension
@@ -158,42 +158,42 @@ class IGBWriter:
         """data(): returns the ndarray with stored data
         the array is allocated OLNY with data/IGBReader initialisation
         """
-        return(self.__data)
+        return(self._data)
 
     def imshow(self,data: np.ndarray):
         """ imshow(data): writes the data to the file
         """
-        if self.__hwrt:
-            self.__write_header()  
+        if self._hwrt:
+            self._write_header()  
         for ix in range(self._nx):
-            self.__fobj.write(struct.pack('f', data[ix]))
+            self._fobj.write(struct.pack('f', data[ix]))
 
     def wait(self):
         '''wait function; usually for plot on screen '''
-        self.__fobj.close()
+        self._fobj.close()
         for x in [0,1,2]:
             pass
 
     def initialise_from_data(self, header:dict, data: np.ndarray):
         """initialise_from_data(header,data) initialises an IGBWriter object passing an header and a numpy ndarray of data
         """ 
-        self.__parse_header(header)
-        self.__data = data
+        self._parse_header(header)
+        self._data = data
 
     def initialise_from_IGBReader(self, reader:IGBReader):
         """initialise_from_IGBReader(reader) initialises an IGBWriter object from an IGBreader object
         """ 
-        self.__parse_header(reader.header())
-        self.__data = reader.data()
+        self._parse_header(reader.header())
+        self._data = reader.data()
 
 
     def __del__(self):
         '''destructor: closes the file '''
-        self.__fobj.close()
+        self._fobj.close()
 
-    def __write_header(self):
+    def _write_header(self):
         '''writes the header to the file.'''
-        self.___openfile()
+        self._openfile()
         if self._dim_t is  None:
             self._dim_t = self._nt-1
         header ='x:{} y:{} z:{} t:{} type:float systeme:little_endian org_t:{} dim_t:{}'.format(self._nx, self._ny, self._nz, self._nt, self._org_t,self._dim_t)
@@ -211,14 +211,14 @@ class IGBWriter:
             header = header+' '
         header = header+'\n\f'
         header = ''.join('\n' if i % 80 == 0 else char for i, char in enumerate(header, 1))
-        self.__fobj.write(header.encode('utf8'))
-        self.__hwrt = False
+        self._fobj.write(header.encode('utf8'))
+        self._hwrt = False
 
-    def ___openfile(self):
+    def _openfile(self):
         '''openfile(): checks that the output directory exists and
         that the file name has the extension .igb; opens a file object'''
         try:
-            if self.__fobj is None:
+            if self._fobj is None:
                 fdir  = os.path.split(self._fname)[0]
                 fname = os.path.split(self._fname)[-1]
                 tmp   = fname.rfind('.')
@@ -226,13 +226,13 @@ class IGBWriter:
                     self._fname = '{}.igb'.format(self._fname)
                 if fdir and (not os.path.exists(fdir)):
                     os.makedirs(fdir)
-                self.__fobj = open(self._fname, 'wb')            
+                self._fobj = open(self._fname, 'wb')            
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
-    def __parse_header(self,header:dict):
-        '''__parse_header(header) used to copy from an igbreader object; it parses the header
+    def _parse_header(self,header:dict):
+        '''_parse_header(header) used to copy from an igbreader object; it parses the header
         '''
         for attribute in self.__dict__.keys():    
             if attribute[1:] in header.keys():
