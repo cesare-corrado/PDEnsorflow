@@ -20,7 +20,7 @@ class AbstractPrecond(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def solve_precond_system(self, residual : tf.constant) -> tf.constant:
+    def solve_precond_system(self, residual : tf.Variable) -> tf.constant:
         """solve_precond_system(residual) computes the preconditioned residual 
         solving z = M^-1 r
         """

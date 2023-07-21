@@ -35,10 +35,10 @@ class JacobiPrecond(AbstractPrecond):
                 V[ir] = 1./mv
         #self._I = tf.constant(I,name="Iprecond",dtype = np.int32)
         #self._J = tf.constant(J,name="Jprecond",dtype = np.int32)
-        self._V = tf.constant(V,name="Vprecond",dtype = np.float32)
+        self._V = tf.Variable(V,name="Vprecond",dtype = np.float32,trainable=False)
         
     @tf.function
-    def solve_precond_system(self, residual : tf.constant) -> tf.constant:
+    def solve_precond_system(self, residual : tf.Variable) -> tf.constant:
         """solve_precond_system(residual) computes the preconditioned residual 
         solving z = M^-1 r.
         For a jacobi preconditioner, N^1 is easily evaluated.
