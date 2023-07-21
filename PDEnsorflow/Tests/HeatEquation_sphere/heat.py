@@ -22,6 +22,8 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+
+EAGERMODE=False
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -29,7 +31,12 @@ import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 import tensorflow as tf
-#tf.config.run_functions_eagerly(True)
+tf.config.run_functions_eagerly(EAGERMODE)
+if EAGERMODE:
+    print('running in eager mode')
+else:
+    print('running in graph mode')
+
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -58,18 +65,21 @@ class HeatEquation:
     """
 
     def __init__(self, props):
-        self._domain     = Domain3D(props)
-        self.min_v       = 0.0
-        self.max_v       = 1.0
-        self.dt          = 0.1
-        self.diff        = 1.0
-        self.samples     = 10000
-        self.s2_time     = 200
-        self.dt_per_plot = 10
-        self.tinit       = 0.0
-        self.radius      = 1.0
-        self.hole        = False
-        self.cylindric   = False
+        self._domain : Domain3D      = Domain3D(props)
+        self.min_v   : float         = 0.0
+        self.max_v   : float         = 1.0
+        self.dt      : float         = 0.1
+        self.diff    : float         = 1.0
+        self.samples : int           = 10000
+        self.s2_time : float         = 200
+        self.dt_per_plot : int       = 10
+        self.tinit       : float          = 0.0
+        self.radius      : float          = 1.0
+        self.hole        : bool           = False
+        self.cylindric   : bool           = False
+        self.U           : tf.Variable    = None
+        self.s2          : Stimulus       = None
+        self.Ididx       : tf.constant    = None
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -105,11 +115,49 @@ class HeatEquation:
         return(self._domain.geometry())
 
     @tf.function
-    def solve(self, U):
+    def solve(self):
         """ Explicit Euler ODE solver """
-        U0 = enforce_boundary(U)
+        U0 = enforce_boundary(self.U)
         U1 = U0 + self.dt * laplace(U0,self.DIFF,self.DX,self.DY,self.DZ)
         return U1
+
+
+    def initialize(self):
+        width  = self._domain.width()
+        height = self._domain.height()
+        depth  = self._domain.depth()
+        # the initial values of the state variables
+        # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
+        u_init  = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        s2_init = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        if self.hole:
+            # first stimulus on one side; second stimulus on a brick
+            u_init[0:2,:,:] = self.max_v
+            s2_init[:width//2,:height//2,:] = self.max_v
+        else:
+            u_init[(width//2-10):(width//2+10),:,:]    = self.max_v
+            s2_init[:,(height//2-10):(height//2+10),:] = self.max_v
+        then = time.time()
+        self.Ididx  = tf.constant(self.domain()>0.0,dtype=tf.bool)
+        self.U = tf.Variable(u_init, name="U" )
+        self.U.assign(tf.where(self.Ididx, self.U, self.min_v))
+        elapsed = (time.time() - then)
+        tf.print('U variable, elapsed: %f sec' % elapsed)
+        self.tinit = self.tinit + elapsed
+
+        #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
+        then = time.time()
+        self.s2 = Stimulus({'tstart': self.s2_time, 
+                       'nstim': 1, 
+                       'period':800,
+                       'duration':self.dt,
+                       'dt': self.dt,
+                       'intensity':self.max_v})
+        self.s2.set_stimregion(np.where(self.domain()>0.0, s2_init, self.min_v))
+        elapsed = (time.time() - then)
+        tf.print('s2 tensor, elapsed: %f sec' % elapsed)
+        self.tinit = self.tinit + elapsed
+        tf.print('total initialization: %f sec' % self.tinit)
 
 
     #@tf.function
@@ -123,57 +171,19 @@ class HeatEquation:
             Returns:
                 None
         """
-        width  = self._domain.width()
-        height = self._domain.height()
-        depth  = self._domain.depth()
-        Ididx  = tf.constant(self.domain()>0.0,dtype=tf.bool)
-        # the initial values of the state variable
-        u_init  = np.full([width,height,depth], self.min_v, dtype=np.float32)
-        s2_init = np.full([width,height,depth], self.min_v, dtype=np.float32)
-        
-        if self.hole:
-            # first stimulus on one side; second stimulus on a brick
-            u_init[0:2,:,:] = self.max_v
-            s2_init[:width//2,:height//2,:] = self.max_v
-        else:
-            u_init[(width//2-10):(width//2+10),:,:]    = self.max_v
-            s2_init[:,(height//2-10):(height//2+10),:] = self.max_v
-        then = time.time()
-        U = tf.Variable(u_init, name="U" )
-        U = tf.where(Ididx, U, self.min_v)
-        elapsed = (time.time() - then)
-        tf.print('U variable, elapsed: %f sec' % elapsed)
-        self.tinit = self.tinit + elapsed
-        u_init=[]
-
-        #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
-        then = time.time()
-        s2 = Stimulus({'tstart': self.s2_time, 
-                       'nstim': 1, 
-                       'period':800,
-                       'duration':self.dt,
-                       'dt': self.dt,
-                       'intensity':self.max_v})
-        s2.set_stimregion(np.where(self.domain()>0.0, s2_init, self.min_v))
-        elapsed = (time.time() - then)
-        tf.print('s2 tensor, elapsed: %f sec' % elapsed)
-        self.tinit = self.tinit + elapsed
-        tf.print('total initialization: %f sec' % self.tinit)
-        
-        s2_init=[]
         then = time.time()
         if im:
-            image = U.numpy()
+            image = self.U.numpy()
             im.imshow(image)
         for i in tf.range(self.samples):
-            U1 = self.solve(U)
-            U = U1
-            #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
-            if s2.stimulate_tissue_timestep(i,self.dt):
-                U = tf.maximum(U, s2())
+            U1 = self.solve()
+            self.U.assign(U1)
+            #if self.s2.stimulate_tissue_timevalue(float(i)*self.dt):
+            if self.s2.stimulate_tissue_timestep(i,self.dt):
+                self.U.assign(tf.maximum(self.U, self.s2()))
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
-                image = tf.where(Ididx, U, -1.0).numpy()
+                image = tf.where(self.Ididx, self.U, -1.0).numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
@@ -207,8 +217,8 @@ if __name__ == '__main__':
     model = HeatEquation(config)
     im = ResultWriter(config)
     [im.height,im.width,im.depth] = model.domain().shape
+    model.initialize()
     model.run(im)
     im = None
-
 
 

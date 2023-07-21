@@ -22,6 +22,8 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+
+EAGERMODE=False
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -29,7 +31,12 @@ import numpy as np
 import time
 from  gpuSolve.IO.writers import ResultWriter
 import tensorflow as tf
-#tf.config.run_functions_eagerly(True)
+tf.config.run_functions_eagerly(EAGERMODE)
+if EAGERMODE:
+    print('running in eager mode')
+else:
+    print('running in graph mode')
+
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -61,16 +68,21 @@ class Fenton4vSimple(Fenton4v):
 
     def __init__(self, props):
         super().__init__()
-        self._domain     = Domain3D(props)
-        self.min_v       = 0.0
-        self.max_v       = 1.0
-        self.dt          = 0.1
-        self.diff        = 1.0
-        self.convl       = False
-        self.samples     = 10000
-        self.s2_time     = 200
-        self.dt_per_plot = 10
-        self.tinit       = 0.0
+        self._domain : Domain3D      = Domain3D(props)
+        self.min_v   : float         = 0.0
+        self.max_v   : float         = 1.0
+        self.dt      : float         = 0.1
+        self.diff    : float         = 1.0
+        self.convl   : bool          = False
+        self.samples : int           = 10000
+        self.s2_time : float         = 200
+        self.dt_per_plot : int       = 10
+        self.tinit       : float          = 0.0
+        self.U           : tf.Variable    = None
+        self.V           : tf.Variable    = None
+        self.W           : tf.Variable    = None
+        self.S           : tf.Variable    = None
+        self.s2          : Stimulus       = None
         for attribute in self.__dict__.keys():
             if attribute in props.keys():
                 setattr(self, attribute, props[attribute])
@@ -88,19 +100,52 @@ class Fenton4vSimple(Fenton4v):
         return(self._domain.geometry())
 
     @tf.function
-    def solve(self, state):
+    def solve(self):
         """ Explicit Euler ODE solver """
-        U, V, W, S = state
-        U0 = enforce_boundary(U)
-        dU, dV, dW, dS = self.differentiate(U, V, W, S)
+        U0 = enforce_boundary(self.U)
+        dU, dV, dW, dS = self.differentiate(self.U, self.V, self.W, self.S)
         if self.convl:
             U1 = U0 + self.dt * dU + self.diff * self.dt * conv_laplace(U0,self.DX,self.DY,self.DZ)
         else:
             U1 = U0 + self.dt * dU + self.diff * self.dt * laplace(U0,self.DX,self.DY,self.DZ)
-        V1 = V + self.dt * dV
-        W1 = W + self.dt * dW
-        S1 = S + self.dt * dS
+        V1 = self.V + self.dt * dV
+        W1 = self.W + self.dt * dW
+        S1 = self.S + self.dt * dS
         return U1, V1, W1, S1
+
+
+    def initialize(self):
+        width  = self._domain.width()
+        height = self._domain.height()
+        depth  = self._domain.depth()
+        # the initial values of the state variables
+        # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
+        u_init  = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        s2_init = np.full([width,height, depth], self.min_v, dtype=np.float32)
+        u_init[0:2,:,:] = self.max_v
+        s2_init[:width//2,:height//2,:] = self.max_v
+        then = time.time()
+        self.U = tf.Variable(u_init, name="U" )
+        self.V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
+        self.W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
+        self.S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
+        elapsed = (time.time() - then)
+        tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
+        self.tinit = self.tinit + elapsed
+
+        #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
+        then = time.time()
+        self.s2 = Stimulus({'tstart': self.s2_time, 
+                       'nstim': 1, 
+                       'period':800,
+                       'duration':self.dt,
+                       'dt': self.dt,
+                       'intensity':self.max_v})
+        self.s2.set_stimregion(s2_init)
+        elapsed = (time.time() - then)
+        tf.print('s2 tensor, elapsed: %f sec' % elapsed)
+        self.tinit = self.tinit + elapsed
+        tf.print('total initialization: %f sec' % self.tinit)
 
 
     #@tf.function
@@ -114,58 +159,22 @@ class Fenton4vSimple(Fenton4v):
             Returns:
                 None
         """
-        width  = self._domain.width()
-        height = self._domain.height()
-        depth  = self._domain.depth()
-
-        # the initial values of the state variables
-        # initial values (u, v, w, s) = (0.0, 1.0, 1.0, 0.0)
-        u_init  = np.full([width,height, depth], self.min_v, dtype=np.float32)
-        s2_init = np.full([width,height, depth], self.min_v, dtype=np.float32)
-        u_init[0:2,:,:] = self.max_v
-        s2_init[:width//2,:height//2,:] = self.max_v
-        then = time.time()
-        U = tf.Variable(u_init, name="U" )
-        V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
-        W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
-        S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
-        elapsed = (time.time() - then)
-        tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
-        self.tinit = self.tinit + elapsed
-        u_init=[]
-
-        #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
-        then = time.time()
-        s2 = Stimulus({'tstart': self.s2_time, 
-                       'nstim': 1, 
-                       'period':800,
-                       'duration':self.dt,
-                       'dt': self.dt,
-                       'intensity':self.max_v})
-        s2.set_stimregion(s2_init)
-        elapsed = (time.time() - then)
-        tf.print('s2 tensor, elapsed: %f sec' % elapsed)
-        self.tinit = self.tinit + elapsed
-        tf.print('total initialization: %f sec' % self.tinit)
-        
-        s2_init=[]
         then = time.time()
         if im:
-            image = U.numpy()
+            image = self.U.numpy()
             im.imshow(image)
-        for i in range(self.samples):
-            state = [U, V, W, S]
-            U1, V1, W1, S1 = self.solve(state)
-            U = U1
-            V = V1
-            W = W1
-            S = S1
-            #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
-            if s2.stimulate_tissue_timestep(i,self.dt):
-                U = tf.maximum(U, s2())
+        for i in tf.range(self.samples):
+            U1, V1, W1, S1 = self.solve()
+            self.U.assign(U1)
+            self.V.assign(V1)
+            self.W.assign(W1)
+            self.S.assign(S1)
+            #if self.s2.stimulate_tissue_timevalue(float(i)*self.dt):
+            if self.s2.stimulate_tissue_timestep(i,self.dt):
+                self.U.assign(tf.maximum(self.U, self.s2()))
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
-                image = U.numpy()
+                image = self.U.numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
@@ -200,6 +209,7 @@ if __name__ == '__main__':
     model = Fenton4vSimple(config)
     im = ResultWriter(config)
     [im.width,im.height,im.depth] = model.domain().shape
+    model.initialize()
     model.run(im)
     im = None
 
