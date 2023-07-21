@@ -22,13 +22,21 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+
+EAGERMODE=True
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+tf.config.run_functions_eagerly(EAGERMODE)
+if EAGERMODE:
+    print('running in eager mode')
+else:
+    print('running in graph mode')
+
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -149,7 +157,7 @@ class HeatEquation:
         self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U,I0:tf.constant):
+    def solve(self,U:tf.Variable,I0:tf.constant):
         """ Implicit solver """
         self._Solver.set_X0(U)
         RHS0 = tf.add(U,self._dt*I0)
@@ -182,20 +190,20 @@ class HeatEquation:
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
             U1 = self.solve(self._U,I0)
-            self._U = U1
+            self._U.assign(U1)
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
-        print('solution, elapsed: %f sec' % elapsed)
+        tf.print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
 
     def finalize_for_run(self):
         if self._use_renumbering:
             # permutation of the initial condition
-            self._U = tf.Variable(tf.gather(self._U,self._renumbering['perm']),name=self._U.name )
+            self._U.assign(tf.gather(self._U,self._renumbering['perm']) )        # permutation of the stimulus indices
             # permutation of the stimulus indices
             for key ,stim in self._StimulusDict.items():
                 stim.apply_indices_permutation(self._renumbering['perm'])    

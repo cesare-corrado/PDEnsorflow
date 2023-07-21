@@ -22,13 +22,21 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+
+EAGERMODE=True
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+tf.config.run_functions_eagerly(EAGERMODE)
+if EAGERMODE:
+    print('running in eager mode')
+else:
+    print('running in graph mode')
+
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -240,10 +248,10 @@ class Fenton4vSimple(Fenton4v):
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
             U1,V1,W1,S1 = self.solve(self._U,self._V,self._W,self._S,I0)
-            self._U = U1
-            self._V = V1
-            self._W = W1
-            self._S = S1
+            self._U.assign(U1)
+            self._V.assign(V1)
+            self._W.assign(W1)
+            self._S.assign(S1)
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
@@ -256,10 +264,10 @@ class Fenton4vSimple(Fenton4v):
     def finalize_for_run(self):
         if self._use_renumbering:
             # permutation of the initial condition
-            self._U = tf.Variable(tf.gather(self._U,self._renumbering['perm']),name=self._U.name )
-            self._V = tf.Variable(tf.gather(self._V,self._renumbering['perm']),name=self._V.name )
-            self._W = tf.Variable(tf.gather(self._W,self._renumbering['perm']),name=self._W.name )
-            self._S = tf.Variable(tf.gather(self._S,self._renumbering['perm']),name=self._S.name )
+            self._U.assign(tf.gather(self._U,self._renumbering['perm']) )
+            self._V.assign(tf.gather(self._V,self._renumbering['perm']))
+            self._W.assign(tf.gather(self._W,self._renumbering['perm']))
+            self._S.assign(tf.gather(self._S,self._renumbering['perm']) )
             # permutation of the stimulus indices
             for key ,stim in self._StimulusDict.items():
                 stim.apply_indices_permutation(self._renumbering['perm'])    
