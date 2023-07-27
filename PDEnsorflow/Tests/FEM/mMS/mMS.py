@@ -23,7 +23,7 @@
     IN THE SOFTWARE.
 """
 
-EAGERMODE=True
+EAGERMODE=False
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -81,7 +81,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def __init__(self, cfgdict=None):
         super().__init__()
         self._mesh_file_name : str               = None
-        self._dt : float                         = 0.1
+        self._dt : tf.constant                   = 0.1
         self._dt_per_plot : int                  = 2
         self._Tend : float                       = 10
         self._use_renumbering : bool             = False
@@ -99,7 +99,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._U: tf.Variable                     = None
         self._H: tf.Variable                     = None
         self._ready_for_run : bool               = False
-        self._ctime : float                      = 0.0
+        self._ctime : tf.constant                = tf.constant(0.0,dtype=tf.float32)
         self._nbstim : int                       = 0
         self._renumbering : dict                 = None
         self._StimulusDict: dict                 = None        
@@ -170,17 +170,17 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
-                self._U = tf.Variable(U0[:,np.newaxis], name="U")
+                self._U = tf.Variable(U0[:,np.newaxis], name="U",dtype=tf.float32)
             else:
-                self._U = tf.Variable(U0, name="U")
+                self._U = tf.Variable(U0, name="U",dtype=tf.float32)
         else:
             self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
 
         if H0 is not None:
             if H0.ndim==1:
-                self._H = tf.Variable(H0[:,np.newaxis], name="H")
+                self._H = tf.Variable(H0[:,np.newaxis], name="H",dtype=self._U.dtype)
             else:
-                self._H = tf.Variable(H0, name="H")
+                self._H = tf.Variable(H0, name="H",dtype=self._U.dtype)
         else:
             self._H = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="H",dtype=self._U.dtype)
 
@@ -193,17 +193,17 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, H:tf.Variable,I0:tf.constant) -> (tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, H:tf.Variable,I0:tf.constant) -> (tf.constant, tf.constant):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dH = self.differentiate(U, H)
         dU     = tf.add(dU,I0)
         self._Solver.set_X0(U)
-        RHS0 = tf.add(U,self._dt*dU)
+        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
         RHS = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
-        H1 = H + self._dt * dH
+        H1 = tf.add(H, tf.math.scalar_mul(self._dt, dH))
         return(U1, H1)
 
 
@@ -223,11 +223,12 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             
         then = time.time()
         for i in tf.range(self._nt):
+            #t0 =  time.time()
             self._ctime += self._dt
             I0 = tf.constant(np.zeros(shape=self._U.shape), name="I", dtype=tf.float32  )
             if self._StimulusDict is not None:
                 for stimname,stimulus in self._StimulusDict.items():
-                    I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
+                    I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
             U1,H1 = self.solve(self._U,self._H,I0)
             self._U.assign(U1)
             self._H.assign(H1)
@@ -235,12 +236,15 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
                 im.imshow(image)
+            #te = (time.time() - t0 )
+            #tf.print(i, 'elapsed: %f sec' % te)
         elapsed = (time.time() - then)
         tf.print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
 
     def finalize_for_run(self):
+        self._dt  = tf.constant(self._dt,dtype=tf.float32)
         if self._use_renumbering:
             # permutation of the initial condition
             self._U.assign(tf.gather(self._U,self._renumbering['perm']) )
@@ -290,7 +294,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def dt_per_plot(self) -> int:
         return(self._dt_per_plot)
 
-    def ctime(self) -> float:
+    def ctime(self) -> tf.constant:
         return(self._ctime)
 
     def Tend(self) ->float:

@@ -43,11 +43,11 @@ class MitchellSchaeffer2v(IonicModel):
 
     def __init__(self):
         super().__init__()
-        self._tau_in    = tf.constant(0.3)
-        self._tau_out   = tf.constant(6.0)
-        self._tau_open  = tf.constant(120.0)
-        self._tau_close = tf.constant(150.0)
-        self._u_gate    = tf.constant(0.13)
+        self._tau_in    = tf.constant(0.3,dtype=tf.float32)
+        self._tau_out   = tf.constant(6.0,dtype=tf.float32)
+        self._tau_open  = tf.constant(120.0,dtype=tf.float32)
+        self._tau_close = tf.constant(150.0,dtype=tf.float32)
+        self._u_gate    = tf.constant(0.13,dtype=tf.float32)
                 
     def tau_in(self) -> tf.constant:
         return(self._tau_in)        
@@ -66,12 +66,12 @@ class MitchellSchaeffer2v(IonicModel):
 
 
     @tf.function
-    def differentiate(self, U: tf.Variable, H: tf.Variable) ->(tf.Variable, tf.Variable):
+    def differentiate(self, U: tf.Variable, H: tf.Variable) ->(tf.constant, tf.constant):
         """ the state differentiation for the 2v model """
         # constants for the modified Mitchell Schaeffer 2v left atrial action potential model
-        J_in  =  -1.0 * H * U * U * (1.0-U)/self._tau_in
+        J_in  =  -1.0 * tf.multiply(tf.multiply(tf.multiply(H, U) , U), (1.0-U))/self._tau_in
         J_out =  U/self._tau_out
-        dU    = - (J_in +J_out)
+        dU    =  tf.scalar_mul(tf.constant(-1.0,dtype=tf.float32), tf.add(J_in ,J_out))
         dH = tf.where(U > self._u_gate, -H / self._tau_close, (1.0 - H) / self._tau_open)        
         return dU, dH
 

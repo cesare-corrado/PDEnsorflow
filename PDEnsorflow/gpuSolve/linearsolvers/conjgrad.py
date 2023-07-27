@@ -149,18 +149,18 @@ class ConjGrad:
     def _iterate(self):
         Ap             = tf.sparse.sparse_dense_matmul(self._A,self._p)
         alpha          =  self._rzold /tf.reduce_sum(tf.multiply(self._p, Ap)) 
-        self._X.assign_add(alpha *self._p) 
-        self._r.assign_sub(alpha * Ap)
+        self._X.assign_add(tf.math.scalar_mul(alpha, self._p) ) 
+        self._r.assign_sub(tf.math.scalar_mul(alpha, Ap) )
         self._residual.assign(tf.reduce_sum(tf.multiply(self._r, self._r)) )
         if self._Precond:
             z        = self._Precond.solve_precond_system(self._r)
             self._rznew.assign( tf.reduce_sum(tf.multiply(self._r, z)) )
             beta = self._rznew / self._rzold
-            self._p.assign(z + beta * self._p)
+            self._p.assign(tf.add(z, tf.math.scalar_mul(beta, self._p )) )
         else:
             self._rznew.assign(self._residual)
             beta = self._rznew / self._rzold
-            self._p.assign(self._r + beta * self._p)
+            self._p.assign(tf.add(self._r, tf.math.scalar_mul(beta, self._p) ) )
         self._rzold.assign(self._rznew)
 
 
@@ -176,7 +176,7 @@ class ConjGrad:
             if self._verbose:
                 t0             = time()
                 tf.print("initial residual: ", self._residual)
-            for it in range(tf.constant(self._maxiter)):
+            for it in tf.range(tf.constant(self._maxiter)):
                 self._iterate()
                 if(tf.sqrt(self._residual) < tf.constant(self._toll,dtype=np.float32)):
                     self._niters.assign(it+1)

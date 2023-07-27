@@ -90,7 +90,7 @@ class Stimulus:
         Useful when a permutation is used to reduce the breadthwidth of the matrices.
         """
         if self._stim is not None:
-            self._stim = tf.Variable(tf.gather(self._stim, perm_array,name=self._name), dtype=np.float32,trainable=False )
+            self._stim.assign(tf.gather(self._stim, perm_array,name=self._name) )
         
     def deactivate(self):
         """deactivate(): sets the flag _active" to False"""
@@ -137,7 +137,7 @@ class Stimulus:
         return False
 
     @tf.function
-    def stimulate_tissue_timevalue(self,ctime_sim: float) -> bool:    
+    def stimulate_tissue_timevalue(self,ctime_sim: tf.constant) -> bool:    
         """
         stimulate_tissue_timevalue(ctime_sim) tells if stimulating the tissue or not
         Input is a ctime_sim value (of type float)
@@ -153,7 +153,7 @@ class Stimulus:
         return(tf.cond(pred0,true_fcn,false_fcn))
 
     @tf.function
-    def stimApp(self,ctime_sim: float) -> tf.constant:
+    def stimApp(self,ctime_sim: tf.constant) -> tf.constant:
         """stimApp(ctime_sim): returns the stimulus if applied at current time; None otherwise"""
         pred     = self.stimulate_tissue_timevalue(ctime_sim)
         def true_fn():  return( tf.multiply(self._intensity,self._stim))
