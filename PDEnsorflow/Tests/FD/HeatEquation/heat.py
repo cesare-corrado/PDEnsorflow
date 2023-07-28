@@ -50,7 +50,7 @@ from gpuSolve.force_terms import Stimulus
 
 
 @tf.function
-def enforce_boundary(X):
+def enforce_boundary(X :tf.Variable):
     """
         Enforcing the no-flux (Neumann) boundary condition
     """

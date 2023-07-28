@@ -35,12 +35,12 @@ import tensorflow as tf
 @tf.function
 def H(x: tf.Variable) ->  tf.Variable:
     """ the step function """
-    return (1.0 + tf.sign(x)) * 0.5
+    return tf.scalar_mul(tf.constant(0.5,dtype=tf.float32), (tf.constant(1.0,dtype=tf.float32)  + tf.sign(x)) )
 
 @tf.function
 def G(x: tf.Variable) ->  tf.Variable:
     """ the step function """
-    return (1.0 - tf.sign(x)) * 0.5
+    return tf.scalar_mul(tf.constant(0.5,dtype=tf.float32),  (tf.constant(1.0,dtype=tf.float32)  - tf.sign(x)) )
 
 
 class Fenton4v(IonicModel):
@@ -144,13 +144,13 @@ class Fenton4v(IonicModel):
         # constants for the Fenton 4v left atrial action potential model
         I_fi = -V * H(U - self._u_c) * (U - self._u_c) * (self._u_m - U) / self._tau_d
         I_si = -W * S / self._tau_si
-        I_so = (0.5 * (self._a_so - self._tau_a) * (1 + tf.tanh((U - self._b_so) / self._c_so)) +
+        I_so = (tf.constant(0.5,dtype=tf.float32) * (self._a_so - self._tau_a) * (tf.constant(1.0,dtype=tf.float32)  + tf.tanh((U - self._b_so) / self._c_so)) +
                (U - self._u_0) * G(U - self._u_so) / self._tau_so + H(U - self._u_so) * self._tau_a)
         dU = -(I_fi + I_si + I_so)
         dV = tf.where(U > self._u_c, -V / self._tau_vp, (1 - V) / self._tau_vn)
-        dW = tf.where(U > self._u_c, -W / self._tau_wp, tf.where(U > self._u_w, (1 - W) / self._tau_wn2, (1 - W) / self._tau_wn1)   )
+        dW = tf.where(U > self._u_c, -W / self._tau_wp, tf.where(U > self._u_w, (tf.constant(1.0,dtype=tf.float32) - W) / self._tau_wn2, (tf.constant(1.0,dtype=tf.float32) - W) / self._tau_wn1)   )
         r_s = (self._r_sp - self._r_sn) * H(U - self._u_c) + self._r_sn
-        dS = r_s * (0.5 * (1 + tf.tanh((U - self._u_csi) * self._k_)) - S)
+        dS = r_s * (tf.constant(0.5,dtype=tf.float32) * (tf.constant(1.0,dtype=tf.float32) + tf.tanh((U - self._u_csi) * self._k_)) - S)
         return dU, dV, dW, dS
 
 
