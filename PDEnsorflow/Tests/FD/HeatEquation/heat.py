@@ -114,7 +114,7 @@ class HeatEquation:
         u_init[0:2,:,:] = self.max_v
         s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
-        self.U = tf.Variable(u_init, name="U" )
+        self.U = tf.Variable(u_init, name="U", dtype=tf.float32, trainable=False )
         elapsed = (time.time() - then)
         tf.print('U variable, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed

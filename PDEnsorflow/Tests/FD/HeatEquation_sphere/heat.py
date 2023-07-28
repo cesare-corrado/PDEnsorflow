@@ -139,7 +139,7 @@ class HeatEquation:
             s2_init[:,(height//2-10):(height//2+10),:] = self.max_v
         then = time.time()
         self.Ididx  = tf.constant(self.domain()>0.0,dtype=tf.bool)
-        self.U = tf.Variable(u_init, name="U" )
+        self.U = tf.Variable(u_init, name="U", trainable=False )
         self.U.assign(tf.where(self.Ididx, self.U, self.min_v))
         elapsed = (time.time() - then)
         tf.print('U variable, elapsed: %f sec' % elapsed)

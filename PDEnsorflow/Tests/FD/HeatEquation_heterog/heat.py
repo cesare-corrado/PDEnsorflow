@@ -50,7 +50,7 @@ from gpuSolve.force_terms import Stimulus
 
 
 @tf.function
-def enforce_boundary(X):
+def enforce_boundary(X :tf.Variable):
     """
         Enforcing the no-flux (Neumann) boundary condition
     """
@@ -138,7 +138,7 @@ class HeatEquation:
             s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
         self.Ididx  = tf.constant(self.domain()>0.0,dtype=tf.bool)
-        self.U = tf.Variable(u_init, name="U" )
+        self.U = tf.Variable(u_init, name="U", trainable=False )
         self.U.assign(tf.where(self.Ididx, self.U, self.min_v))
         elapsed = (time.time() - then)
         tf.print('U variable, elapsed: %f sec' % elapsed)

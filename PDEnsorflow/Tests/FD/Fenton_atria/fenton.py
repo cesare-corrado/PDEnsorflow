@@ -51,7 +51,7 @@ from gpuSolve.force_terms import Stimulus
 
 
 @tf.function
-def enforce_boundary(X):
+def enforce_boundary(X :tf.Variable):
     """
         Enforcing the no-flux (Neumann) boundary condition
     """
@@ -121,10 +121,10 @@ class Fenton4vSimple(Fenton4v):
         """ Explicit Euler ODE solver """
         U0 = enforce_boundary(self.U)
         dU, dV, dW, dS = self.differentiate(self.U, self.V, self.W, self.S)
-        U1 = U0 + self.dt * dU + self.dt * laplace(U0,self.DIFF,self.DX,self.DY,self.DZ)
-        V1 = self.V + self.dt * dV
-        W1 = self.W + self.dt * dW
-        S1 = self.S + self.dt * dS
+        U1 = U0 + tf.scalar_mul(self.dt, dU) + self.dt * laplace(U0,self.DIFF,self.DX,self.DY,self.DZ)
+        V1 = self.V + tf.scalar_mul(self.dt, dV)
+        W1 = self.W + tf.scalar_mul(self.dt, dW)
+        S1 = self.S + tf.scalar_mul(self.dt, dS)
         return U1, V1, W1, S1
 
 
@@ -149,11 +149,11 @@ class Fenton4vSimple(Fenton4v):
             s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
         self.Ididx  = tf.constant(self.domain()>0.0,dtype=tf.bool)
-        self.U = tf.Variable(u_init, name="U" )
+        self.U = tf.Variable(u_init, name="U",dtype=tf.float32, trainable=False )
         self.U.assign(tf.where(self.Ididx, self.U, self.min_v))
-        self.V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
-        self.W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
-        self.S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
+        self.V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V",dtype=tf.float32, trainable=False)
+        self.W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W",dtype=tf.float32, trainable=False)
+        self.S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S",dtype=tf.float32, trainable=False)
         elapsed = (time.time() - then)
         tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
@@ -171,6 +171,13 @@ class Fenton4vSimple(Fenton4v):
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
         tf.print('total initialization: %f sec' % self.tinit)
+
+    @tf.function
+    def update(self,U1 : tf.constant,V1 : tf.constant,W1 : tf.constant, S1 : tf.constant):
+        self.U.assign(U1)
+        self.V.assign(V1)
+        self.W.assign(W1)
+        self.S.assign(S1)
 
 
     #@tf.function
@@ -190,10 +197,7 @@ class Fenton4vSimple(Fenton4v):
             im.imshow(image)
         for i in tf.range(self.samples):
             U1, V1, W1, S1 = self.solve()
-            self.U.assign(U1)
-            self.V.assign(V1)
-            self.W.assign(W1)
-            self.S.assign(S1)
+            self.update(U1, V1, W1, S1)
             #if self.s2.stimulate_tissue_timevalue(float(i)*self.dt):
             if self.s2.stimulate_tissue_timestep(i,self.dt):
                 self.U.assign(tf.maximum(self.U, self.s2()))

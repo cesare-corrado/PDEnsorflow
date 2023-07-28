@@ -125,7 +125,7 @@ class Fenton4vSimple(Fenton4v):
         u_init[0:2,:,:] = self.max_v
         s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
-        self.U = tf.Variable(u_init, name="U",dtype=tf.float32 )
+        self.U = tf.Variable(u_init, name="U",dtype=tf.float32, trainable=False )
         self.V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V",dtype=tf.float32, trainable=False)
         self.W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W",dtype=tf.float32, trainable=False)
         self.S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S",dtype=tf.float32, trainable=False)
