@@ -172,35 +172,35 @@ class Fenton4vSimple(Fenton4v):
         npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
-                self._U = tf.Variable(U0[:,np.newaxis], name="U")
+                self._U = tf.Variable(U0[:,np.newaxis], name="U",dtype=tf.float32, trainable=False)
             else:
-                self._U = tf.Variable(U0, name="U")
+                self._U = tf.Variable(U0, name="U",dtype=tf.float32, trainable=False)
         else:
-            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
+            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32, trainable=False)
 
         if V0 is not None:
             if V0.ndim==1:
-                self._V = tf.Variable(V0[:,np.newaxis], name="V")
+                self._V = tf.Variable(V0[:,np.newaxis], name="V",dtype=tf.float32, trainable=False)
             else:
-                self._V = tf.Variable(V0, name="V")
+                self._V = tf.Variable(V0, name="V",dtype=tf.float32, trainable=False)
         else:
-            self._V = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="V",dtype=self._U.dtype)
+            self._V = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="V",dtype=tf.float32, trainable=False)
 
         if W0 is not None:
             if W0.ndim==1:
-                self._W = tf.Variable(W0[:,np.newaxis], name="W")
+                self._W = tf.Variable(W0[:,np.newaxis], name="W",dtype=tf.float32, trainable=False)
             else:
-                self._W = tf.Variable(W0, name="W")
+                self._W = tf.Variable(W0, name="W",dtype=tf.float32, trainable=False)
         else:
-            self._W = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="W",dtype=self._U.dtype)
+            self._W = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="W",dtype=tf.float32, trainable=False)
 
         if S0 is not None:
             if S0.ndim==1:
-                self._S = tf.Variable(S0[:,np.newaxis], name="S")
+                self._S = tf.Variable(S0[:,np.newaxis], name="S",dtype=tf.float32, trainable=False)
             else:
-                self._S = tf.Variable(S0, name="S")
+                self._S = tf.Variable(S0, name="S",dtype=tf.float32, trainable=False)
         else:
-            self._S = tf.Variable(np.full(shape=self._U.shape,fill_value=0.0), name="S",dtype=self._U.dtype)
+            self._S = tf.Variable(np.full(shape=self._U.shape,fill_value=0.0), name="S",dtype=tf.float32, trainable=False)
 
     def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
         self._nbstim +=1
@@ -210,20 +210,27 @@ class Fenton4vSimple(Fenton4v):
         self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable,I0:tf.constant) -> (tf.Variable, tf.Variable, tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable,I0:tf.constant) -> (tf.constant, tf.constant, tf.constant, tf.constant):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dV, dW, dS = self.differentiate(U, V, W, S)
         dU     = tf.add(dU,I0)
-        self._Solver.set_X0(U)
-        RHS0 = tf.add(U,self._dt*dU)
+        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU) )
         RHS = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
+        self._Solver.set_X0(U)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
-        V1 = V + self._dt * dV
-        W1 = W + self._dt * dW
-        S1 = S + self._dt * dS
+        V1 = V + tf.math.scalar_mul(self._dt, dV)
+        W1 = W + tf.math.scalar_mul(self._dt, dW)
+        S1 = S + tf.math.scalar_mul(self._dt, dS)
         return(U1, V1, W1, S1)
+
+    @tf.function
+    def update(self,U1 : tf.constant,V1 : tf.constant,W1 : tf.constant, S1 : tf.constant):
+        self._U.assign(U1)
+        self._V.assign(V1)
+        self._W.assign(W1)
+        self._S.assign(S1)
 
 
     #@tf.function
@@ -248,10 +255,7 @@ class Fenton4vSimple(Fenton4v):
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
             U1,V1,W1,S1 = self.solve(self._U,self._V,self._W,self._S,I0)
-            self._U.assign(U1)
-            self._V.assign(V1)
-            self._W.assign(W1)
-            self._S.assign(S1)
+            self.update(U1, V1, W1, S1)
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()

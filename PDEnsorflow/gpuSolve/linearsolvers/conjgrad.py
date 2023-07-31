@@ -28,10 +28,10 @@ class ConjGrad:
             if 'precond' in config.keys():
                 self._Precond = config['precond']
 
-        self._niters : tf.Variable   = tf.Variable(0,dtype=np.int32,name="niters",trainable=False)
-        self._residual: tf.Variable  = tf.Variable(1.e32,dtype=np.float32,name="residual",trainable=False)
-        self._rzold: tf.Variable     = tf.Variable(1.e32,dtype=np.float32,name="rzold",trainable=False)
-        self._rznew: tf.Variable     = tf.Variable(1.e32,dtype=np.float32,name="rznew",trainable=False)
+        self._niters : tf.Variable   = tf.Variable(0,dtype=tf.int32,name="niters",trainable=False)
+        self._residual: tf.Variable  = tf.Variable(1.e32,dtype=tf.float32,name="residual",trainable=False)
+        self._rzold: tf.Variable     = tf.Variable(1.e32,dtype=tf.float32,name="rzold",trainable=False)
+        self._rznew: tf.Variable     = tf.Variable(1.e32,dtype=tf.float32,name="rznew",trainable=False)
 
 
     def set_precond(self, prcnd: AbstractPrecond):
