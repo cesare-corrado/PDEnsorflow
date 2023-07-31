@@ -81,7 +81,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def __init__(self, cfgdict=None):
         super().__init__()
         self._mesh_file_name : str               = None
-        self._dt : tf.constant                   = 0.1
+        self._dt : float                         = 0.1
         self._dt_per_plot : int                  = 2
         self._Tend : float                       = 10
         self._use_renumbering : bool             = False
@@ -99,7 +99,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._U: tf.Variable                     = None
         self._H: tf.Variable                     = None
         self._ready_for_run : bool               = False
-        self._ctime : tf.constant                = tf.constant(0.0,dtype=tf.float32)
+        self._ctime : float                      = 0.0
         self._nbstim : int                       = 0
         self._renumbering : dict                 = None
         self._StimulusDict: dict                 = None        
@@ -157,7 +157,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             self._renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
         MATRICES    =  assemble_matrices_dict(lmatr,pattern,self._Domain,self._materials,connectivity, renumbering=self._renumbering)
-        self._MASS = MATRICES['mass']
+        self._MASS  = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = tf.sparse.add(self._MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
         self._Domain.release_connectivity()
@@ -170,19 +170,19 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
-                self._U = tf.Variable(U0[:,np.newaxis], name="U",dtype=tf.float32)
+                self._U = tf.Variable(U0[:,np.newaxis], name="U",dtype=tf.float32, trainable=False)
             else:
-                self._U = tf.Variable(U0, name="U",dtype=tf.float32)
+                self._U = tf.Variable(U0, name="U",dtype=tf.float32, trainable=False)
         else:
-            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
+            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32, trainable=False)
 
         if H0 is not None:
             if H0.ndim==1:
-                self._H = tf.Variable(H0[:,np.newaxis], name="H",dtype=self._U.dtype)
+                self._H = tf.Variable(H0[:,np.newaxis], name="H",dtype=tf.float32, trainable=False)
             else:
-                self._H = tf.Variable(H0, name="H",dtype=self._U.dtype)
+                self._H = tf.Variable(H0, name="H",dtype=tf.float32, trainable=False)
         else:
-            self._H = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="H",dtype=self._U.dtype)
+            self._H = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="H",dtype=tf.float32, trainable=False)
 
 
     def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
@@ -197,14 +197,19 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dH = self.differentiate(U, H)
         dU     = tf.add(dU,I0)
-        self._Solver.set_X0(U)
-        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
+        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU) )
         RHS = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
+        self._Solver.set_X0(U)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
-        H1 = tf.add(H, tf.math.scalar_mul(self._dt, dH))
+        H1 = H + tf.math.scalar_mul(self._dt, dH)
         return(U1, H1)
+
+    @tf.function
+    def update(self,U1 : tf.constant,H1 : tf.constant):
+        self._U.assign(U1)
+        self._H.assign(H1)
 
 
     #@tf.function
@@ -230,8 +235,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
             U1,H1 = self.solve(self._U,self._H,I0)
-            self._U.assign(U1)
-            self._H.assign(H1)
+            self.update(U1,H1)
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
@@ -244,7 +248,6 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             im.wait()   # wait until the window is closed
 
     def finalize_for_run(self):
-        self._dt  = tf.constant(self._dt,dtype=tf.float32)
         if self._use_renumbering:
             # permutation of the initial condition
             self._U.assign(tf.gather(self._U,self._renumbering['perm']) )
@@ -294,7 +297,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def dt_per_plot(self) -> int:
         return(self._dt_per_plot)
 
-    def ctime(self) -> tf.constant:
+    def ctime(self) -> float:
         return(self._ctime)
 
     def Tend(self) ->float:

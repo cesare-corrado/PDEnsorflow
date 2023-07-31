@@ -77,7 +77,7 @@ class Stimulus:
         region = np.squeeze(streg.astype(bool))
         if region.ndim==1:
             region=region[:,np.newaxis]
-        self._stim = tf.Variable(region,name=self._name, dtype=np.float32,trainable=False )
+        self._stim = tf.Variable(region,name=self._name, dtype=tf.float32,trainable=False )
 
     def get_stimregion(self) -> tf.Variable:
         """ get_stimeregion() returns the stimulus region

@@ -184,12 +184,12 @@ class ConjGrad:
 
             if self._verbose:
                 elapsed = time() - t0
-                print('done in {:3.2f} s'.format(elapsed),flush=True)            
+                tf.print('done in {:3.2f} s'.format(elapsed),flush=True)            
                 self.summary()
             if(self._niters>=self._maxiter):
                 tf.print("WARNING: max nb of iteration reached (residual",self._residual,")")
 
             
         except Exception as err:
-            print(f"Unexpected {err=}, {type(err)=}")
+            tf.print(f"Unexpected {err=}, {type(err)=}")
             raise
