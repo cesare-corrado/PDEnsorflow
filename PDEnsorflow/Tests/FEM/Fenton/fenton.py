@@ -23,7 +23,7 @@
     IN THE SOFTWARE.
 """
 
-EAGERMODE=True
+EAGERMODE=False #True
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -253,7 +253,7 @@ class Fenton4vSimple(Fenton4v):
             I0 = tf.constant(np.zeros(shape=self._U.shape), name="I", dtype=tf.float32  )
             if self._StimulusDict is not None:
                 for stimname,stimulus in self._StimulusDict.items():
-                    I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
+                    I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
             U1,V1,W1,S1 = self.solve(self._U,self._V,self._W,self._S,I0)
             self.update(U1, V1, W1, S1)
             # draw a frame every dt_per_plot ms
