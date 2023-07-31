@@ -261,7 +261,7 @@ class Fenton4vSimple(Fenton4v):
                 image = self.U().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
-        print('solution, elapsed: %f sec' % elapsed)
+        tf.print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
 
