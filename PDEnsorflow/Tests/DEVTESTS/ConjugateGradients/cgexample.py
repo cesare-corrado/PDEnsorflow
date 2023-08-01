@@ -106,7 +106,7 @@ def assemble_matrix(mesh_file_name : str, use_renumbering : bool = False, dt: fl
 
 
 if __name__=='__main__':
-    nb_of_tests             = 10
+    nb_of_tests             = 2000
     mesh_file_name          = os.path.join('..','..','data','triangulated_square.pkl')
     matrix_dict             = assemble_matrix(mesh_file_name, use_renumbering = False, dt= 1.0)
     Amatr                   = matrix_dict['A']
@@ -114,33 +114,35 @@ if __name__=='__main__':
     Solver                  = ConjGrad()
     Precond                 = JacobiPrecond()
     Solver.set_matrix(Amatr)
+    Solver.set_toll(1.e-7)
     Precond.build_preconditioner(Amatr.indices.numpy()[:,0], Amatr.indices.numpy()[:,1], Amatr.values.numpy(),Amatr.shape[0])
     Solver.set_precond(Precond)
     Solver.set_maxiter(Amatr.shape[0]//2)
-    X    = tf.Variable(tf.zeros(shape=(Amatr.shape[0],1), dtype=tf.float32), name="X")
-
+    X      = tf.Variable(tf.zeros(shape=(Amatr.shape[0],1), dtype=tf.float32), name="X")
+    etimes = np.zeros(nb_of_tests)
 
 
     tf.print('solving with CG %d times' % nb_of_tests )
     for jj in tf.range(nb_of_tests):
-        Uref = tf.constant(np.random.normal(size=(Amatr.shape[0],1)).astype(np.float32))
+        Uref = tf.constant(np.random.normal(loc=1.0,size=(Amatr.shape[0],1)).astype(np.float32))
         RHS  = tf.sparse.sparse_dense_matmul(Amatr,Uref)
-        X.assign(tf.constant(np.random.normal(loc=np.random.normal(),scale=np.random.uniform(low=1,high=2),size=(Amatr.shape[0],1)).astype(np.float32)) )
+        X.assign(tf.constant(np.random.normal(loc=np.random.normal(),scale=np.random.uniform(low=1,high=2), size=(Amatr.shape[0],1)).astype(np.float32)) )
         err0  = tf.norm(Uref-X).numpy()        
         Solver.set_X0(X)
         Solver.set_RHS(RHS)
         t0    = time()
         Solver.solve()
         tesp  = time()-t0
+        etimes[jj]=tesp
+        
         X1    = Solver.X()
         err1  = tf.norm(Uref-X1).numpy()
-        tf.print('test %d' %(1+jj))
-        tf.print('|x-xtrue|_0: {:3.2f}\t|x-xtrue|: {:3.2f}\telapsed: {:3.2f} s'.format(err0,err1,tesp))
-        Solver.summary()
+        #tf.print('test %d' %(1+jj))
+        #tf.print('|x-xtrue|_0: {:3.2f}\t|x-xtrue|: {:3.2f}\telapsed: {:3.2f} s'.format(err0,err1,tesp))
+        #Solver.summary()
         
-
-
-    
+    sumstr = '{} repetitions; time, total: {:3.2f}; average: {:4.3g}; std: {:4.3g} '.format(nb_of_tests, etimes.sum(),etimes.mean(),etimes.std())
+    tf.print(sumstr)     
 
 
 
