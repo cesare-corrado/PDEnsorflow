@@ -22,13 +22,20 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 """
+
+EAGERMODE=True
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
+tf.config.run_functions_eagerly(EAGERMODE)
+if EAGERMODE:
+    print('running in eager mode')
+else:
+    print('running in graph mode')
+
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:
@@ -149,7 +156,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             self._renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
         MATRICES    =  assemble_matrices_dict(lmatr,pattern,self._Domain,self._materials,connectivity, renumbering=self._renumbering)
-        self._MASS = MATRICES['mass']
+        self._MASS  = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = tf.sparse.add(self._MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
         self._Domain.release_connectivity()
@@ -185,17 +192,17 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, H:tf.Variable,I0:tf.constant) -> (tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, H:tf.Variable,I0:tf.constant) -> (tf.constant, tf.constant):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dH = self.differentiate(U, H)
         dU     = tf.add(dU,I0)
+        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
+        RHS  = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
         self._Solver.set_X0(U)
-        RHS0 = tf.add(U,self._dt*dU)
-        RHS = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
-        H1 = H + self._dt * dH
+        H1 = H + tf.math.scalar_mul(self._dt, dH)
         return(U1, H1)
 
 
@@ -219,7 +226,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             I0 = tf.constant(np.zeros(shape=self._U.shape), name="I", dtype=tf.float32  )
             if self._StimulusDict is not None:
                 for stimname,stimulus in self._StimulusDict.items():
-                    I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
+                    I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
             U1,H1 = self.solve(self._U,self._H,I0)
             self._U = U1
             self._H = H1
@@ -228,7 +235,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                 image = self.U().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
-        print('solution, elapsed: %f sec' % elapsed)
+        tf.print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
 
