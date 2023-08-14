@@ -179,12 +179,11 @@ class ConjGrad:
             for it in tf.range(tf.constant(self._maxiter)):
                 self._iterate()
                 if(tf.sqrt(self._residual) < tf.constant(self._toll,dtype=np.float32)):
-                    self._niters.assign(it+1)
                     break
-
+            self._niters.assign(it+1)
             if self._verbose:
                 elapsed = time() - t0
-                tf.print('done in {:3.2f} s'.format(elapsed),flush=True)            
+                tf.print('done in {:3.2f} s'.format(elapsed))            
                 self.summary()
             if(self._niters>=self._maxiter):
                 tf.print("WARNING: max nb of iteration reached (residual",self._residual,")")
