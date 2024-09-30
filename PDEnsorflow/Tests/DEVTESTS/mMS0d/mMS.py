@@ -23,7 +23,7 @@
     IN THE SOFTWARE.
 """
 
-EAGERMODE=False
+EAGERMODE=True
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
@@ -169,19 +169,19 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
-                self._U = tf.Variable(U0[:,np.newaxis], name="U",dtype=tf.float32, trainable=False)
+                self._U = tf.Variable(U0[:,np.newaxis], name="U")
             else:
-                self._U = tf.Variable(U0, name="U",dtype=tf.float32, trainable=False)
+                self._U = tf.Variable(U0, name="U")
         else:
-            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32, trainable=False)
+            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
 
         if H0 is not None:
             if H0.ndim==1:
-                self._H = tf.Variable(H0[:,np.newaxis], name="H",dtype=tf.float32, trainable=False)
+                self._H = tf.Variable(H0[:,np.newaxis], name="H")
             else:
-                self._H = tf.Variable(H0, name="H",dtype=tf.float32, trainable=False)
+                self._H = tf.Variable(H0, name="H")
         else:
-            self._H = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="H",dtype=tf.float32, trainable=False)
+            self._H = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="H",dtype=self._U.dtype)
 
 
     def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
@@ -196,8 +196,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU, dH = self.differentiate(U, H)
         dU     = tf.add(dU,I0)
-        RHS0   = U + tf.math.scalar_mul(self._dt,dU) 
-        #RHS    = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
+        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
+        #RHS  = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
         #self._Solver.set_X0(U)
         #self._Solver.set_RHS(RHS)
         #self._Solver.solve()
@@ -206,12 +206,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         H1 = H + tf.math.scalar_mul(self._dt, dH)
         return(U1, H1)
 
-    @tf.function
-    def update(self,U1 : tf.constant,H1 : tf.constant):
-        self._U.assign(U1)
-        self._H.assign(H1)
 
-
+    #@tf.function
     def run(self, im=None):
         """
             Runs the model. 
@@ -234,7 +230,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
             U1,H1 = self.solve(self._U,self._H,I0)
-            self.update(U1,H1)
+            self._U = U1
+            self._H = H1
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
@@ -249,8 +246,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
     def finalize_for_run(self):
         if self._use_renumbering:
             # permutation of the initial condition
-            self._U.assign(tf.gather(self._U,self._renumbering['perm']) )
-            self._H.assign(tf.gather(self._H,self._renumbering['perm']) )
+            self._U = tf.Variable(tf.gather(self._U,self._renumbering['perm']),name=self._U.name )
+            self._H = tf.Variable(tf.gather(self._H,self._renumbering['perm']),name=self._H.name )
             # permutation of the stimulus indices
             for key ,stim in self._StimulusDict.items():
                 stim.apply_indices_permutation(self._renumbering['perm'])    

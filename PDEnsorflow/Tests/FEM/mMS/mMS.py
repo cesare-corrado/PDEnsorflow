@@ -23,10 +23,9 @@
     IN THE SOFTWARE.
 """
 
-EAGERMODE=False
+EAGERMODE=True
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
 import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter

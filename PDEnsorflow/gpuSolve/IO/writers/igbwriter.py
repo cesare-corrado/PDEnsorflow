@@ -14,8 +14,8 @@ class IGBWriter:
         self._fname   : str        = 'out.igb'
         self._nt      : int        = None
         self._nx      : int        = None
-        self._ny      : int        = 1
-        self._nz      : int        = 1
+        self._ny      : int        = None
+        self._nz      : int        = None
         self._org_t   : float      = 0.0
         self._Tend    : float      = None
         self._dim_t   : float      = None
@@ -35,7 +35,7 @@ class IGBWriter:
 
         if ( (self._dim_t is None) and (self._Tend is not None) ):
             self._dim_t = self._Tend-self._org_t
-        elif( (self._Tend is None) and (self._dim_t is None)):
+        elif( (self._Tend is None) and (self._dim_t is not None)):
             self._Tend = self._org_t + self._dim_t
 
     def set_fname(self,fname: str):
@@ -174,8 +174,17 @@ class IGBWriter:
         for x in [0,1,2]:
             pass
 
+    def write_data_to_file(self):
+        ''' This function is to write all the data to a file; to uuse igberiter as a standalone'''
+        if self.__hwrt:
+            self.__write_header()  
+        for n in range(self._nt):
+            self.__fobj.write(struct.pack('={}f'.format(self.__data.shape[1]),*(self.__data[n,:])))
+        self.__fobj.close()        
+
+
     def initialise_from_data(self, header:dict, data: np.ndarray):
-        """initialise_from_data(header,data) initialises an IGBWriter object passing an header and a numpy ndarray of data
+        """initialise_from_im tdata(header,data) initialises an IGBWriter object passing an header and a numpy ndarray of data
         """ 
         self._parse_header(header)
         self._data = data
@@ -234,6 +243,12 @@ class IGBWriter:
     def _parse_header(self,header:dict):
         '''_parse_header(header) used to copy from an igbreader object; it parses the header
         '''
+
+        for attribute, map_attribute in zip(['_nx','_ny','_nz','_nt'], ['x','y','z','t']):
+            if map_attribute in header.keys():
+                setattr(self, attribute, header[map_attribute])
+        
+        
         for attribute in self.__dict__.keys():    
             if attribute[1:] in header.keys():
                 setattr(self, attribute, header[attribute[1:]])
