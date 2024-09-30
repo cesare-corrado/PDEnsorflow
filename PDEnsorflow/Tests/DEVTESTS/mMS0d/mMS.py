@@ -197,11 +197,12 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         dU, dH = self.differentiate(U, H)
         dU     = tf.add(dU,I0)
         RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
-        RHS  = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
-        self._Solver.set_X0(U)
-        self._Solver.set_RHS(RHS)
-        self._Solver.solve()
-        U1 = self._Solver.X()
+        #RHS  = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
+        #self._Solver.set_X0(U)
+        #self._Solver.set_RHS(RHS)
+        #self._Solver.solve()
+        #U1 = self._Solver.X()
+        U1 = RHS0 
         H1 = H + tf.math.scalar_mul(self._dt, dH)
         return(U1, H1)
 
@@ -222,6 +223,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             
         then = time.time()
         for i in tf.range(self._nt):
+            #t0 =  time.time()
             self._ctime += self._dt
             I0 = tf.constant(np.zeros(shape=self._U.shape), name="I", dtype=tf.float32  )
             if self._StimulusDict is not None:
@@ -234,6 +236,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
                 im.imshow(image)
+            #te = (time.time() - t0 )
+            #tf.print(i, 'elapsed: %f sec' % te)
         elapsed = (time.time() - then)
         tf.print('solution, elapsed: %f sec' % elapsed)
         if im:
@@ -341,6 +345,10 @@ if __name__=='__main__':
     Ly = model.domain().Pts()[:,1].max()
     U0 = (model.domain().Pts()[:,0]<0.05*Lx).astype(np.float32)
     S2 = np.logical_and(model.domain().Pts()[:,0]<Lx,model.domain().Pts()[:,1]<0.5*Ly)
+    # The following two lines can be used to appy the initial condition and the stimulus
+    # to the entire domain (remember that now the system does not have diffusivity
+    #U0 = (model.domain().Pts()[:,0]<=Lx).astype(np.float32)
+    #S2 = np.logical_and(model.domain().Pts()[:,0]<Lx,model.domain().Pts()[:,1]<=Ly)
     model.set_initial_condition(U0)
     model.add_stimulus(S2,cfgstim2 )
     U0 = None    
