@@ -87,7 +87,7 @@ def linear_tetrahedral_local_Stiffness(elemData : dict, Sigma: np.ndarray = np.i
     contra_bas      = np.zeros(shape=(3,3))
     contra_bas[:,0] = elemData['v1']
     contra_bas[:,1] = elemData['v2']
-    contra_bas[:,3] = elemData['v3']
+    contra_bas[:,2] = elemData['v3']
     localgrad       = np.array([[-1.0,1.0,0.0,0.0], [-1.0,0.0,1.0,0.0], [-1.0,0.0,0.0,1.0] ])
     grad            = np.matmul(contra_bas, localgrad)
     flux            = np.matmul(Sigma,grad)
