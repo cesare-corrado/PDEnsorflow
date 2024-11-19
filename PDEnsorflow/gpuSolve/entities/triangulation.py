@@ -134,7 +134,7 @@ def Tetrahedron_contravariant_basis(VertPts: np.ndarray,localcoords: list = []) 
         contrb     = np.linalg.inv(covbT)
         v1contra   = contrb[:,0]
         v2contra   = contrb[:,1]
-        v3contra   = contrb[:,3]
+        v3contra   = contrb[:,2]
         return {'v1':v1contra,'v2':v2contra,'v3':v3contra,'meas':T_vol}        
     except Exception as err:
         print(f"Unexpected {err=}, {type(err)=}")
