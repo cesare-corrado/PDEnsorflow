@@ -1,4 +1,4 @@
-# PDEnsorflow 1.2.1
+# PDEnsorflow 1.2.2
 
 **PDEnsorflow**  is a library developed under `TensorFlow 2.X` to solve Partial dfferential equations.
 Since version 1.2, it implements finite differences and finite element solvers.
