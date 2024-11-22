@@ -74,6 +74,9 @@ class Fenton4v(IonicModel):
         self._a_so = tf.constant(0.115)
         self._b_so = tf.constant(0.84)
         self._c_so = tf.constant(0.02)
+        self._vmin : tf.constant = tf.constant(0.0, name = "vmin")
+        self._vmax : tf.constant = tf.constant(1.0, name = "vmax")
+        self._DV   : tf.constant = self._vmax-self._vmin
 
     def tau_vp(self)  -> tf.constant:
         return(self._tau_vp)
@@ -139,18 +142,31 @@ class Fenton4v(IonicModel):
         return(self._c_so)
 
     @tf.function
+    def to_dimensionless(self,U: tf.Variable) -> tf.Variable:
+        """ to_dimensionless(U) rescales U to its dimensionless values (range [0,1])
+        """
+        return(U-self._vmin)/self._DV
+        
+    @tf.function
+    def derivative_to_dimensional(self,dU: tf.Variable) -> tf.Variable:
+        """ derivative_to_dimensional(U) rescales the derivative of U (dU) to dimensional values
+        """
+        return(self._DV*dU)
+
+    @tf.function
     def differentiate(self, U: tf.Variable, V: tf.Variable, W: tf.Variable, S: tf.Variable)->(tf.Variable, tf.Variable,tf.Variable,tf.Variable):
         """ the state differentiation for the 4v model """
+        Uad   = self.to_dimensionless(U)
         # constants for the Fenton 4v left atrial action potential model
-        I_fi = -V * H(U - self._u_c) * (U - self._u_c) * (self._u_m - U) / self._tau_d
+        I_fi = -V * H(Uad - self._u_c) * (Uad - self._u_c) * (self._u_m - Uad) / self._tau_d
         I_si = -W * S / self._tau_si
-        I_so = (0.5 * (self._a_so - self._tau_a) * (1 + tf.tanh((U - self._b_so) / self._c_so)) +
-               (U - self._u_0) * G(U - self._u_so) / self._tau_so + H(U - self._u_so) * self._tau_a)
-        dU = -(I_fi + I_si + I_so)
-        dV = tf.where(U > self._u_c, -V / self._tau_vp, (1 - V) / self._tau_vn)
-        dW = tf.where(U > self._u_c, -W / self._tau_wp, tf.where(U > self._u_w, (1 - W) / self._tau_wn2, (1 - W) / self._tau_wn1)   )
-        r_s = (self._r_sp - self._r_sn) * H(U - self._u_c) + self._r_sn
-        dS = r_s * (0.5 * (1 + tf.tanh((U - self._u_csi) * self._k_)) - S)
+        I_so = (0.5 * (self._a_so - self._tau_a) * (1 + tf.tanh((Uad - self._b_so) / self._c_so)) +
+               (Uad - self._u_0) * G(Uad - self._u_so) / self._tau_so + H(Uad - self._u_so) * self._tau_a)
+        dU = -self.derivative_to_dimensional(I_fi + I_si + I_so)
+        dV = tf.where(Uad > self._u_c, -V / self._tau_vp, (1 - V) / self._tau_vn)
+        dW = tf.where(Uad > self._u_c, -W / self._tau_wp, tf.where(Uad > self._u_w, (1 - W) / self._tau_wn2, (1 - W) / self._tau_wn1)   )
+        r_s = (self._r_sp - self._r_sn) * H(Uad - self._u_c) + self._r_sn
+        dS = r_s * (0.5 * (1 + tf.tanh((Uad - self._u_csi) * self._k_)) - S)
         return dU, dV, dW, dS
 
 

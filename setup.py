@@ -7,7 +7,7 @@ from setuptools import find_packages
 
 setup(
     name='PDEnsorflow',
-    version='1.1.0',
+    version='1.1.2',
     url='https://github.com/cesare-corrado/PDEnsorflow',
     author='Cesare Corrado',
     install_requires=['nibabel', 'imageio', 'numpy','scipy', 'tensorflow>=2.9'],
