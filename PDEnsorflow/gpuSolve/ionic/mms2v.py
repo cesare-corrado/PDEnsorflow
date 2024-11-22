@@ -50,6 +50,10 @@ class ModifiedMS2v(IonicModel):
         self._tau_close = tf.constant(120.0)
         self._u_gate    = tf.constant(0.13)
         self._u_crit    = tf.constant(0.13)
+        self._vmin : tf.constant = tf.constant(0.0, name = "vmin")
+        self._vmax : tf.constant = tf.constant(1.0, name = "vmax")
+        self._DV   : tf.constant = self._vmax-self._vmin
+
                 
     def tau_in(self) -> tf.constant:
         return(self._tau_in)        
@@ -70,12 +74,25 @@ class ModifiedMS2v(IonicModel):
         return(self._u_crit)        
 
     @tf.function
+    def to_dimensionless(self,U: tf.Variable) -> tf.Variable:
+        """ to_dimensionless(U) rescales U to its dimensionless values (range [0,1])
+        """
+        return(U-self._vmin)/self._DV
+        
+    @tf.function
+    def derivative_to_dimensional(self,dU: tf.Variable) -> tf.Variable:
+        """ derivative_to_dimensional(U) rescales the derivative of U (dU) to dimensional values
+        """
+        return(self._DV*dU)
+
+    @tf.function
     def differentiate(self, U: tf.Variable, H: tf.Variable) ->(tf.Variable, tf.Variable):
         """ the state differentiation for the 2v model """
         # constants for the modified Mitchell Schaeffer 2v left atrial action potential model
-        J_in  =  -1.0 * H * U * (U-self._u_crit) * (1.0-U)/self._tau_in
-        J_out =  (1.0-H)*U/self._tau_out
-        dU    = - (J_in +J_out)
+        Uad   = self.to_dimensionless(U)
+        J_in  =  -1.0 * H * Uad * (Uad-self._u_crit) * (1.0-Uad)/self._tau_in
+        J_out =  (1.0-H)*Uad/self._tau_out
+        dU    = - self.derivative_to_dimensional(J_in +J_out)
         dH = tf.where(U > self._u_gate, -H / self._tau_close, (1.0 - H) / self._tau_open)        
         return dU, dH
 
