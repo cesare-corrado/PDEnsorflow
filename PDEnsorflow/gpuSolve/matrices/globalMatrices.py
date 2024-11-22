@@ -244,8 +244,17 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
         J_rnmb  = iperm[J].astype(J.dtype)
         indices = np.hstack([I_rnmb[:,np.newaxis], J_rnmb[:,np.newaxis]])
 
-    MATRICES = {}
+    dense_shape = [npt,npt]
+    indices     = tf.constant(indices,dtype=tf.int64)
+    # here is the coalesce
+    linearized  = tf.matmul(indices, [[npt], [1]] )
+    y, idx  = tf.unique(tf.squeeze(linearized))
+    y       = tf.expand_dims(y, 1)
+    indices = tf.concat([y//npt, y%npt], axis=1)
+    MATRICES = {}    
     for matr_name,VMAT in VM.items():
-        MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=VMAT.astype(np.float32), dense_shape=[npt,npt])
+        values = tf.math.segment_sum(tf.constant(VMAT,dtype=tf.float32), idx)
+        MATRICES[matr_name] = tf.sparse.SparseTensor(indices=indices,values=values, dense_shape=dense_shape)
+
     return(MATRICES)
 
