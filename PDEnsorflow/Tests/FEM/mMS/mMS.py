@@ -96,7 +96,6 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._Precond : JacobiPrecond            = JacobiPrecond()
         self._MASS                               = None
         self._U: tf.Variable                     = None
-        self._H: tf.Variable                     = None
         self._ready_for_run : bool               = False
         self._ctime : float                      = 0.0
         self._nbstim : int                       = 0
@@ -165,7 +164,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
         self._Solver.set_precond(self._Precond)
 
-    def set_initial_condition(self,U0:np.ndarray = None, H0:np.ndarray = None):
+    def set_initial_condition(self,U0:np.ndarray = None):
         npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
@@ -173,15 +172,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             else:
                 self._U = tf.Variable(U0, name="U")
         else:
-            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
-
-        if H0 is not None:
-            if H0.ndim==1:
-                self._H = tf.Variable(H0[:,np.newaxis], name="H")
-            else:
-                self._H = tf.Variable(H0, name="H")
-        else:
-            self._H = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="H",dtype=self._U.dtype)
+            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=-80.0), name="U",dtype=tf.float32)
+        self.initialize_state_variables(self._U)
 
 
     def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
@@ -192,9 +184,9 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, H:tf.Variable,I0:tf.constant) -> (tf.constant, tf.constant):
+    def solve(self,U:tf.Variable, I0:tf.constant) -> tf.Variable:
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
-        dU, dH = self.differentiate(U, H)
+        dU = self.differentiate(U)
         dU     = tf.add(dU,I0)
         RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
         RHS  = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
@@ -202,8 +194,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
-        H1 = H + tf.math.scalar_mul(self._dt, dH)
-        return(U1, H1)
+        return U1
 
 
     #@tf.function
@@ -227,9 +218,8 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             if self._StimulusDict is not None:
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
-            U1,H1 = self.solve(self._U,self._H,I0)
+            U1 = self.solve(self._U,I0)
             self._U = U1
-            self._H = H1
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
@@ -243,7 +233,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         if self._use_renumbering:
             # permutation of the initial condition
             self._U = tf.Variable(tf.gather(self._U,self._renumbering['perm']),name=self._U.name )
-            self._H = tf.Variable(tf.gather(self._H,self._renumbering['perm']),name=self._H.name )
+            self._H_state = tf.Variable(tf.gather(self._H_state,self._renumbering['perm']),name=self._H_state.name )
             # permutation of the stimulus indices
             for key ,stim in self._StimulusDict.items():
                 stim.apply_indices_permutation(self._renumbering['perm'])    
@@ -278,9 +268,9 @@ class ModifiedMS2vSimple(ModifiedMS2v):
 
     def H(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self._H,self._renumbering['iperm']) )
+            return(tf.gather(self._H_state,self._renumbering['iperm']) )
         else:
-            return(self._H)
+            return(self._H_state)
 
 
     def nt(self) -> int:
@@ -318,7 +308,7 @@ if __name__=='__main__':
                        'nstim': 1, 
                        'period':100,
                        'duration':np.max([0.4,dt]),
-                       'intensity':1.0,
+                       'intensity':60.0,
                        'name':'crossstim'
               }
     
@@ -339,7 +329,7 @@ if __name__=='__main__':
     model.assemble_matrices()
     Lx = model.domain().Pts()[:,0].max()
     Ly = model.domain().Pts()[:,1].max()
-    U0 = (model.domain().Pts()[:,0]<0.05*Lx).astype(np.float32)
+    U0 = np.where(model.domain().Pts()[:,0]<0.05*Lx, 20.0, -80.0).astype(np.float32)
     S2 = np.logical_and(model.domain().Pts()[:,0]<Lx,model.domain().Pts()[:,1]<0.5*Ly)
     model.set_initial_condition(U0)
     model.add_stimulus(S2,cfgstim2 )

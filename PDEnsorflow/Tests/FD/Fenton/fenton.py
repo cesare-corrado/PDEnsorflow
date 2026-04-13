@@ -62,8 +62,8 @@ class Fenton4vSimple(Fenton4v):
     def __init__(self, props):
         super().__init__()
         self._domain     = Domain3D(props)
-        self.min_v       = 0.0
-        self.max_v       = 1.0
+        self.min_v       = -80.0
+        self.max_v       = 20.0
         self.dt          = 0.1
         self.diff        = 1.0
         self.convl       = False
@@ -88,19 +88,15 @@ class Fenton4vSimple(Fenton4v):
         return(self._domain.geometry())
 
     @tf.function
-    def solve(self, state):
+    def solve(self, U):
         """ Explicit Euler ODE solver """
-        U, V, W, S = state
         U0 = enforce_boundary(U)
-        dU, dV, dW, dS = self.differentiate(U, V, W, S)
+        dU = self.differentiate(U)
         if self.convl:
             U1 = U0 + self.dt * dU + self.diff * self.dt * conv_laplace(U0,self.DX,self.DY,self.DZ)
         else:
             U1 = U0 + self.dt * dU + self.diff * self.dt * laplace(U0,self.DX,self.DY,self.DZ)
-        V1 = V + self.dt * dV
-        W1 = W + self.dt * dW
-        S1 = S + self.dt * dS
-        return U1, V1, W1, S1
+        return U1
 
 
     #@tf.function
@@ -126,43 +122,39 @@ class Fenton4vSimple(Fenton4v):
         s2_init[:width//2,:height//2,:] = self.max_v
         then = time.time()
         U = tf.Variable(u_init, name="U" )
-        V = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="V"    )
-        W = tf.Variable(np.full([width,height,depth], 1.0, dtype=np.float32), name="W"    )
-        S = tf.Variable(np.full([width,height,depth], 0.0, dtype=np.float32), name="S"    )
+        self._dt = self.dt
+        self.initialize_state_variables(U)
         elapsed = (time.time() - then)
-        tf.print('U,V,W,S variables, elapsed: %f sec' % elapsed)
+        tf.print('U variables, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
         u_init=[]
 
         #define a source that is triggered at t=s2_time: : vertical (2D) along the left face
         then = time.time()
-        s2 = Stimulus({'tstart': self.s2_time, 
-                       'nstim': 1, 
+        s2 = Stimulus({'tstart': self.s2_time,
+                       'nstim': 1,
                        'period':800,
                        'duration':self.dt,
                        'dt': self.dt,
-                       'intensity':self.max_v})
+                       'intensity':60.0})
         s2.set_stimregion(s2_init)
         elapsed = (time.time() - then)
         tf.print('s2 tensor, elapsed: %f sec' % elapsed)
         self.tinit = self.tinit + elapsed
         tf.print('total initialization: %f sec' % self.tinit)
-        
+
         s2_init=[]
         then = time.time()
         if im:
             image = U.numpy()
             im.imshow(image)
         for i in range(self.samples):
-            state = [U, V, W, S]
-            U1, V1, W1, S1 = self.solve(state)
+            U1 = self.solve(U)
             U = U1
-            V = V1
-            W = W1
-            S = S1
             #if s2.stimulate_tissue_timevalue(float(i)*self.dt):
             if s2.stimulate_tissue_timestep(i,self.dt):
-                U = tf.maximum(U, s2())
+                stim = s2()
+                U = tf.where(tf.cast(stim, tf.bool), tf.maximum(U, stim), U)
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
                 image = U.numpy()
