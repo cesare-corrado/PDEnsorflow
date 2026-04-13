@@ -51,8 +51,8 @@ class Fenton4v(IonicModel):
         Heart Rhythm. 2007 Dec;4(12):1553-62.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, dt=0.0, n_nodes=0):
+        super().__init__(dt, n_nodes)
         self._tau_vp = tf.constant(3.33)
         self._tau_vn = tf.constant(19.2)
         self._tau_wp = tf.constant(160.0)
@@ -74,9 +74,21 @@ class Fenton4v(IonicModel):
         self._a_so = tf.constant(0.115)
         self._b_so = tf.constant(0.84)
         self._c_so = tf.constant(0.02)
-        self._vmin : tf.constant = tf.constant(0.0, name = "vmin")
-        self._vmax : tf.constant = tf.constant(1.0, name = "vmax")
+        self._vmin : tf.constant = tf.constant(-80.0, name = "vmin")
+        self._vmax : tf.constant = tf.constant(20.0, name = "vmax")
         self._DV   : tf.constant = self._vmax-self._vmin
+        self._V_state = None
+        self._W_state = None
+        self._S_state = None
+
+    def initialize_state_variables(self, U: tf.Variable):
+        #create internal state tf.Variables matching U's shape
+        """initialize_state_variables(U) creates V, W, S gate variables with the same shape as U"""
+        if not self._initialized:
+            self._V_state = tf.Variable(tf.ones_like(U), name="V_state")
+            self._W_state = tf.Variable(tf.ones_like(U), name="W_state")
+            self._S_state = tf.Variable(tf.zeros_like(U), name="S_state")
+            self._initialized = True
 
     def tau_vp(self)  -> tf.constant:
         return(self._tau_vp)
@@ -154,19 +166,23 @@ class Fenton4v(IonicModel):
         return(self._DV*dU)
 
     @tf.function
-    def differentiate(self, U: tf.Variable, V: tf.Variable, W: tf.Variable, S: tf.Variable)->(tf.Variable, tf.Variable,tf.Variable,tf.Variable):
+    def differentiate(self, U: tf.Variable) -> tf.Variable:
         """ the state differentiation for the 4v model """
         Uad   = self.to_dimensionless(U)
         # constants for the Fenton 4v left atrial action potential model
-        I_fi = -V * H(Uad - self._u_c) * (Uad - self._u_c) * (self._u_m - Uad) / self._tau_d
-        I_si = -W * S / self._tau_si
+        I_fi = -self._V_state * H(Uad - self._u_c) * (Uad - self._u_c) * (self._u_m - Uad) / self._tau_d
+        I_si = -self._W_state * self._S_state / self._tau_si
         I_so = (0.5 * (self._a_so - self._tau_a) * (1 + tf.tanh((Uad - self._b_so) / self._c_so)) +
                (Uad - self._u_0) * G(Uad - self._u_so) / self._tau_so + H(Uad - self._u_so) * self._tau_a)
         dU = -self.derivative_to_dimensional(I_fi + I_si + I_so)
-        dV = tf.where(Uad > self._u_c, -V / self._tau_vp, (1 - V) / self._tau_vn)
-        dW = tf.where(Uad > self._u_c, -W / self._tau_wp, tf.where(Uad > self._u_w, (1 - W) / self._tau_wn2, (1 - W) / self._tau_wn1)   )
+        dV = tf.where(Uad > self._u_c, -self._V_state / self._tau_vp, (1 - self._V_state) / self._tau_vn)
+        dW = tf.where(Uad > self._u_c, -self._W_state / self._tau_wp, tf.where(Uad > self._u_w, (1 - self._W_state) / self._tau_wn2, (1 - self._W_state) / self._tau_wn1)   )
         r_s = (self._r_sp - self._r_sn) * H(Uad - self._u_c) + self._r_sn
-        dS = r_s * (0.5 * (1 + tf.tanh((Uad - self._u_csi) * self._k_)) - S)
-        return dU, dV, dW, dS
+        dS = r_s * (0.5 * (1 + tf.tanh((Uad - self._u_csi) * self._k_)) - self._S_state)
+        self._V_state.assign(self._V_state + self._dt * dV)
+        self._W_state.assign(self._W_state + self._dt * dW)
+        self._S_state.assign(self._S_state + self._dt * dS)
+        return dU
+
 
 

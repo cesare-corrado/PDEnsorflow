@@ -36,8 +36,22 @@ class IonicModel:
     A base class for all the ionic models to gather functions common to each model
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, dt=0.0, n_nodes=0):
+        self._dt = dt
+        self._n_nodes = n_nodes
+        self._initialized = False
+
+    def initialize_state_variables(self, U: tf.Variable):
+        """initialize_state_variables(U) initializes the internal state variables matching U's shape.
+        Override in subclasses.
+        """
+        self._initialized = True
+
+    def differentiate(self, U: tf.Variable) -> tf.Variable:
+        """differentiate(U) computes the ionic current derivative dU and updates internal state variables.
+        Override in subclasses.
+        """
+        raise NotImplementedError("differentiate must be implemented in subclass")
 
     def set_parameter(self,pname:str, pvalue: np.ndarray):
         """

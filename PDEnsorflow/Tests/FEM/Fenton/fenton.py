@@ -89,9 +89,6 @@ class Fenton4vSimple(Fenton4v):
         self._Precond : JacobiPrecond            = JacobiPrecond()
         self._MASS                               = None
         self._U: tf.Variable                     = None
-        self._V: tf.Variable                     = None
-        self._W: tf.Variable                     = None
-        self._S: tf.Variable                     = None
         self._ready_for_run : bool               = False
         self._ctime : float                      = 0.0
         self._nbstim : int                       = 0
@@ -160,7 +157,7 @@ class Fenton4vSimple(Fenton4v):
         self._Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
         self._Solver.set_precond(self._Precond)
 
-    def set_initial_condition(self,U0:np.ndarray = None, V0:np.ndarray = None, W0:np.ndarray = None,S0:np.ndarray = None):
+    def set_initial_condition(self,U0:np.ndarray = None):
         npt = self._Domain.Pts().shape[0]
         if U0 is not None:
             if U0.ndim==1:
@@ -168,31 +165,8 @@ class Fenton4vSimple(Fenton4v):
             else:
                 self._U = tf.Variable(U0, name="U")
         else:
-            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=0.0), name="U",dtype=tf.float32)
-
-        if V0 is not None:
-            if V0.ndim==1:
-                self._V = tf.Variable(V0[:,np.newaxis], name="V")
-            else:
-                self._V = tf.Variable(V0, name="V")
-        else:
-            self._V = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="V",dtype=self._U.dtype)
-
-        if W0 is not None:
-            if W0.ndim==1:
-                self._W = tf.Variable(W0[:,np.newaxis], name="W")
-            else:
-                self._W = tf.Variable(W0, name="W")
-        else:
-            self._W = tf.Variable(np.full(shape=self._U.shape,fill_value=1.0), name="W",dtype=self._U.dtype)
-
-        if S0 is not None:
-            if S0.ndim==1:
-                self._S = tf.Variable(S0[:,np.newaxis], name="S")
-            else:
-                self._S = tf.Variable(S0, name="S")
-        else:
-            self._S = tf.Variable(np.full(shape=self._U.shape,fill_value=0.0), name="S",dtype=self._U.dtype)
+            self._U = tf.Variable(np.full(shape=(npt,1),fill_value=-80.0), name="U",dtype=tf.float32)
+        self.initialize_state_variables(self._U)
 
     def add_stimulus(self,stimreg:np.ndarray,stimprops:dict):
         self._nbstim +=1
@@ -202,9 +176,9 @@ class Fenton4vSimple(Fenton4v):
         self._StimulusDict[self._nbstim].set_stimregion(stimreg) 
 
     @tf.function
-    def solve(self,U:tf.Variable, V:tf.Variable, W:tf.Variable, S:tf.Variable,I0:tf.constant) -> (tf.Variable, tf.Variable, tf.Variable, tf.Variable):
+    def solve(self,U:tf.Variable, I0:tf.constant) -> tf.Variable:
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
-        dU, dV, dW, dS = self.differentiate(U, V, W, S)
+        dU = self.differentiate(U)
         dU     = tf.add(dU,I0)
         self._Solver.set_X0(U)
         RHS0 = tf.add(U,self._dt*dU)
@@ -212,10 +186,7 @@ class Fenton4vSimple(Fenton4v):
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
-        V1 = V + self._dt * dV
-        W1 = W + self._dt * dW
-        S1 = S + self._dt * dS
-        return(U1, V1, W1, S1)
+        return U1
 
 
     #@tf.function
@@ -239,11 +210,8 @@ class Fenton4vSimple(Fenton4v):
             if self._StimulusDict is not None:
                 for stimname,stimulus in self._StimulusDict.items():
                     I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
-            U1,V1,W1,S1 = self.solve(self._U,self._V,self._W,self._S,I0)
+            U1 = self.solve(self._U,I0)
             self._U = U1
-            self._V = V1
-            self._W = W1
-            self._S = S1
             # draw a frame every dt_per_plot ms
             if im and i % self._dt_per_plot == 0:
                 image = self.U().numpy()
@@ -257,9 +225,9 @@ class Fenton4vSimple(Fenton4v):
         if self._use_renumbering:
             # permutation of the initial condition
             self._U = tf.Variable(tf.gather(self._U,self._renumbering['perm']),name=self._U.name )
-            self._V = tf.Variable(tf.gather(self._V,self._renumbering['perm']),name=self._V.name )
-            self._W = tf.Variable(tf.gather(self._W,self._renumbering['perm']),name=self._W.name )
-            self._S = tf.Variable(tf.gather(self._S,self._renumbering['perm']),name=self._S.name )
+            self._V_state = tf.Variable(tf.gather(self._V_state,self._renumbering['perm']),name=self._V_state.name )
+            self._W_state = tf.Variable(tf.gather(self._W_state,self._renumbering['perm']),name=self._W_state.name )
+            self._S_state = tf.Variable(tf.gather(self._S_state,self._renumbering['perm']),name=self._S_state.name )
             # permutation of the stimulus indices
             for key ,stim in self._StimulusDict.items():
                 stim.apply_indices_permutation(self._renumbering['perm'])    
@@ -294,21 +262,21 @@ class Fenton4vSimple(Fenton4v):
 
     def V(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self._V,self._renumbering['iperm']) )
+            return(tf.gather(self._V_state,self._renumbering['iperm']) )
         else:
-            return(self._V)
+            return(self._V_state)
 
     def W(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self._W,self._renumbering['iperm']) )
+            return(tf.gather(self._W_state,self._renumbering['iperm']) )
         else:
-            return(self._W)
+            return(self._W_state)
 
     def S(self) -> tf.Variable:
         if self._use_renumbering:
-            return(tf.gather(self._S,self._renumbering['iperm']) )
+            return(tf.gather(self._S_state,self._renumbering['iperm']) )
         else:
-            return(self._S)
+            return(self._S_state)
 
     def nt(self) -> int:
         return(self._nt)
@@ -340,7 +308,7 @@ if __name__=='__main__':
                        'nstim': 1, 
                        'period':100,
                        'duration':np.max([0.4,dt]),
-                       'intensity':1.0,
+                       'intensity':60.0,
                        'name':'crossstim'
               }
     
@@ -348,7 +316,7 @@ if __name__=='__main__':
                        'nstim': 1, 
                        'period':100,
                        'duration':np.max([0.4,dt]),
-                       'intensity':1.0,
+                       'intensity':60.0,
                        'name':'crossstim'
               }
     
