@@ -327,7 +327,7 @@ def _batch_local_matrices(elemtype, Elements, domain, local_matrices_dict, matpr
         # Vectorized stiffness matrix
         for matr_name in list(remaining.keys()):
             if remaining[matr_name] is localStiffness and elemtype in _stiffness_localgrad:
-                # CLAUDE-OPTIMIZE: Try fully vectorized Sigma computation first.
+                # Try fully vectorized Sigma computation first.
                 # Falls back to per-element loop if properties are not region-based.
                 Sigma_batch, sigma_ok = _try_batch_sigma(
                     matr_name, elemtype, Elements, domain, matprops)
@@ -389,11 +389,11 @@ def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,con
         scatter_indices = np.zeros(shape=(nV, nV, nElems), dtype=np.int64)
         for iEntry in range(nV):
             irows = Elems_noids[:, iEntry]     # (nElems,) global row indices
-            # CLAUDE-OPTIMIZE: Vectorized row start offsets for all elements
+            # Vectorized row start offsets for all elements
             row_starts = k0[irows]             # (nElems,)
             for jEntry in range(nV):
                 jcols = Elems_noids[:, jEntry]  # (nElems,) global col indices
-                # CLAUDE-OPTIMIZE: Vectorized index lookup using searchsorted.
+                # Vectorized index lookup using searchsorted.
                 # For each element, find the position of jcol in the sorted
                 # connectivity of irow, offset by the row start in the COO array.
                 for e in range(nElems):
@@ -420,7 +420,7 @@ def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,con
 #############                                                          #############
 ####################################################################################
 import tensorflow as tf
-# CLAUDE-OPTIMIZE: global matrices are now returned as CSRSparseMatrix wrappers
+# global matrices are now returned as CSRSparseMatrix wrappers
 # (cuSPARSE-backed). Per-iteration SpMV inside the solvers goes through
 # tf.raw_ops.SparseMatrixMatMul, which is ~1.6x/2.2x faster than
 # tf.sparse.sparse_dense_matmul on the coarse/fine meshes in
