@@ -19,23 +19,16 @@ class JacobiPrecond(AbstractPrecond):
     def build_preconditioner(self,I0: np.ndarray, J0: np.ndarray, V0: np.ndarray,msize: int):
         """
         build_preconditioner(I0,J0,V0,msize): builds the Jacobi preconditioner in sparse form
-        Since the preconditioner is diagonal, we do not convert I0 and J0 
+        Since the preconditioner is diagonal, we do not convert I0 and J0
         to tf.constant and we evaluate the inverse directly
         """
         self._dim = msize
-        nnzero     = I0.shape
-        I          = np.zeros(shape=(self._dim,1),dtype = int)
-        J          = np.zeros(shape=(self._dim,1),dtype = int)
+        # vectorised diagonal extraction replaces the Python
+        # loop over all non-zeros (was O(nnz) with per-entry python overhead).
         V          = np.zeros(shape=(self._dim,1),dtype = float)
-        nnzero     = I.shape[0]
-        for ir,jc,mv in zip(I0,J0,V0):
-            if ir==jc:
-                I[ir] = ir
-                J[ir] = jc
-                V[ir] = 1./mv
-        #self._I = tf.constant(I,name="Iprecond",dtype = np.int32)
-        #self._J = tf.constant(J,name="Jprecond",dtype = np.int32)
-        self._V = tf.constant(V,name="Vprecond",dtype = np.float32)
+        diag_mask  = (I0 == J0)
+        diag_idx   = I0[diag_mask]
+        V[diag_idx, 0] = 1.0 / V0[diag_mask]
         
     @tf.function
     def solve_precond_system(self, residual : tf.constant) -> tf.constant:

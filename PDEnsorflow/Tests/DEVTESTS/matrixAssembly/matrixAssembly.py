@@ -147,10 +147,11 @@ if __name__=='__main__':
         print('  Mean:  {:6.3f} s'.format(times_arr.mean()))
         print('  Std:   {:6.3f} s'.format(times_arr.std()))
 
-        # Print matrix info
+        # Print matrix info (CSRSparseMatrix -> convert to COO for stats only)
         for matr_name, M in MATRICES.items():
+            st = M.to_sparse_tensor()
             print('  Matrix {}: shape={}, nnz={}'.format(
-                matr_name, M.dense_shape.numpy(), M.values.shape[0]))
+                matr_name, st.dense_shape.numpy(), st.values.shape[0]))
 
     print('\n' + '='*60)
     print('Profiling complete.')

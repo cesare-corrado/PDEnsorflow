@@ -1,4 +1,4 @@
-# PDEnsorflow 1.3.0
+# PDEnsorflow 1.3.1
 
 **PDEnsorflow**  is a library developed under `TensorFlow 2.X` to solve Partial dfferential equations.
 Since version 1.2, it implements finite differences and finite element solvers.
@@ -19,6 +19,7 @@ To install **PDEnsorflow**, proceed as follows:
 Install `cudatoolkit` version 11.2 and `cudnn` version 8.1.0, as follows:
 ```
 conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1.0
+conda install -c nvidia "cuda-nvcc>=11.2,<12"
 ```
 Set up the `LD_LIBRARY_PATH` to the conda environment:
 ```

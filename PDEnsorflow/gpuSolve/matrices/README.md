@@ -105,4 +105,5 @@ Given a python dict of functions to compute local matrices, this function comput
 * connectivity:   the domain connectivity (if None, it is computed and kept in memory)
 * renumbering:    the node renumbering to reduce breadwidth (default = None)
 
-
+**Change Log**
+19 April 2026: switch to CSR matrices
