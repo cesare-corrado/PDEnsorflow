@@ -46,4 +46,6 @@ Running with GPU detected (`/physical_device:GPU:0`), TensorFlow 2.12.0.
 | Fine   | 1,002,001 | 2,000,000 | 7.858    | 0.041   | ~73x    |
 
 Note: first repetition includes TF/GPU warmup; steady-state performance
+
+**Change Log**: 19 April 2026: matrices now are CSR
 is ~0.45s (coarse) and ~7.8s (fine).

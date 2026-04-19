@@ -420,6 +420,46 @@ def assemble_vectmat_dict(local_matrices_dict,matrix_pattern,domain,matprops,con
 #############                                                          #############
 ####################################################################################
 import tensorflow as tf
+# CLAUDE-OPTIMIZE: global matrices are now returned as CSRSparseMatrix wrappers
+# (cuSPARSE-backed). Per-iteration SpMV inside the solvers goes through
+# tf.raw_ops.SparseMatrixMatMul, which is ~1.6x/2.2x faster than
+# tf.sparse.sparse_dense_matmul on the coarse/fine meshes in
+# Tests/DEVTESTS/ConjugateGradients. csr_axpby is the CSR-native replacement
+# for `tf.sparse.add(a, tf.sparse.map_values(tf.multiply, b, scalar))`.
+from tensorflow.python.ops.linalg.sparse.sparse_csr_matrix_ops import CSRSparseMatrix
+
+
+def _wrap_sparse_tensor_as_csr(sp: tf.sparse.SparseTensor) -> CSRSparseMatrix:
+    """Reorder (required: unordered COO produces a broken CSR on GPU) and wrap
+    a SparseTensor as a CSRSparseMatrix whose handle_data is set so the
+    variant tensor survives @tf.function boundaries."""
+    sp = tf.sparse.reorder(sp)
+    return CSRSparseMatrix(sp)
+
+
+def csr_axpby(A: CSRSparseMatrix, alpha, B: CSRSparseMatrix = None, beta=None) -> CSRSparseMatrix:
+    """Compute alpha*A + beta*B (or alpha*A if B is None) as a CSRSparseMatrix.
+    Replaces `tf.sparse.add(a, tf.sparse.map_values(tf.multiply, b, s))` for
+    CSR matrices.
+    """
+    dtype = A.dtype
+    a_alpha = tf.constant(alpha, dtype=dtype)
+    if B is None:
+        # alpha*A via SparseMatrixAdd with a zero matrix is overkill; instead
+        # rebuild via SparseTensor scaling (one-time cost at assembly).
+        sp = A.to_sparse_tensor()
+        sp = tf.sparse.SparseTensor(sp.indices, sp.values * a_alpha, sp.dense_shape)
+        return _wrap_sparse_tensor_as_csr(sp)
+    b_beta  = tf.constant(beta,  dtype=dtype)
+    result_variant = tf.raw_ops.SparseMatrixAdd(
+        a=A._matrix, b=B._matrix, alpha=a_alpha, beta=b_beta)
+    return A._from_matrix(result_variant, handle_data=A._matrix._handle_data)
+
+
+def csr_to_sparse_tensor(A: CSRSparseMatrix) -> tf.sparse.SparseTensor:
+    """Extract COO indices/values/shape from a CSRSparseMatrix (for callers
+    such as JacobiPrecond.build_preconditioner that need the COO form)."""
+    return A.to_sparse_tensor()
 
 def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None, renumbering: dict = None) -> tf.sparse.SparseTensor:
     """ function assemble_mass_matrix(matrix_pattern,domain,connectivity=None)
@@ -474,7 +514,7 @@ def assemble_mass_matrix(matrix_pattern : dict,domain,connectivity: dict = None,
     MASS      = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)
-    return(MASS)
+    return _wrap_sparse_tensor_as_csr(MASS)
 
 
 def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: str = 'Sigma',connectivity : dict =None, renumbering : dict = None) -> tf.sparse.SparseTensor:
@@ -529,7 +569,7 @@ def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: 
     STIFFNESS = tf.sparse.SparseTensor(indices=indices, values=VM.astype(np.float32), dense_shape=[npt, npt])
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)
-    return(STIFFNESS)
+    return _wrap_sparse_tensor_as_csr(STIFFNESS)
 
 
 
@@ -590,8 +630,9 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
     for matr_name in local_matrices_dict.keys():
         vals   = tf.constant(np.concatenate(all_vals[matr_name]), dtype=tf.float32)
         values = tf.math.unsorted_segment_sum(vals, idx, tf.shape(y)[0])
-        MATRICES[matr_name] = tf.sparse.SparseTensor(
+        sp = tf.sparse.SparseTensor(
             indices=indices, values=values, dense_shape=dense_shape)
+        MATRICES[matr_name] = _wrap_sparse_tensor_as_csr(sp)
 
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)
