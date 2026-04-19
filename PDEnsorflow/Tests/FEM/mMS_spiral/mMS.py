@@ -43,6 +43,7 @@ from gpuSolve.matrices.localMass import localMass
 from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
 from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
+from gpuSolve.matrices.globalMatrices import csr_axpby
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
 from gpuSolve.linearsolvers.jacobi_precond import JacobiPrecond
 from gpuSolve.force_terms import Stimulus
@@ -148,13 +149,15 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             self._renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
         lmatr       = {'mass':localMass,'stiffness':localStiffness}
         MATRICES    =  assemble_matrices_dict(lmatr,pattern,self._Domain,self._materials,connectivity, renumbering=self._renumbering)
-        self._MASS = MATRICES['mass']
+        self._MASS  = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
-        A           = tf.sparse.add(self._MASS,tf.sparse.map_values(tf.multiply,STIFFNESS,self._dt))
+        A           = csr_axpby(self._MASS, 1.0, STIFFNESS, self._dt)
         self._Domain.release_connectivity()
         self._materials.remove_all_element_properties()
         self._Solver.set_matrix(A)
-        self._Precond.build_preconditioner(A.indices.numpy()[:,0], A.indices.numpy()[:,1], A.values.numpy(),A.shape[0])
+        Ast = A.to_sparse_tensor()
+        self._Precond.build_preconditioner(Ast.indices.numpy()[:,0], Ast.indices.numpy()[:,1],
+                                           Ast.values.numpy(), int(Ast.dense_shape.numpy()[0]))
         self._Solver.set_precond(self._Precond)
 
     def set_initial_condition(self,U0:np.ndarray = None):
@@ -181,9 +184,9 @@ class ModifiedMS2vSimple(ModifiedMS2v):
         """ Explicit Euler ODE solver + implicit solver for diffusion"""
         dU = self.differentiate(U)
         dU     = tf.add(dU,I0)
+        RHS0 = tf.add(U,tf.math.scalar_mul(self._dt,dU))
+        RHS  = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=RHS0)
         self._Solver.set_X0(U)
-        RHS0 = tf.add(U,self._dt*dU)
-        RHS = tf.sparse.sparse_dense_matmul(self._MASS,RHS0)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         U1 = self._Solver.X()
@@ -210,7 +213,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
             I0 = tf.constant(np.zeros(shape=self._U.shape), name="I", dtype=tf.float32  )
             if self._StimulusDict is not None:
                 for stimname,stimulus in self._StimulusDict.items():
-                    I0 = tf.add(I0, stimulus.stimApp(self._ctime) )
+                    I0 = tf.add(I0, stimulus.stimApp(tf.constant(self._ctime,dtype=tf.float32)) )
             U1 = self.solve(self._U,I0)
             self._U = U1
             # draw a frame every dt_per_plot ms
@@ -218,7 +221,7 @@ class ModifiedMS2vSimple(ModifiedMS2v):
                 image = self.U().numpy()
                 im.imshow(image)
         elapsed = (time.time() - then)
-        print('solution, elapsed: %f sec' % elapsed)
+        tf.print('solution, elapsed: %f sec' % elapsed)
         if im:
             im.wait()   # wait until the window is closed
 
