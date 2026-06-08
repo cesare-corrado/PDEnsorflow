@@ -1,4 +1,5 @@
-tensorflow>=2.9
+tensorflow[and-cuda]; sys_platform == "linux"
+tensorflow; sys_platform != "linux"
 nibabel
 imageio
 numpy
