@@ -2,15 +2,20 @@ import numpy as np
 import struct
 import os
 from gpuSolve.IO.readers import IGBReader
+from gpuSolve.IO.writers.basewriter import BaseWriter
 
-class IGBWriter:
+class IGBWriter(BaseWriter):
     """
     Class IGBWriter
-    Implements a writer in IGB format
+    Implements a writer in IGB format.
+    The GPU buffering/chunking is inherited from BaseWriter; this class only
+    implements the IGB specific (streaming) saving logic.
     """
 
 
     def __init__(self, config: dict = None):
+        # BaseWriter manages the GPU buffer and the every_N / max_chunk_mb flush triggers
+        super().__init__(config)
         self._fname   : str        = 'out.igb'
         self._nt      : int        = None
         self._nx      : int        = None
@@ -161,16 +166,37 @@ class IGBWriter:
         return(self.__data)
 
     def imshow(self,data: np.ndarray):
-        """ imshow(data): writes the data to the file
+        """ imshow(data): receives one solution (a TensorFlow GPU tensor or a
+        numpy array) and buffers it; the chunk is streamed to the IGB file when
+        the flush condition is met (see BaseWriter).
         """
+        # buffer on the GPU instead of writing one float at a
+        # time; the bulk write happens in _write_chunk()
+        self.add_solution(data)
+
+    def _write_chunk(self, chunk: np.ndarray, idx: int):
+        '''_write_chunk(chunk,idx): streams a chunk of solutions to the IGB file.
+        The header is written on the first chunk only. Returns None because IGB
+        is an append-only format and needs no temporary chunk files.
+        '''
         if self.__hwrt:
-            self.__write_header()  
-        for ix in range(self._nx):
-            self.__fobj.write(struct.pack('f', data[ix]))
+            self.__write_header()
+        # a single little-endian binary write for the whole
+        # chunk replaces the per-element struct.pack loop
+        np.ascontiguousarray(chunk, dtype='<f4').tofile(self.__fobj)
+        return(None)
+
+    def _aggregate(self, chunk_files: list):
+        '''_aggregate(chunk_files): nothing to aggregate, the chunks have already
+        been streamed to the IGB file.'''
+        pass
 
     def wait(self):
         '''wait function; usually for plot on screen '''
-        self.__fobj.close()
+        # flush the remaining buffered solutions before closing
+        self.finalize()
+        if self.__fobj is not None:
+            self.__fobj.close()
         for x in [0,1,2]:
             pass
 
@@ -198,29 +224,57 @@ class IGBWriter:
 
     def __del__(self):
         '''destructor: closes the file '''
-        self.__fobj.close()
+        # guard against a never-opened file (chunked path may
+        # close it earlier, or the writer may be destroyed before any write)
+        if self.__fobj is not None:
+            self.__fobj.close()
 
     def __write_header(self):
         '''writes the header to the file.'''
         self.___openfile()
         if self._dim_t is  None:
             self._dim_t = self._nt-1
-        header ='x:{} y:{} z:{} t:{} type:float systeme:little_endian org_t:{} dim_t:{}'.format(self._nx, self._ny, self._nz, self._nt, self._org_t,self._dim_t)
-        
+        # x/y/z/t are mandatory in the IGB spec; default the
+        # unset spatial dimensions to 1 (a plain vertex list is x*1*1) rather
+        # than emitting the invalid "y:None z:None" (meshalyzer would then read
+        # x*y*z = 0)
+        if self._ny is None:
+            self._ny = 1
+        if self._nz is None:
+            self._nz = 1
+        # the mandatory keys followed by the optional ones that are defined
+        keyvals = ['x:{}'.format(self._nx), 'y:{}'.format(self._ny),
+                   'z:{}'.format(self._nz), 't:{}'.format(self._nt),
+                   'type:float', 'systeme:little_endian',
+                   'org_t:{}'.format(self._org_t), 'dim_t:{}'.format(self._dim_t)]
+
         if (self._units_x is not None) and (self._units_y is not None) and (self._units_z is not None):
-            header ='{} unites_x:{} unites_y:{} unites_z:{}'.format(header,self._units_x,self._units_y,self._units_z)
-        
+            keyvals += ['unites_x:{}'.format(self._units_x),
+                        'unites_y:{}'.format(self._units_y),
+                        'unites_z:{}'.format(self._units_z)]
+
         if self._units_t is not None:
-            header ='{} unites_t:{}'.format(header,self._units_t)
+            keyvals.append('unites_t:{}'.format(self._units_t))
 
         if self._units is not None:
-            header ='{} unites:{}'.format(header,self._units)
+            keyvals.append('unites:{}'.format(self._units))
 
-        for isp in range(1022-len(header)):
-            header = header+' '
-        header = header+'\n\f'
-        header = ''.join('\n' if i % 80 == 0 else char for i, char in enumerate(header, 1))
-        self.__fobj.write(header.encode('utf8'))
+        lines = []
+        line  = ''
+        for kv in keyvals:
+            if line and (len(line) + 1 + len(kv) > 78):
+                lines.append(line)
+                line = kv
+            else:
+                line = kv if not line else '{} {}'.format(line, kv)
+        if line:
+            lines.append(line)
+        header = bytearray(('\r\n'.join(lines) + '\r\n').encode('utf8'))
+        # pad to exactly 1024 bytes with blank CRLF lines, then the form-feed
+        while 1024 - len(header) > 80:
+            header += b' ' * 78 + b'\r\n'
+        header += b' ' * (1024 - len(header) - 1) + b'\x0c'
+        self.__fobj.write(bytes(header))
         self.__hwrt = False
 
     def ___openfile(self):
