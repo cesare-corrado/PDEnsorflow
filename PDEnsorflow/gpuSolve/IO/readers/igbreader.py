@@ -128,17 +128,23 @@ class IGBReader:
         int_keys = ['x','y','z','t']
         try:
             with open(self.__filename,'rb') as f:
-                header = f.read(self.__head_size)
-            header = header.decode("utf-8")
-            for jj in header.strip().split():
-                [key,val]=jj.split(':')
-                if(val.isdigit()):
-                    if key in int_keys:
+                header = f.read(4*self.__head_size)
+            header = header.decode("utf-8", errors='replace')
+            for jj in header.split():
+                kv = jj.split(':',1)
+                if len(kv) != 2:
+                    continue
+                [key,val] = kv
+                if key in int_keys:
+                    try:
                         parsed_header[key]=int(val)
-                    else:
-                        parsed_header[key]=float(val)
+                    except ValueError:
+                        continue
                 else:
-                    parsed_header[key]=val            
+                    try:
+                        parsed_header[key]=float(val)
+                    except ValueError:
+                        parsed_header[key]=val
             # Now add some keys that might miss
             if not 'y' in parsed_header.keys():
                 parsed_header['y'] = int(1)            

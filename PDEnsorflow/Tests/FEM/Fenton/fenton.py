@@ -116,7 +116,7 @@ if __name__=='__main__':
                      'nx':model.domain().Pts().shape[0]
                      })
     model.finalize_for_run()
-    im.imshow(model.U().numpy())
+    im.imshow(model.U())
 
     # ---- external time loop (MonodomainSolver advances one step per call) --
     then = time.time()
@@ -125,7 +125,7 @@ if __name__=='__main__':
         ctime += model.dt()
         model.step(ctime)
         if im and i % model.dt_per_plot() == 0:
-            im.imshow(model.U().numpy())
+            im.imshow(model.U())
     elapsed = (time.time() - then)
     print('solution, elapsed: %f sec' % elapsed)
     if im:

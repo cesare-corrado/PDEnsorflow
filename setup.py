@@ -7,10 +7,12 @@ from setuptools import find_packages
 
 setup(
     name='PDEnsorflow',
-    version='1.1.2',
+    version='1.3.1',
     url='https://github.com/cesare-corrado/PDEnsorflow',
     author='Cesare Corrado',
-    install_requires=['nibabel', 'imageio', 'numpy','scipy', 'tensorflow>=2.9'],
+    install_requires=['nibabel', 'imageio', 'numpy','scipy',
+                      'tensorflow[and-cuda]; sys_platform == "linux"',
+                      'tensorflow; sys_platform != "linux"'],
     author_email='cesare.corrado@kcl.ac.uk',
     description='A PDE solver using Tensorflow',
     packages=find_packages('PDEnsorflow'),

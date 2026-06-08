@@ -174,8 +174,7 @@ class LaplaceSolver:
             if i % self.dt_per_plot == 0:
                 cnorm = compute_convergence_norm(U,U1).numpy()                
                 if im:
-                    image = U1.numpy()
-                    im.imshow(image)
+                    im.imshow(U1)
                 if cnorm<self.toll:
                     tf.print("Convergence reached ({:3.2f} < {}; nb of iter: {})".format(cnorm.round(4), self.toll,i))
                     break;

@@ -5,48 +5,44 @@ Since version 1.2, it implements finite differences and finite element solvers.
 
 
 ## Pre-requisites
-Install `TensorFlow 2.X` using anaconda. First create an environment and activate it; e.g.: 
+The only pre-requisite is `anaconda`/`conda`. First create an environment and activate it; e.g.:
 
 ```
-conda create --name PDEnsorflow python=3.9
+conda create --name PDEnsorflow python=3.11
 conda activate PDEnsorflow
 ```
 
-If you want to just install *TensorFlow*, follows  [this link](https://www.tensorflow.org/install/pip). 
 
-To install **PDEnsorflow**, proceed as follows:
+## Install
+From the repository root (the directory that contains `setup.py`, i.e. the top-level
+`PDEnsorflow` folder of this repository, **not** the inner `PDEnsorflow/PDEnsorflow`
+package folder), install with `pip`:
 
-Install `cudatoolkit` version 11.2 and `cudnn` version 8.1.0, as follows:
 ```
-conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1.0
-conda install -c nvidia "cuda-nvcc>=11.2,<12"
-```
-Set up the `LD_LIBRARY_PATH` to the conda environment:
-```
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
-```
-Finally, cd to `PDEnsorflow` main directory and install with `pip`:
-```
-cd PDEnsorflow
 python -m pip install -e .
 ```
+
+This single command installs **PDEnsorflow** together with all of its dependencies,
+including the latest `TensorFlow`. On Linux it installs `tensorflow[and-cuda]`, so the
+CUDA runtime is pulled in automatically and **no manual `cudatoolkit`/`cudnn`/`cuda-nvcc` installation is required**. 
+The CUDA library paths are configured automatically at import time by `gpuSolve/__init__.py`, 
+so you do **not** need to set `LD_LIBRARY_PATH` by hand either.
+
+If you want to just install *TensorFlow* manually, follow [this link](https://www.tensorflow.org/install/pip).
 
 
 ## Run the code
 
-
-**Old version:** Once the environment is activated, source the `init.sh` file in the main directory of PDEnsorflow:
-
+Activate the environment 
 ```
-source init.sh
+conda activate PDEnsorflow
 ```
 
-**New Version:** The paths are authomatically set within `__init__.py`.
 
-Then, launch one of the examples; e.g.:
+then, launch one of the examples; e.g.:
 
 ```
-cd Tests/Fenton_atria
+cd PDEnsorflow/Tests/FEM/Fenton
 python fenton.py
 ```
 

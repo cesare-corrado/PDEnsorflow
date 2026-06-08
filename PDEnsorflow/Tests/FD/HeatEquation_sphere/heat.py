@@ -163,8 +163,7 @@ class HeatEquation:
         s2_init=[]
         then = time.time()
         if im:
-            image = U.numpy()
-            im.imshow(image)
+            im.imshow(U)
         for i in tf.range(self.samples):
             U1 = self.solve(U)
             U = U1
@@ -173,8 +172,7 @@ class HeatEquation:
                 U = tf.maximum(U, s2())
             # draw a frame every 1 ms
             if im and i % self.dt_per_plot == 0:
-                image = tf.where(Ididx, U, -1.0).numpy()
-                im.imshow(image)
+                im.imshow(tf.where(Ididx, U, -1.0))
         elapsed = (time.time() - then)
         print('solution, elapsed: %f sec' % elapsed)
         print('TOTAL, elapsed: %f sec' % (elapsed+self.tinit))
