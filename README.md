@@ -25,8 +25,11 @@ python -m pip install -e .
 This single command installs **PDEnsorflow** together with all of its dependencies,
 including the latest `TensorFlow`. On Linux it installs `tensorflow[and-cuda]`, so the
 CUDA runtime is pulled in automatically and **no manual `cudatoolkit`/`cudnn`/`cuda-nvcc` installation is required**. 
-The CUDA library paths are configured automatically at import time by `gpuSolve/__init__.py`, 
-so you do **not** need to set `LD_LIBRARY_PATH` by hand either.
+The CUDA library paths are configured automatically, so you do **not** need to set
+`LD_LIBRARY_PATH` by hand either: when installed into a conda environment the install also
+writes a conda activation hook, so after `conda activate` **any** program (even a bare
+`import tensorflow`) finds the GPU; importing `gpuSolve` sets the same paths at import time
+as a fallback.
 
 If you want to just install *TensorFlow* manually, follow [this link](https://www.tensorflow.org/install/pip).
 
