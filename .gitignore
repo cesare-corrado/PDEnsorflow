@@ -5,3 +5,5 @@
 *.elem
 *.lon
 *.pts
+.pytest_cache/
+.ruff_cache/
