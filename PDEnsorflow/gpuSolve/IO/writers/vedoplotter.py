@@ -67,6 +67,6 @@ except:
     is_vedo = False
     print('Warning: no vedo found',flush=True)
     class VedoPlotter:
-        def __init__(self, config={}):  
-            prin('dummy class')
+        def __init__(self, config={}):
+            print('dummy class')
 

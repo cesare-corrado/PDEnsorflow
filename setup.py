@@ -65,7 +65,7 @@ setup(
     install_requires=['nibabel', 'imageio', 'numpy','scipy',
                       'tensorflow[and-cuda]; sys_platform == "linux"',
                       'tensorflow; sys_platform != "linux"'],
-    author_email='cesare.corrado@kcl.ac.uk',
+    author_email='c.corrado@imperial.ac.uk',
     description='A PDE solver using Tensorflow',
     packages=find_packages('PDEnsorflow'),
     package_dir={'': 'PDEnsorflow'},
