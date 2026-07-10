@@ -30,12 +30,6 @@ import numpy as np
 import tensorflow as tf
 import pytest
 
-# The default ConjGrad path is designed for eager execution (see module
-# docstring). Enable it at import time -- before any assembly/solve fixture --
-# and restore the previous setting when the module's tests finish.
-_PREV_EAGER = tf.config.functions_run_eagerly()
-tf.config.run_functions_eagerly(True)
-
 from gpuSolve.entities.triangulation import Triangulation
 from gpuSolve.entities.materialproperties import MaterialProperties
 from gpuSolve.matrices.globalMatrices import compute_coo_pattern
@@ -47,10 +41,14 @@ from gpuSolve.linearsolvers.jacobi_precond import JacobiPrecond
 
 
 @pytest.fixture(scope='module', autouse=True)
-def _restore_eager():
-    """Restore the interpreter's run_functions_eagerly flag after this module."""
+def _eager_mode():
+    """ConjGrad stores r/p between traced calls, so it must run eagerly. Set the
+    flag in fixture *setup* (not at import time) so it holds regardless of the
+    eager state another test module may have left behind, then restore it."""
+    prev = tf.config.functions_run_eagerly()
+    tf.config.run_functions_eagerly(True)
     yield
-    tf.config.run_functions_eagerly(bool(_PREV_EAGER))
+    tf.config.run_functions_eagerly(bool(prev))
 
 
 def _dfmass(elemtype: str, iElem: int, domain: Triangulation, matprop: MaterialProperties):
