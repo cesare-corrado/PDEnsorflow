@@ -7,7 +7,7 @@
     It repeats the assembly several times and provides mean and
     standard deviation of the elapsed time.
 
-    Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
+    Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to

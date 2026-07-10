@@ -10,7 +10,7 @@
     The test is fully autonomous: every temporary file/folder created during
     the run is removed in tearDown().
 
-    Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
+    Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
 import os
 import sys
