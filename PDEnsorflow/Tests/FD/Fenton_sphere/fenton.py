@@ -2,7 +2,7 @@
 """
     A TensorFlow-based 3D Cardiac Electrophysiology Modeler
 
-    Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
+    Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to

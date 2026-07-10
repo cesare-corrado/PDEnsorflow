@@ -13,7 +13,7 @@
     reported, together with the number of CG iterations and the
     relative residual ||A x - b|| / ||b||.
 
-    Copyright 2022-2023 Cesare Corrado (cesare.corrado@kcl.ac.uk)
+    Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
 import os
 import sys
