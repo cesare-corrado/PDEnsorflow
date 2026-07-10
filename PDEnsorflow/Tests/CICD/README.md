@@ -16,6 +16,11 @@ The GitHub-hosted Tier-1 job (`.github/workflows/ci.yml`) installs the **CPU**
 TensorFlow build and runs `pytest`, which by default collects only `unit/` (a
 `gpuSolve` import smoke plus the component tests; see `pytest.ini` `testpaths`).
 
+**Tier-2 (nightly GPU) is not yet implemented.** A full implementation spec —
+the scheduled self-hosted-GPU workflow plus a 2-D mMS regression modelled on
+`unit/test_mms_1d.py` — is kept as a maintainer planning prompt in
+`Tier2_nightly_GPU_prompt.md` (outside the repository tree).
+
 ## Running locally
 
 ```bash
