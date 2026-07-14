@@ -24,6 +24,12 @@ name: Nightly GPU
 #     Set it host-side in the runner's `.env` file (e.g. CUDA_VISIBLE_DEVICES=3),
 #     NOT here -- which card is free is a property of the host, not the workflow,
 #     and hard-coding it would break on any other runner.
+#   * For the failure-reporting job below, a repo secret PUBLIC_ISSUE_TOKEN on
+#     the mirror: a fine-grained PAT scoped to the PUBLIC repo with
+#     "Issues: read and write". Because the GPU run happens on the private
+#     mirror, a failure is otherwise invisible to public contributors; this token
+#     lets the workflow open a tracking issue on the public repo. Optional -- if
+#     the secret is absent the reporting job simply no-ops.
 #
 # Security: a self-hosted runner executes arbitrary workflow code, so keep it on
 # trusted refs only. This workflow is intentionally NOT triggered by pull requests
@@ -69,3 +75,53 @@ jobs:
         # Explicit paths override pytest.ini's testpaths (unit only), so this runs
         # Tier-1 on the GPU AND the Tier-2 nightly regressions in one session.
         run: conda run -n "$CI_CONDA_ENV" python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/Tests/CICD/nightly -v
+
+  report-failure:
+    name: Report a nightly failure as a public issue
+    needs: gpu-tests
+    # Fire only when the GPU job actually FAILED (not on success, and not when it
+    # was skipped -- e.g. on the public repo, where the guard below also applies).
+    # Runs on a GitHub-hosted VM so `gh` is preinstalled and the PAT never touches
+    # the self-hosted GPU box.
+    if: ${{ failure() && github.repository == 'cesare-corrado/PDEnsorflow-ci' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open (or reuse) a tracking issue on the public repo
+        env:
+          # Fine-grained PAT with Issues:write on the PUBLIC repo, stored as a
+          # secret on this mirror (see prerequisites above). Absent => no-op.
+          GH_TOKEN: ${{ secrets.PUBLIC_ISSUE_TOKEN }}
+          PUBLIC_REPO: cesare-corrado/PDEnsorflow
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SERVER: ${{ github.server_url }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "PUBLIC_ISSUE_TOKEN not set; skipping public issue creation."
+            exit 0
+          fi
+          short="${SHA:0:7}"
+          # De-duplicate: if an open issue already names this commit, don't pile on
+          # (both weekend runs, or a re-dispatch, would otherwise each open one).
+          existing="$(gh issue list --repo "$PUBLIC_REPO" --state open \
+                        --search "Nightly GPU failure $short in:title" \
+                        --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Issue #$existing already tracks $short; not opening another."
+            exit 0
+          fi
+          body="The GPU nightly (Tier-2, self-hosted) failed on branch '$REF' at commit $short.
+
+          - Run log: $RUN_URL
+          - Commit:  $SERVER/$PUBLIC_REPO/commit/$SHA
+
+          This ran on the private CI mirror, so this issue is the public signal for it.
+          The failing suite is:  pytest Tests/CICD/unit Tests/CICD/nightly  (on GPU).
+          If it is a real regression, revert the offending change on develop.
+
+          Opened automatically by the nightly workflow."
+          gh issue create --repo "$PUBLIC_REPO" \
+            --title "Nightly GPU failure on $REF @ $short" \
+            --body "$body"
