@@ -1,5 +1,6 @@
 import os
 import io
+import ast
 from glob import glob
 import os
 from setuptools import setup
@@ -57,15 +58,29 @@ def _install_conda_cuda_hook():
               'still set LD_LIBRARY_PATH at import time.'.format(err))
 
 
+def _read_version():
+    # Single source of truth: parse gpuSolve/_version.py WITHOUT importing it
+    # (an import would drag TensorFlow into the build).
+    version_file = os.path.join(os.path.dirname(__file__),
+                                'PDEnsorflow', 'gpuSolve', '_version.py')
+    with io.open(version_file, encoding='utf-8') as fh:
+        tree = ast.parse(fh.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == '__version__' for t in node.targets):
+            return '.'.join(str(p) for p in ast.literal_eval(node.value))
+    raise RuntimeError('Could not find __version__ in {}'.format(version_file))
+
+
 setup(
     name='PDEnsorflow',
-    version='1.3.1',
+    version=_read_version(),
     url='https://github.com/cesare-corrado/PDEnsorflow',
     author='Cesare Corrado',
     install_requires=['nibabel', 'imageio', 'numpy','scipy',
                       'tensorflow[and-cuda]; sys_platform == "linux"',
                       'tensorflow; sys_platform != "linux"'],
-    author_email='cesare.corrado@kcl.ac.uk',
+    author_email='c.corrado@imperial.ac.uk',
     description='A PDE solver using Tensorflow',
     packages=find_packages('PDEnsorflow'),
     package_dir={'': 'PDEnsorflow'},

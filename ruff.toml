@@ -1,0 +1,23 @@
+# Ruff configuration for PDEnsorflow continuous integration.
+#
+# First step: a *bug-catching* gate only. The selected rules flag genuine
+# defects (undefined names, syntax errors, broken f-strings / comparisons) and
+# do NOT enforce formatting or import hygiene, so they will not fight the
+# project house style (see comparison/CODING_MANIFESTO.md). Style / format
+# rules can be layered in later, non-blocking, once tuned to that style.
+
+target-version = "py311"
+line-length = 120
+
+extend-exclude = [
+    "*.egg-info",
+    "**/__pycache__",
+    "**/*.pyc",
+]
+
+[lint]
+# E9  : runtime syntax / indentation errors
+# F63 : broken comparisons / assertions (e.g. `assert (a, b)`)
+# F7  : misplaced statements (break/continue/return outside a loop/function)
+# F82 : undefined name (typos, missing imports)
+select = ["E9", "F63", "F7", "F82"]

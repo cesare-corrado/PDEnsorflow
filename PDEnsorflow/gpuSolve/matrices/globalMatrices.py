@@ -437,10 +437,38 @@ def _wrap_sparse_tensor_as_csr(sp: tf.sparse.SparseTensor) -> CSRSparseMatrix:
     return CSRSparseMatrix(sp)
 
 
+# tf.raw_ops.SparseMatrixAdd is registered for GPU only; on a CPU-only
+# TensorFlow build the op has no kernel and raises NotFoundError. csr_axpby
+# therefore probes the op once and, when it is unavailable, falls back to an
+# equivalent COO add (same result). The probe outcome is cached (tri-state:
+# None = not yet probed) so the per-call dispatch stays a boolean lookup even
+# when csr_axpby runs in a hot loop -- e.g. re-assembling the system matrix
+# once per Newton iteration in a nonlinear solve.
+_CSR_NATIVE_ADD = None
+
+
+def _csr_native_add_available() -> bool:
+    """True if tf.raw_ops.SparseMatrixAdd has a usable kernel on this build /
+    device (GPU-only op; absent on CPU-only TensorFlow). Probed once and cached
+    so the dispatch does not repeat a device query or exception per call."""
+    global _CSR_NATIVE_ADD
+    if _CSR_NATIVE_ADD is None:
+        probe = CSRSparseMatrix(tf.sparse.SparseTensor([[0, 0]], tf.constant([1.0]), [1, 1]))._matrix
+        try:
+            tf.raw_ops.SparseMatrixAdd(a=probe, b=probe, alpha=tf.constant(1.0), beta=tf.constant(1.0))
+            _CSR_NATIVE_ADD = True
+        except tf.errors.NotFoundError:
+            _CSR_NATIVE_ADD = False
+    return _CSR_NATIVE_ADD
+
+
 def csr_axpby(A: CSRSparseMatrix, alpha, B: CSRSparseMatrix = None, beta=None) -> CSRSparseMatrix:
     """Compute alpha*A + beta*B (or alpha*A if B is None) as a CSRSparseMatrix.
     Replaces `tf.sparse.add(a, tf.sparse.map_values(tf.multiply, b, s))` for
-    CSR matrices.
+    CSR matrices. The two-matrix case uses the native (cuSPARSE-backed)
+    tf.raw_ops.SparseMatrixAdd on GPU; on CPU-only builds, where that op has no
+    kernel, it falls back to an equivalent COO add (see
+    _csr_native_add_available). The fast GPU path is unchanged.
     """
     dtype = A.dtype
     a_alpha = tf.constant(alpha, dtype=dtype)
@@ -451,9 +479,17 @@ def csr_axpby(A: CSRSparseMatrix, alpha, B: CSRSparseMatrix = None, beta=None) -
         sp = tf.sparse.SparseTensor(sp.indices, sp.values * a_alpha, sp.dense_shape)
         return _wrap_sparse_tensor_as_csr(sp)
     b_beta  = tf.constant(beta,  dtype=dtype)
-    result_variant = tf.raw_ops.SparseMatrixAdd(
-        a=A._matrix, b=B._matrix, alpha=a_alpha, beta=b_beta)
-    return A._from_matrix(result_variant, handle_data=A._matrix._handle_data)
+    if _csr_native_add_available():
+        result_variant = tf.raw_ops.SparseMatrixAdd(
+            a=A._matrix, b=B._matrix, alpha=a_alpha, beta=b_beta)
+        return A._from_matrix(result_variant, handle_data=A._matrix._handle_data)
+    # CPU fallback: alpha*A + beta*B via COO. Scale each operand's values, then
+    # sum; _wrap_sparse_tensor_as_csr reorders and rewraps the result as CSR.
+    sp_a = A.to_sparse_tensor()
+    sp_b = B.to_sparse_tensor()
+    sp_a = tf.sparse.SparseTensor(sp_a.indices, sp_a.values * a_alpha, sp_a.dense_shape)
+    sp_b = tf.sparse.SparseTensor(sp_b.indices, sp_b.values * b_beta,  sp_b.dense_shape)
+    return _wrap_sparse_tensor_as_csr(tf.sparse.add(sp_a, sp_b))
 
 
 def csr_to_sparse_tensor(A: CSRSparseMatrix) -> tf.sparse.SparseTensor:

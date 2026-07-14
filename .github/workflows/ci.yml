@@ -1,0 +1,51 @@
+name: CI
+
+# Tier-1 continuous integration: fast, CPU-only checks that run on every push
+# and pull request targeting the integration branches. The heavier GPU
+# "nightly" suite (Tests/CICD/nightly) is intended to run on a self-hosted
+# runner from a separate, scheduled workflow.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:   # allow manual runs from the Actions tab
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff -- bug-catching gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ruff
+        run: python -m pip install --upgrade pip ruff
+      - name: ruff check
+        run: ruff check .
+
+  test:
+    name: Unit tests (CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install CPU dependencies and gpuSolve
+        run: |
+          python -m pip install --upgrade pip
+          # Install the runtime deps explicitly with the CPU TensorFlow build so
+          # the runner never pulls the multi-GB nvidia-*-cu12 CUDA wheels that
+          # `tensorflow[and-cuda]` (the Linux default in setup.py) would drag in.
+          pip install tensorflow-cpu numpy scipy nibabel imageio pytest
+          # Install gpuSolve itself without re-resolving its dependencies.
+          pip install --no-deps -e .
+      - name: Run Tier-1 unit tests (includes gpuSolve import smoke)
+        run: pytest -v

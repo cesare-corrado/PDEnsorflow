@@ -6,7 +6,7 @@ Contains:
 
 """
 
-__version__=['1','3','1']
+from gpuSolve._version import __version__
 
 
 def version():
