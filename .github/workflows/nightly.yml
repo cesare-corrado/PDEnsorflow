@@ -20,10 +20,16 @@ name: Nightly GPU
 #         interpreter mid-pytest.
 #   * The runner's shell profile must initialise conda (this workflow uses a
 #     login shell so `conda` / `conda run` are on PATH).
+#   * On a SHARED GPU box, pin the job to an idle card via CUDA_VISIBLE_DEVICES.
+#     Set it host-side in the runner's `.env` file (e.g. CUDA_VISIBLE_DEVICES=3),
+#     NOT here -- which card is free is a property of the host, not the workflow,
+#     and hard-coding it would break on any other runner.
 #
 # Security: a self-hosted runner executes arbitrary workflow code, so keep it on
 # trusted refs only. This workflow is intentionally NOT triggered by pull requests
-# (schedule + manual dispatch only), so fork PRs cannot run on the GPU box.
+# (schedule + manual dispatch only), so fork PRs cannot run on the GPU box. The
+# job is further guarded to the private mirror (see `if:` below), so it is a
+# no-op should this file ever reach the public repo's default branch.
 
 on:
   schedule:
@@ -45,6 +51,10 @@ defaults:
 jobs:
   gpu-tests:
     name: Nightly GPU tests (unit + nightly)
+    # Only ever run on the private mirror that owns the self-hosted GPU runner.
+    # On the public repo (no such runner) this makes the job skip instead of
+    # queueing forever, should nightly.yml reach the public default branch.
+    if: github.repository == 'cesare-corrado/PDEnsorflow-ci'
     runs-on: [self-hosted, gpu]
     steps:
       - uses: actions/checkout@v4
