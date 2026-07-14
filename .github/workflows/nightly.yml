@@ -94,6 +94,7 @@ jobs:
           PUBLIC_REPO: cesare-corrado/PDEnsorflow
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SERVER: ${{ github.server_url }}
+          MIRROR_REPO: ${{ github.repository }}   # this mirror -- where the failing commit actually lives
           SHA: ${{ github.sha }}
           REF: ${{ github.ref_name }}
         run: |
@@ -115,7 +116,7 @@ jobs:
           body="The GPU nightly (Tier-2, self-hosted) failed on branch '$REF' at commit $short.
 
           - Run log: $RUN_URL
-          - Commit:  $SERVER/$PUBLIC_REPO/commit/$SHA
+          - Commit:  $SERVER/$MIRROR_REPO/commit/$SHA
 
           This ran on the private CI mirror, so this issue is the public signal for it.
           The failing suite is:  pytest Tests/CICD/unit Tests/CICD/nightly  (on GPU).
