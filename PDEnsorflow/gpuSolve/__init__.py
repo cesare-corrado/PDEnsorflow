@@ -38,7 +38,7 @@ if missing:
         sys.exit('EXCEPTION: Failed to Execute after adding the CUDA libs to LD_LIBRARY_PATH, '+str(e))
 
 
-__version__=['1','3','1']
+from gpuSolve._version import __version__
 
 
 def version():
