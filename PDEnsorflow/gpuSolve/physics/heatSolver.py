@@ -40,6 +40,11 @@ class HeatSolver:
         self._dt_per_plot : int      = 2
         self._Tend : float           = 10
         self._use_renumbering : bool = False
+        # warm-start strategy for the CG solve: when True the initial
+        # guess is the linear extrapolation 2 U^n - U^{n-1} of the two
+        # previous solutions (torchcor's linear_guess), which typically
+        # saves CG iterations per step; when False the guess is U^n.
+        self._linear_guess : bool    = True
 
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
@@ -52,6 +57,7 @@ class HeatSolver:
         self._Precond : JacobiPrecond        = JacobiPrecond()
         self._MASS                           = None
         self._U : tf.Variable                = None
+        self._U_prev : tf.Variable           = None
         self._ready_for_run : bool           = False
         self._ctime : float                  = 0.0
         self._nbstim : int                   = 0
@@ -124,12 +130,32 @@ class HeatSolver:
         self._ready_for_run = True
 
     # ---- per-step kernel ----------------------------------------------------
+    def _warm_start_X0(self, U: tf.Variable) -> tf.constant:
+        """ _warm_start_X0(U) returns the CG initial guess for the current step
+            and records U as the new previous solution. With linear_guess
+            active the guess is the linear extrapolation 2 U^n - U^{n-1}
+            (torchcor's linear_guess); otherwise it is U^n unchanged.
+        """
+        if not self._linear_guess:
+            return(U)
+        # snapshot U before the solver overwrites it: after the first step
+        # the U handed to solve_step aliases ConjGrad's internal X variable,
+        # which set_X0 assigns into.
+        U_curr = tf.identity(U)
+        if self._U_prev is None:
+            X0 = U_curr
+        else:
+            X0 = 2.0 * U_curr - self._U_prev
+        self._U_prev = U_curr
+        return(X0)
+
     @tf.function
     def solve_step(self, U: tf.Variable, I0: tf.constant) -> tf.Variable:
         """ Implicit Euler solve for the heat equation. """
-        self._Solver.set_X0(U)
+        X0   = self._warm_start_X0(U)
         RHS0 = tf.add(U, self._dt * I0)
         RHS  = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=RHS0)
+        self._Solver.set_X0(X0)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         return self._Solver.X()
@@ -162,6 +188,15 @@ class HeatSolver:
 
     def solver(self) -> ConjGrad:
         return self._Solver
+
+    def set_linear_guess(self, lg: bool):
+        """ set_linear_guess(lg) enables (True) or disables (False) the
+            linear-extrapolation warm start for the CG solve. """
+        self._linear_guess = lg
+
+    def linear_guess(self) -> bool:
+        """ linear_guess() returns the warm-start strategy flag. """
+        return(self._linear_guess)
 
     def precond(self) -> JacobiPrecond:
         return self._Precond
