@@ -102,7 +102,7 @@ class MonodomainSolver(HeatSolver):
         dU   = tf.add(dU, I0)
         RHS0 = tf.add(U, tf.math.scalar_mul(self._dt, dU))
         RHS  = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=RHS0)
-        self._Solver.set_X0(U)
+        self._Solver.set_X0(self._warm_start_X0(U))
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         return self._Solver.X()
