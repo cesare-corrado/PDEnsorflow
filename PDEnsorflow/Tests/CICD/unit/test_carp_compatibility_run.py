@@ -142,6 +142,20 @@ def test_the_potential_stays_physical_and_the_front_travels(cable_run):
     assert np.all(np.diff(lat[activated]) >= 0.0)      # and it travelled in one direction
 
 
+def test_a_missing_mesh_is_reported_by_name(tmp_path, capsys):
+    """meshname has a default, so a mesh that is not there is the commonest
+    first mistake. It must name the files it looked for rather than raise a
+    bare FileNotFoundError from inside the reader."""
+    cwd = os.getcwd()
+    try:
+        os.chdir(str(tmp_path))
+        status = main(['-meshname', 'nosuch', '-tend', '1.0', '-dt', '100'])
+    finally:
+        os.chdir(cwd)
+    assert status == 1
+    assert 'nosuch.pts' in capsys.readouterr().err
+
+
 def test_help_and_a_bad_key_are_reported_without_running(capsys):
     """+Help prints the usage and stops; an unknown key exits non-zero."""
     assert main(['+Help']) == 0

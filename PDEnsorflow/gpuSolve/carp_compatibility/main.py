@@ -95,8 +95,14 @@ def main(argv: list = None) -> int:
     print_banner(mapper)
     runner = SimulationRunner()
     runner.set_mapper(mapper)
-    runner.build()
-    runner.run()
+    try:
+        runner.build()
+        runner.run()
+    except (ValueError, OSError) as err:
+        # a bad input: say what is wrong and stop. Anything else is a defect in
+        # the library and keeps its traceback, which is what a bug report needs
+        print('\n*** {}\n\n*** Error running the simulation'.format(err), file=sys.stderr)
+        return(1)
     print('results written to {}'.format(runner.outdir()), flush=True)
     return(0)
 

@@ -125,11 +125,30 @@ class SimulationRunner:
             raise
 
     # ---- internals ----------------------------------------------------------
+    def __check_mesh(self, meshname: str):
+        """ reports a missing mesh by name before the solver tries to read it.
+            The reader raises a bare FileNotFoundError that names neither the
+            file nor the parameter it came from, and `meshname` has a default,
+            so the commonest first mistake would otherwise be the least legible.
+        """
+        if meshname.endswith('.pkl'):
+            expected = [meshname]
+        else:
+            expected = ['{}{}'.format(meshname, suffix)
+                        for suffix in ('.pts', '.elem', '.lon')]
+        missing = [path for path in expected if not os.path.isfile(path)]
+        if len(missing) > 0:
+            raise ValueError('meshname = "{}": cannot find {}. The mesh is read from '
+                             '<meshname>.pts/.elem/.lon relative to the working directory, '
+                             'or from a single .pkl file'.format(
+                                 meshname, ', '.join(missing)))
+
     def __build_solver(self):
         """ instantiates the cell model and the solver; the mesh is read by the
             solver constructor from the config
         """
         config     = self._mapper.solver_config()
+        self.__check_mesh(config['mesh_file_name'])
         modelclass = self._mapper.ionic_model_class()
         if modelclass is None:
             # no cell model named: this is a pure diffusion (heat) problem
