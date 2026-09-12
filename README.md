@@ -52,3 +52,47 @@ python fenton.py
 
 **Note**: *This run **PDEnsorflow** under GPU, provided that libraries are correctly installed. Otherwise, it will run under standard CPU. 
 In the examples, the console will show under wich device the code is executed.
+
+## Command-line interface
+
+Since version 1.4, installing the package also installs a `PDEnsorflow` command.
+It runs a finite-element monodomain (or pure diffusion) simulation described by a
+parameter file and a list of flags, so no Python script is needed:
+
+```
+PDEnsorflow +F parameters.par
+PDEnsorflow +F parameters.par -meshname atrium -tend 500
+PDEnsorflow -dt 25 +F parameters.par +Save resolved.par
+```
+
+The parameter file is the `.par` format used by openCARP, and the mesh is read
+from the `.pts` / `.elem` / `.lon` triple named by `meshname`, with **node
+coordinates in micrometres** and **conductivities in S/m**, as that format
+specifies. The conversion to the units the solver works in happens while the
+parameters are read.
+
+Three points are worth knowing before writing a parameter file:
+
+* **Options are applied strictly from left to right, and the last definition of
+  a key wins.** A flag placed *before* `+F` is therefore overridden by the file,
+  and one placed *after* it is not. This is the rule the format defines; it is
+  not "the command line beats the file".
+* **An unknown key stops the run**, naming the key, so a misspelled parameter is
+  never silently inert. Keys that are understood but describe something this
+  solver does differently (`mass_lumping`, `parab_solve`, `bidomain`) are
+  accepted and reported in the run banner.
+* **A key that is absent takes the documented default of that format**, not a
+  gpuSolve default, so a file means the same thing here as it does there. The
+  one exception is a cell parameter that no `im_param` names: it keeps the
+  default of the gpuSolve cell model, so that a parameter file and a
+  hand-written script agree.
+
+`PDEnsorflow --help` lists every key that is understood, with its type and
+default, and the cell models available for `imp_region[].im`.
+
+`PDEnsorflow +Save resolved.par` writes the fully resolved parameter set back
+out, which is the quickest way to see what a command line actually asked for.
+
+A worked example, with the same simulation expressed both as a parameter file
+and as a Python script so the two can be compared, is in
+`PDEnsorflow/Tests/FEM/mMS_carp_compatibility`.

@@ -268,6 +268,17 @@ def _try_batch_sigma(matr_name, elemtype, Elements, domain, matprops):
         return None, False
     if matprops.element_property_type('sigma_t') != 'region':
         return None, False
+    # The membrane surface-to-volume ratio beta divides the conductivity (see
+    # gpuSolve.physics.diffusion_tensor for the derivation). It is optional, so
+    # a caller that never registers it gets the bare conductivity and the same
+    # numbers as before. A beta that is not region-based is left to the
+    # per-element function, so that both paths apply it identically rather than
+    # this one quietly ignoring it.
+    beta_map = None
+    if 'beta' in prop_names:
+        if matprops.element_property_type('beta') != 'region':
+            return None, False
+        beta_map = matprops._element_properties['beta']['idmap']
 
     # Vectorized: gather region IDs and fibre directions for all elements
     regionIDs = Elements[:, -1]                                # (nElems,)
@@ -277,6 +288,10 @@ def _try_batch_sigma(matr_name, elemtype, Elements, domain, matprops):
     sigma_t_map = matprops._element_properties['sigma_t']['idmap']
     sigma_l_arr = np.array([sigma_l_map[int(r)] for r in regionIDs], dtype=np.float64)  # (nElems,)
     sigma_t_arr = np.array([sigma_t_map[int(r)] for r in regionIDs], dtype=np.float64)  # (nElems,)
+    if beta_map is not None:
+        beta_arr    = np.array([beta_map[int(r)] for r in regionIDs], dtype=np.float64)
+        sigma_l_arr = sigma_l_arr / beta_arr
+        sigma_t_arr = sigma_t_arr / beta_arr
     # Sigma = sigma_t * I + (sigma_l - sigma_t) * fib ⊗ fib
     eye3 = np.eye(3, dtype=np.float64)
     diff_sigma = sigma_l_arr - sigma_t_arr                     # (nElems,)

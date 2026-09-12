@@ -85,6 +85,14 @@ setup(
     packages=find_packages('PDEnsorflow'),
     package_dir={'': 'PDEnsorflow'},
     py_modules=[os.path.splitext(os.path.basename(path))[0] for path in glob('PDEnsorflow/*.py')],
+    # The parameter-file front end is installed as a command. It lives inside
+    # gpuSolve, so importing it triggers the usual LD_LIBRARY_PATH setup and
+    # re-exec before any argument is acted on; sys.argv survives that intact.
+    entry_points={
+        'console_scripts': [
+            'PDEnsorflow = gpuSolve.carp_compatibility.main:main',
+        ],
+    },
     platforms='any',
     classifiers=[
         'Programming Language :: Python',
