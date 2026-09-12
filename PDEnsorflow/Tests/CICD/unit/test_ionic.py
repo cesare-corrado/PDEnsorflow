@@ -95,3 +95,51 @@ def test_ionic_dimensionless_rescaling(Model):
     np.testing.assert_allclose(model.to_dimensionless(hi).numpy(), 1.0, atol=1.0e-6)
     # rest (U = vmin, u = 0) is an exact fixed point of the transmembrane potential
     np.testing.assert_allclose(model.differentiate(U).numpy(), 0.0, atol=1.0e-6)
+
+
+@pytest.mark.parametrize('Model', DIMENSIONLESS, ids=_ids(DIMENSIONLESS))
+def test_ionic_rescaling_follows_retuned_range(Model):
+    """A [vmin, vmax] retuned after construction must drive the rescaling.
+
+    The span is derived at every use instead of being cached at construction, so
+    a model retuned to [-85, 40] maps -85 -> 0 and 40 -> 1. A cached span would
+    keep the original 100 mV and map +40 mV to 1.2, wrong by 20% with nothing
+    raised. Parameters must be set before the first differentiate() call: the
+    rescaling runs inside a tf.function, which captures whatever the attributes
+    hold when it is first traced.
+    """
+    model, _U = _at_rest(Model)
+    new_vmin  = -85.0
+    new_vmax  = 40.0
+    model.set_parameter('vmin', new_vmin)
+    model.set_parameter('vmax', new_vmax)
+
+    lo = tf.constant(new_vmin * np.ones(shape=(_N_NODES, 1), dtype=np.float32))
+    hi = tf.constant(new_vmax * np.ones(shape=(_N_NODES, 1), dtype=np.float32))
+    np.testing.assert_allclose(model.to_dimensionless(lo).numpy(), 0.0, atol=1.0e-6)
+    np.testing.assert_allclose(model.to_dimensionless(hi).numpy(), 1.0, atol=1.0e-6)
+
+    # the inverse map must use the same span, or dU would be scaled inconsistently
+    dU = tf.constant(np.ones(shape=(_N_NODES, 1), dtype=np.float32))
+    np.testing.assert_allclose(model.derivative_to_dimensional(dU).numpy(),
+                               new_vmax - new_vmin, rtol=1.0e-6)
+
+
+@pytest.mark.parametrize('Model', DIMENSIONLESS, ids=_ids(DIMENSIONLESS))
+def test_ionic_rescaling_accepts_per_node_range(Model):
+    """vmin / vmax may be per-node (npt, 1) columns, not just scalars.
+
+    assign_nodal_properties() pushes region-mapped material properties as
+    (npt, 1) arrays, so the two ends of the range can vary node by node. The
+    span is a plain subtraction of the two attributes and broadcasts; the two
+    halves of the column below use different ranges and both must map to [0, 1].
+    """
+    model, _U = _at_rest(Model)
+    half      = _N_NODES // 2
+    vmin_col  = np.concatenate([np.full((half, 1), -80.0), np.full((_N_NODES - half, 1), -85.0)]).astype(np.float32)
+    vmax_col  = np.concatenate([np.full((half, 1),  20.0), np.full((_N_NODES - half, 1),  40.0)]).astype(np.float32)
+    model.set_parameter('vmin', vmin_col)
+    model.set_parameter('vmax', vmax_col)
+
+    np.testing.assert_allclose(model.to_dimensionless(tf.constant(vmin_col)).numpy(), 0.0, atol=1.0e-6)
+    np.testing.assert_allclose(model.to_dimensionless(tf.constant(vmax_col)).numpy(), 1.0, atol=1.0e-6)
