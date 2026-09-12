@@ -48,9 +48,13 @@ class MitchellSchaeffer2v(IonicModel):
         self._tau_open  = tf.constant(120.0)
         self._tau_close = tf.constant(150.0)
         self._u_gate    = tf.constant(0.13)
+        # The dimensional range [vmin, vmax] is evaluated where it is used and
+        # never cached: set_parameter() writes one attribute at a time, and
+        # assign_nodal_properties() can replace vmin/vmax with per-region (npt,1)
+        # arrays. A cached difference would keep the construction-time range and
+        # silently rescale the potential against it.
         self._vmin : tf.constant = tf.constant(-80.0, name = "vmin")
         self._vmax : tf.constant = tf.constant(20.0, name = "vmax")
-        self._DV   : tf.constant = self._vmax-self._vmin
         self._H_state = None
 
     def initialize_state_variables(self, U: tf.Variable):
@@ -79,13 +83,13 @@ class MitchellSchaeffer2v(IonicModel):
     def to_dimensionless(self,U: tf.Variable) -> tf.Variable:
         """ to_dimensionless(U) rescales U to its dimensionless values (range [0,1])
         """
-        return(U-self._vmin)/self._DV
+        return((U-self._vmin)/(self._vmax-self._vmin))
         
     @tf.function
     def derivative_to_dimensional(self,dU: tf.Variable) -> tf.Variable:
         """ derivative_to_dimensional(U) rescales the derivative of U (dU) to dimensional values
         """
-        return(self._DV*dU)
+        return((self._vmax-self._vmin)*dU)
 
     @tf.function
     def differentiate(self, U: tf.Variable) -> tf.Variable:

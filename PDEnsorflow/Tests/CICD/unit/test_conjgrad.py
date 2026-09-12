@@ -13,9 +13,12 @@
 
     A well conditioned system (alpha = beta = 1) is used so the gold-truth
     solution is recovered tightly in float32. The tolerance passed to the solver
-    is relative to ||b|| (ConjGrad tests the absolute residual internally). This
-    also guards against a regression of the JacobiPrecond._V drop
-    (build_preconditioner must populate self._V).
+    is relative to ||b|| (ConjGrad's absolute test is on the preconditioned
+    residual norm internally). A second test drives the same solves through
+    ConjGrad's own relative tolerance (toll=0, toll_rel=1e-6) instead of the
+    external scaling, guarding the relative-stopping path. This also guards
+    against a regression of the JacobiPrecond._V drop (build_preconditioner
+    must populate self._V).
 
     Note: the default ConjGrad path keeps intermediate vectors (r, p) on the
     solver object between @tf.function calls, so it must run eagerly -- exactly
@@ -95,12 +98,15 @@ def _build_system_matrix(mesh_file: str, alpha: float, beta: float):
     return(A, npt)
 
 
-def _solve(A, B: tf.Tensor, npt: int, maxiter: int, toll: float):
+def _solve(A, B: tf.Tensor, npt: int, maxiter: int, toll: float, toll_rel: float = 0.0):
     """Solve A x = B from a zero guess with a Jacobi-preconditioned CG.
+    toll_rel is handed to ConjGrad through the config dict, so this also
+    exercises the config-dict population of the new attribute.
     Returns (X, niters).
     """
     A_st    = A.to_sparse_tensor()
-    solver  = ConjGrad({'maxiter': maxiter, 'toll': toll, 'verbose': False, 'use_graph_loop': False})
+    solver  = ConjGrad({'maxiter': maxiter, 'toll': toll, 'toll_rel': toll_rel,
+                        'verbose': False, 'use_graph_loop': False})
     solver.set_matrix(A)
     precond = JacobiPrecond()
     precond.build_preconditioner(A_st.indices.numpy()[:, 0],
@@ -140,8 +146,9 @@ def test_cg_recovers_gold_solution(system_matrix, gold):
     B      = tf.raw_ops.SparseMatrixMatMul(a=A._matrix, b=Xstar_tf)
     b_norm = float(tf.norm(B))
 
-    # ConjGrad's convergence test is on the *absolute* residual norm, so target
-    # a small residual relative to ||b|| by scaling the tolerance.
+    # ConjGrad's absolute convergence test is on the (preconditioned) residual
+    # norm, so target a small residual relative to ||b|| by scaling the
+    # tolerance from the outside.
     toll = 1.0e-6 * b_norm
     X, niters = _solve(A, B, npt, maxiter=maxiter, toll=toll)
 
@@ -159,4 +166,41 @@ def test_cg_recovers_gold_solution(system_matrix, gold):
     # tiny and the recursively-updated CG residual drifts from the true residual
     # in float32 (true rel_res ~1e-3 while the solution itself is accurate to
     # ~3e-5). This bound only guards against gross non-convergence / divergence.
+    assert rel_res < 1.0e-2, 'residual too large: rel_res={0:.3e}'.format(rel_res)
+
+
+@pytest.mark.parametrize('gold', ['ones', 'random'])
+def test_cg_relative_tolerance(system_matrix, gold):
+    """CG driven by its internal relative tolerance (toll=0, toll_rel=1e-6)
+    must recover the gold-truth solution as tightly as the externally-scaled
+    absolute run in test_cg_recovers_gold_solution."""
+    A       = system_matrix['A']
+    npt     = system_matrix['npt']
+    maxiter = 1000
+
+    if gold == 'ones':
+        Xstar = np.ones(shape=(npt, 1), dtype=np.float32)
+    else:
+        rng   = np.random.default_rng(0)
+        Xstar = rng.standard_normal(size=(npt, 1)).astype(np.float32)
+    Xstar_tf = tf.constant(Xstar, dtype=tf.float32)
+
+    # b = A x*
+    B      = tf.raw_ops.SparseMatrixMatMul(a=A._matrix, b=Xstar_tf)
+    b_norm = float(tf.norm(B))
+
+    # toll=0 disables the absolute test, so the solver must stop on its own
+    # relative test ||z|| < toll_rel * ||M^-1 b|| -- the scaling that
+    # test_cg_recovers_gold_solution applies from the outside.
+    X, niters = _solve(A, B, npt, maxiter=maxiter, toll=0.0, toll_rel=1.0e-6)
+
+    # relative residual ||A x - b|| / ||b|| and relative solution error
+    AX      = tf.raw_ops.SparseMatrixMatMul(a=A._matrix, b=X)
+    rel_res = float(tf.norm(AX - B) / b_norm)
+    rel_err = float(tf.norm(X - Xstar_tf) / tf.norm(Xstar_tf))
+    print('\n[CG rel {0}] npt={1} niters={2} rel_res={3:.3e} rel_err={4:.3e}'.format(
+        gold, npt, niters, rel_res, rel_err))
+
+    assert niters < maxiter, 'CG hit maxiter ({0}) without converging'.format(maxiter)
+    assert rel_err < 1.0e-3, 'gold-truth solution not recovered: rel_err={0:.3e}'.format(rel_err)
     assert rel_res < 1.0e-2, 'residual too large: rel_res={0:.3e}'.format(rel_res)

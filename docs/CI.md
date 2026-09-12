@@ -139,11 +139,13 @@ merge back to `develop` → push. The next sync carries `main` to the mirror.
 (mirror) → if it's a real regression, `git revert` the offending commit on public
 `develop` (that also re-triggers Tier-1) and note it on the issue.
 
-**Version strings:** the version is currently duplicated across ~14 files (every
-`gpuSolve` sub-package `__init__.py`, the outer `PDEnsorflow/__init__.py`,
-`setup.py`, and the `README.md` title). Keep them in lockstep on a bump; a small
-`tools/bump_version.py` is the planned way to automate this (the list format
-`['1','3','1']` doesn't fit off-the-shelf bumpers cleanly).
+**Version:** single source of truth in `gpuSolve/_version.py`
+(`__version__ = ['1','3','2']` — a list, because the per-module `version()`
+accessors iterate it). Every `gpuSolve` sub-package `__init__.py` and the outer
+`PDEnsorflow/__init__.py` do `from gpuSolve._version import __version__`, and
+`setup.py` parses it via `ast` (no import, so the build never pulls in
+TensorFlow). **To bump the version, edit two spots only:** `gpuSolve/_version.py`
+and the `README.md` title (the README is Markdown and can't import the value).
 
 ---
 
