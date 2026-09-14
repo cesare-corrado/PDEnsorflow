@@ -54,10 +54,9 @@ def print_usage():
     print('\nCell models for imp_region[].im: {}'.format(', '.join(sorted(IONIC_MODELS.keys()))))
 
 
-def print_banner(mapper: ParameterMapper):
-    """ print_banner(mapper) reports the version, the compute device and every
-        place where the resolved parameters ask for something this solver does
-        differently
+def print_banner():
+    """ print_banner() reports the version and the compute device, before any
+        work starts, so it is visible even if the setup then fails
     """
     import tensorflow as tf
     print('PDEnsorflow {}'.format(gpuSolve.version()))
@@ -65,7 +64,19 @@ def print_banner(mapper: ParameterMapper):
         print('GPU device')
     else:
         print('CPU device')
-    print('Tensorflow version is: {0}'.format(tf.__version__))
+    print('Tensorflow version is: {0}'.format(tf.__version__), flush=True)
+
+
+def print_notes(mapper: ParameterMapper):
+    """ print_notes(mapper) reports every place where the resolved parameters
+        ask for something this solver does differently.
+
+        This runs AFTER the setup, not with the banner: the mapper collects
+        some of these while the simulation is being built (a region tag that is
+        not in the mesh, an electrode given both as a vertex file and as a box),
+        so printing them earlier would silently drop exactly the notes that are
+        worth reading.
+    """
     for note in mapper.notes():
         print('  NOTE: {}'.format(note), flush=True)
 
@@ -92,11 +103,12 @@ def main(argv: list = None) -> int:
         print('\n*** {}\n\n*** Error reading parameters'.format(err), file=sys.stderr)
         return(1)
 
-    print_banner(mapper)
+    print_banner()
     runner = SimulationRunner()
     runner.set_mapper(mapper)
     try:
         runner.build()
+        print_notes(mapper)
         runner.run()
     except (ValueError, OSError) as err:
         # a bad input: say what is wrong and stop. Anything else is a defect in

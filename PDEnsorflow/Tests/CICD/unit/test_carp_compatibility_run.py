@@ -216,6 +216,29 @@ def test_a_vertex_file_naming_a_node_outside_the_mesh_is_rejected(tmp_path, caps
     assert '999999' in capsys.readouterr().err
 
 
+def test_notes_collected_during_setup_reach_the_banner(tmp_path, capsys):
+    """Some notes are only produced while the simulation is being built: a
+    region tag that is not in the mesh, an electrode given both ways. They are
+    printed after the setup for that reason, and a regression that moved them
+    back before it would drop exactly the diagnostics worth reading."""
+    folder = str(tmp_path)
+    _write_cable(folder)
+    with open(os.path.join(folder, 'note.par'), 'w') as fout:
+        fout.write('meshname = cable\nsimID = OUT_NOTE\ntend = 1.0\ndt = {}\n'
+                   'spacedt = 1.0\ntimedt = 100.0\n'
+                   'imp_region[0].im = "mMS"\n'
+                   'gregion[0].ID = 1,77\n'.format(_DT_US))
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        status = main(['+F', 'note.par'])
+    finally:
+        os.chdir(cwd)
+    assert status == 0
+    printed = capsys.readouterr().out
+    assert 'region tag 77' in printed
+
+
 def test_a_missing_mesh_is_reported_by_name(tmp_path, capsys):
     """meshname has a default, so a mesh that is not there is the commonest
     first mistake. It must name the files it looked for rather than raise a
