@@ -7,6 +7,11 @@ def elemDeCode(elemName: str) -> str:
     into the PDEnsorflow elem name.
     '''
     elem_to_code={ 'Cx': 'Edges',
+                   # 'Ln' is the type specifier a linear line element carries
+                   # in the .elem format; 'Cx' is the spelling this package has
+                   # always written. Both name the same two-node element, so
+                   # both are accepted on read.
+                   'Ln': 'Edges',
                    'Tr': 'Trias',
                    'Qd': 'Quads',
                    'Tt': 'Tetras',
