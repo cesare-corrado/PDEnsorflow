@@ -6,7 +6,12 @@ def elemCode(elemName : str) -> str:
     elemcode(elemName) converts the the PDEnsorflow elemName
     into carp file name elem name.
     '''
-    code_to_elem={ 'Edges': 'Cx',
+    # 'Ln' is the type specifier a linear line element carries in the .elem
+    # format. This package used to write 'Cx', which no other reader of that
+    # format accepts, so a mesh exported with line elements could not be read
+    # back anywhere else. The reader takes both spellings, so meshes written by
+    # earlier versions still load.
+    code_to_elem={ 'Edges': 'Ln',
                    'Trias': 'Tr',
                    'Quads': 'Qd',
                    'Tetras': 'Tt',

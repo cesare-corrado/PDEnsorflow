@@ -35,6 +35,7 @@ from gpuSolve.carp_compatibility.optionreader import OptionReader
 from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
 from gpuSolve.carp_compatibility.parametermapper import expand_idset
 from gpuSolve.carp_compatibility.parametermapper import parse_im_param
+from gpuSolve.force_terms import Stimulus
 from gpuSolve.ionic.mms2v import ModifiedMS2v
 from gpuSolve.ionic.ms2v import MitchellSchaeffer2v
 
@@ -204,6 +205,34 @@ def test_stimulus_protocol_defaults_are_derived_from_tend():
     assert props['nstim'] == 1
     assert props['intensity'] == pytest.approx(60.0)
     assert p0 == [0.0, 0.0, 0.0] and p1 == [1000.0, 0.0, 0.0]
+
+
+def test_the_pacing_protocol_timing_is_preserved():
+    """ptcl.start / duration / npls / bcl map one to one onto the Stimulus, and
+    the built Stimulus fires when the protocol says: npls pulses of `duration`,
+    the first at `start` and the rest every `bcl` after it, then nothing."""
+    import numpy as np
+
+    props, _box = _mapper(['-tend', '400', '-num_stim', '1',
+                           '-stim[0].pulse.strength', '60',
+                           '-stim[0].ptcl.start', '50',
+                           '-stim[0].ptcl.duration', '2',
+                           '-stim[0].ptcl.npls', '3',
+                           '-stim[0].ptcl.bcl', '100',
+                           '-stim[0].elec.p1[0]', '1000']).stimuli()[0]
+    assert props['tstart'] == pytest.approx(50.0)
+    assert props['duration'] == pytest.approx(2.0)
+    assert props['nstim'] == 3
+    assert props['period'] == pytest.approx(100.0)
+
+    stimulus = Stimulus(props)
+    stimulus.set_stimregion(np.ones(shape=(4,), dtype=bool))
+    # a point inside each pulse, and points that must be quiet: before the
+    # first, between two, and after the last one the protocol defines
+    for on_time in (50.5, 150.5, 250.5):
+        assert float(np.max(stimulus.stimApp(on_time).numpy())) == pytest.approx(60.0)
+    for off_time in (49.0, 100.0, 200.0, 260.0, 350.5):
+        assert float(np.max(stimulus.stimApp(off_time).numpy())) == pytest.approx(0.0)
 
 
 def test_a_non_transmembrane_electrode_is_refused():

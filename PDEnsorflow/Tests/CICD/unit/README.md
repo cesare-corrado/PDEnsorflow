@@ -64,6 +64,13 @@ and inside the model's band, and that the activation front travels in one
 direction. The quantitative conduction-velocity check lives with the example in
 `Tests/FEM/mMS_carp_compatibility`, where the mesh resolves the front.
 
+### `test_mesh_roundtrip.py` &mdash; the external mesh format
+Writes a small strip through `Triangulation.exportCarpFormat` and reads it back.
+Pins the line-element specifier: the writer emits `Ln`, which is what the
+`.elem` format defines and what other readers of it expect, while the reader
+still accepts the `Cx` this package used to write, so meshes already on disk
+keep loading.
+
 ## Adding tests
 Drop a `test_*.py` file here. Keep it **fast and CPU-only** (no GPU assumption,
 small problem sizes) so it fits the per-push budget. Heavier or GPU-dependent
