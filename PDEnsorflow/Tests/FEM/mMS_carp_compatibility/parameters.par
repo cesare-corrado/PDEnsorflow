@@ -1,0 +1,53 @@
+###############################################################################
+# The Tests/FEM/mMS example, driven by a parameter file instead of a script.
+#
+# Same physics as ../mMS/mMS.py on the same 10 x 10 mm sheet, with two changes
+# that the format makes necessary:
+#   * the mesh is in micrometres (see make_mesh.py), so the 0.001 mm^2/ms
+#     diffusion coefficient of the script is 1000 um^2/ms here. With
+#     cellSurfVolRatio = 1 that is g = 0.01 S/m, since sigma = 1e5 * g / beta;
+#   * the script starts from a depolarised block at x < 0.5 mm. A parameter
+#     file paces with a stimulus instead, so S1 covers the same strip.
+###############################################################################
+
+meshname        = square
+simID           = OUT_mMS
+tend            = 250.0
+dt              = 100            # microseconds, i.e. the script's dt = 0.1 ms
+spacedt         = 1.0            # record every ms, as dt_per_plot = 10 does
+timedt          = 50.0
+renumbering     = 1              # reverse Cuthill-McKee, as use_renumbering does
+bidm_eqv_mono   = 0              # use the intracellular conductivity as given
+gridout_i       = 0
+
+#------------------------------------------------------------------ cell model
+num_imp_regions = 2
+
+imp_region[0].name             = "normal"
+imp_region[0].im               = "mMS"
+imp_region[0].im_param         = "V_gate=0.1,a_crit=0.1,tau_in=0.15,tau_out=1.5,tau_open=105,tau_close=120"
+imp_region[0].cellSurfVolRatio = 1.0
+imp_region[0].ID               = 1,2,4
+
+imp_region[1].name             = "short APD"
+imp_region[1].im               = "mMS"
+imp_region[1].im_param         = "V_gate=0.1,a_crit=0.1,tau_in=0.15,tau_out=1.5,tau_open=105,tau_close=60"
+imp_region[1].cellSurfVolRatio = 1.0
+imp_region[1].ID               = 3
+
+#--------------------------------------------------------------- conductivities
+num_gregions    = 1
+gregion[0].name = "sheet"
+gregion[0].g_il = 0.01           # 1000 um^2/ms once divided by beta = 1
+gregion[0].g_it = 0.01           # isotropic, as the script's diffusl = diffust
+
+#----------------------------------------------------------------------- pacing
+num_stim = 1
+stim[0].name           = "S1"
+stim[0].crct.type      = 0
+stim[0].pulse.strength = 60.0
+stim[0].ptcl.start     = 0.0
+stim[0].ptcl.duration  = 2.0
+stim[0].ptcl.npls      = 1
+stim[0].elec.p0[0]     = 0.0
+stim[0].elec.p1[0]     = 500.0
