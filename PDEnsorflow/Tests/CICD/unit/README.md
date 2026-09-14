@@ -64,12 +64,25 @@ and inside the model's band, and that the activation front travels in one
 direction. The quantitative conduction-velocity check lives with the example in
 `Tests/FEM/mMS_carp_compatibility`, where the mesh resolves the front.
 
+Also covers the **vertex-file electrode**: a short run whose `elec.vtx_file`
+names five nodes must depolarise exactly those and leave the far end at rest
+(over 2 ms the diffusion length is ~700 um, so the far end cannot be reached),
+and an index outside the mesh must be refused rather than wrapping round.
+
 ### `test_mesh_roundtrip.py` &mdash; the external mesh format
 Writes a small strip through `Triangulation.exportCarpFormat` and reads it back.
 Pins the line-element specifier: the writer emits `Ln`, which is what the
 `.elem` format defines and what other readers of it expect, while the reader
 still accepts the `Cx` this package used to write, so meshes already on disk
 keep loading.
+
+### `test_vtxreader.py` &mdash; `.vtx` vertex specification files
+A `.vtx` file names a set of nodes outright: a count, an optional
+`intra` / `extra` keyword, then one 0-based index per line. Covers the two
+tolerances that make such a file portable (the keyword is neither counted nor
+required; reading stops at the declared count so trailing content is ignored)
+and the three refusals: a file shorter than it declares, one carrying a second
+per-node column, and one with no count.
 
 ## Adding tests
 Drop a `test_*.py` file here. Keep it **fast and CPU-only** (no GPU assumption,

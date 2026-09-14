@@ -142,6 +142,80 @@ def test_the_potential_stays_physical_and_the_front_travels(cable_run):
     assert np.all(np.diff(lat[activated]) >= 0.0)      # and it travelled in one direction
 
 
+def test_a_vertex_file_electrode_stimulates_exactly_those_nodes(tmp_path):
+    """An elec.vtx_file names the stimulated nodes outright instead of
+    describing a box. A short run (2 ms, the stimulus on throughout) checks that
+    the named nodes depolarise and that a distant one does not: over 2 ms the
+    diffusion length is about 700 um, so node 50 at 5000 um cannot be reached.
+    """
+    folder = str(tmp_path)
+    _write_cable(folder)
+    stimulated = [0, 1, 2, 3, 4]
+    with open(os.path.join(folder, 'electrode.vtx'), 'w') as fout:
+        fout.write('{}\nintra\n'.format(len(stimulated)))
+        fout.write('\n'.join(str(node) for node in stimulated))
+        fout.write('\n')
+    with open(os.path.join(folder, 'vtx.par'), 'w') as fout:
+        fout.write('meshname = cable\n'
+                   'simID    = OUT_VTX\n'
+                   'tend     = 2.0\n'
+                   'dt       = {}\n'
+                   'spacedt  = 1.0\n'
+                   'timedt   = 100.0\n'
+                   'bidm_eqv_mono = 0\n'
+                   'imp_region[0].im       = "mMS"\n'
+                   'imp_region[0].im_param = "V_gate=0.1,a_crit=0.1"\n'
+                   'imp_region[0].cellSurfVolRatio = 0.14\n'
+                   'gregion[0].g_il = 0.174\n'
+                   'gregion[0].g_it = 0.174\n'
+                   'num_stim = 1\n'
+                   'stim[0].name           = "S1"\n'
+                   'stim[0].pulse.strength = 60.0\n'
+                   'stim[0].ptcl.start     = 0.0\n'
+                   'stim[0].ptcl.duration  = 2.0\n'
+                   'stim[0].ptcl.npls      = 1\n'
+                   'stim[0].elec.vtx_file  = "electrode.vtx"\n'.format(_DT_US))
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        status = main(['+F', 'vtx.par'])
+    finally:
+        os.chdir(cwd)
+    assert status == 0
+
+    reader = IGBReader()
+    reader.read(os.path.join(folder, 'OUT_VTX', 'vm.igb'))
+    V = np.array(reader.data()).reshape(reader.header()['t'], reader.header()['x'])
+    final = V[-1, :]
+    assert np.all(np.isfinite(final))
+    for node in stimulated:
+        assert final[node] > _VMIN + 20.0, 'node {} was not stimulated'.format(node)
+    assert final[_NPT - 1] == pytest.approx(_VMIN, abs=1.0)
+
+
+def test_a_vertex_file_naming_a_node_outside_the_mesh_is_rejected(tmp_path, capsys):
+    """An out-of-range index would otherwise index the mask out of bounds or,
+    worse, wrap round and stimulate the wrong end of the mesh."""
+    folder = str(tmp_path)
+    _write_cable(folder)
+    with open(os.path.join(folder, 'bad.vtx'), 'w') as fout:
+        fout.write('2\nintra\n0\n999999\n')
+    with open(os.path.join(folder, 'bad.par'), 'w') as fout:
+        fout.write('meshname = cable\ntend = 1.0\ndt = 100\nspacedt = 1.0\n'
+                   'imp_region[0].im = "mMS"\n'
+                   'num_stim = 1\n'
+                   'stim[0].pulse.strength = 60.0\n'
+                   'stim[0].elec.vtx_file  = "bad.vtx"\n')
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        status = main(['+F', 'bad.par'])
+    finally:
+        os.chdir(cwd)
+    assert status == 1
+    assert '999999' in capsys.readouterr().err
+
+
 def test_a_missing_mesh_is_reported_by_name(tmp_path, capsys):
     """meshname has a default, so a mesh that is not there is the commonest
     first mistake. It must name the files it looked for rather than raise a

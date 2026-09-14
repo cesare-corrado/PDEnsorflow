@@ -20,6 +20,7 @@ from gpuSolve.physics import HeatSolver
 from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
 from gpuSolve.physics import no_mass_property
+from gpuSolve.IO.readers import VtxReader
 from gpuSolve.IO.writers import IGBWriter
 
 
@@ -216,27 +217,50 @@ class SimulationRunner:
         self._model.set_initial_condition(U0)
 
     def __add_stimuli(self):
-        """ turns each electrode box into the node mask Stimulus expects """
+        """ turns each electrode description into the node mask Stimulus expects """
         points = self._model.domain().Pts()
-        for props, (p0, p1) in self._mapper.stimuli():
-            lower = np.minimum(np.array(p0), np.array(p1))
-            upper = np.maximum(np.array(p0), np.array(p1))
-            if not np.any(upper > lower):
-                raise ValueError('stimulus "{}" has no electrode: set elec.p0 and elec.p1 to '
-                                 'the corners of the box to stimulate '
-                                 '(micrometres)'.format(props['name']))
-            mask = np.ones(shape=(points.shape[0],), dtype=bool)
-            for axis in range(3):
-                # an axis where the two corners coincide is left unconstrained,
-                # so a box that is flat in z still selects a whole surface mesh
-                if upper[axis] > lower[axis]:
-                    mask = np.logical_and(mask, points[:, axis] >= lower[axis])
-                    mask = np.logical_and(mask, points[:, axis] <= upper[axis])
-            if not np.any(mask):
-                raise ValueError('stimulus "{}" selects no node: the box '
-                                 '{} to {} lies outside the mesh'.format(props['name'],
-                                                                         list(lower), list(upper)))
+        for props, geometry in self._mapper.stimuli():
+            if 'vtx_file' in geometry:
+                mask = self.__mask_from_vertex_file(geometry['vtx_file'],
+                                                    points.shape[0], props['name'])
+            else:
+                mask = self.__mask_from_box(geometry['p0'], geometry['p1'],
+                                            points, props['name'])
             self._model.add_stimulus(mask, props)
+
+    def __mask_from_vertex_file(self, vtx_file: str, npt: int, name: str) -> np.ndarray:
+        """ selects the nodes a `.vtx` file names outright """
+        indices = VtxReader().read(vtx_file)
+        if indices.size == 0:
+            raise ValueError('stimulus "{}": vertex file {} names no node'.format(name, vtx_file))
+        outside = indices[np.logical_or(indices < 0, indices >= npt)]
+        if outside.size > 0:
+            raise ValueError('stimulus "{}": vertex file {} names node {} but the mesh has '
+                             '{} nodes (indices are 0-based)'.format(name, vtx_file,
+                                                                     int(outside[0]), npt))
+        mask = np.zeros(shape=(npt,), dtype=bool)
+        mask[indices] = True
+        return(mask)
+
+    def __mask_from_box(self, p0: list, p1: list, points: np.ndarray, name: str) -> np.ndarray:
+        """ selects the nodes inside the box spanned by the two corner points """
+        lower = np.minimum(np.array(p0), np.array(p1))
+        upper = np.maximum(np.array(p0), np.array(p1))
+        if not np.any(upper > lower):
+            raise ValueError('stimulus "{}" has no electrode: set elec.p0 and elec.p1 to '
+                             'the corners of the box to stimulate (micrometres), or '
+                             'elec.vtx_file to a vertex file'.format(name))
+        mask = np.ones(shape=(points.shape[0],), dtype=bool)
+        for axis in range(3):
+            # an axis where the two corners coincide is left unconstrained,
+            # so a box that is flat in z still selects a whole surface mesh
+            if upper[axis] > lower[axis]:
+                mask = np.logical_and(mask, points[:, axis] >= lower[axis])
+                mask = np.logical_and(mask, points[:, axis] <= upper[axis])
+        if not np.any(mask):
+            raise ValueError('stimulus "{}" selects no node: the box {} to {} lies outside '
+                             'the mesh'.format(name, list(lower), list(upper)))
+        return(mask)
 
     def __open_output(self):
         """ creates the output directory and the IGB writer, and exports the

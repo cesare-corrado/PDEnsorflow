@@ -197,14 +197,28 @@ def test_cg_norm_arms_the_matching_stopping_test(norm, absolute, relative):
 
 def test_stimulus_protocol_defaults_are_derived_from_tend():
     """A protocol that says nothing is one pulse covering the simulation."""
-    props, (p0, p1) = _mapper(['-tend', '50', '-num_stim', '1',
+    props, geometry = _mapper(['-tend', '50', '-num_stim', '1',
                                '-stim[0].pulse.strength', '60',
                                '-stim[0].elec.p1[0]', '1000']).stimuli()[0]
     assert props['tstart'] == pytest.approx(0.0)
     assert props['duration'] == pytest.approx(50.0)
     assert props['nstim'] == 1
     assert props['intensity'] == pytest.approx(60.0)
-    assert p0 == [0.0, 0.0, 0.0] and p1 == [1000.0, 0.0, 0.0]
+    assert geometry == {'p0': [0.0, 0.0, 0.0], 'p1': [1000.0, 0.0, 0.0]}
+
+
+def test_a_vertex_file_defines_the_electrode_and_wins_over_a_box():
+    """A non-empty elec.vtx_file names the stimulated nodes outright, so it
+    takes precedence over any box, and the override is reported."""
+    plain = _mapper(['-num_stim', '1', '-stim[0].elec.vtx_file', 'electrode.vtx'])
+    _props, geometry = plain.stimuli()[0]
+    assert geometry == {'vtx_file': 'electrode.vtx'}
+
+    both = _mapper(['-num_stim', '1', '-stim[0].elec.vtx_file', 'electrode.vtx',
+                    '-stim[0].elec.p1[0]', '1000'])
+    _props, geometry = both.stimuli()[0]
+    assert geometry == {'vtx_file': 'electrode.vtx'}
+    assert any('vertex file' in note for note in both.notes())
 
 
 def test_the_pacing_protocol_timing_is_preserved():

@@ -5,6 +5,7 @@ Contains:
     * ImageData:      a class to read images and transform to numpy data type
     * CarpMeshReader: a class to read carp meshes
     * IGBReader:      a class to read igb files
+    * VtxReader:      a class to read .vtx vertex specification files
 """
 
 
@@ -22,3 +23,4 @@ def version():
 from gpuSolve.IO.readers.imagedata import ImageData
 from gpuSolve.IO.readers.carpmeshreader import CarpMeshReader
 from gpuSolve.IO.readers.igbreader import IGBReader
+from gpuSolve.IO.readers.vtxreader import VtxReader

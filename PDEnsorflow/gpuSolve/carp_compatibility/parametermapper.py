@@ -132,6 +132,7 @@ REGISTRY = {
     'stim[].ptcl.bcl':              ('float', None,      True),
     'stim[].elec.p0[]':             ('float', 0.0,       True),
     'stim[].elec.p1[]':             ('float', 0.0,       True),
+    'stim[].elec.vtx_file':         ('str',   '',        True),
 }
 
 _INDEX = re.compile(r'\[(\d+)\]')
@@ -430,9 +431,14 @@ class ParameterMapper:
         return(maps)
 
     def stimuli(self) -> list:
-        """ stimuli() returns one (props, (p0, p1)) pair per stimulus: the dict
-            Stimulus is built from, and the corner points in micrometres of the
-            box that selects the stimulated nodes.
+        """ stimuli() returns one (props, geometry) pair per stimulus: the dict
+            Stimulus is built from, and how the stimulated nodes are selected.
+
+            The electrode is described either by a vertex file, as
+            {'vtx_file': name}, or geometrically by the corners of a box in
+            micrometres, as {'p0': [...], 'p1': [...]}. A vertex file names the
+            nodes outright and therefore wins over a box, which is what a
+            non-empty vtx_file means in this format.
         """
         stims : list = []
         tend = self.value('tend')
@@ -464,7 +470,14 @@ class ParameterMapper:
                      'name': name if len(name) > 0 else 'stim{}'.format(index)}
             p0 = [self.value('stim[{}].elec.p0[{}]'.format(index, k)) for k in range(3)]
             p1 = [self.value('stim[{}].elec.p1[{}]'.format(index, k)) for k in range(3)]
-            stims.append((props, (p0, p1)))
+            vtx_file = self.value('stim[{}].elec.vtx_file'.format(index)).strip()
+            if len(vtx_file) > 0:
+                if any(corner != 0.0 for corner in p0 + p1):
+                    self.__notes.append('stim[{}] names both a vertex file and a box: the '
+                                        'vertex file defines the electrode'.format(index))
+                stims.append((props, {'vtx_file': vtx_file}))
+            else:
+                stims.append((props, {'p0': p0, 'p1': p1}))
         return(stims)
 
     # ---- internals ----------------------------------------------------------
