@@ -534,22 +534,35 @@ class ParameterMapper:
             differently. Silence means the request and the implementation agree.
         """
         if self.value('bidomain') != 0:
-            self.__notes.append('bidomain = {} requested: gpuSolve solves the monodomain '
-                                'equation only'.format(self.value('bidomain')))
+            self.__notes.append('bidomain = {} {}: gpuSolve solves the monodomain equation '
+                                'only'.format(self.value('bidomain'), self.__origin_of('bidomain')))
         if self.value('mass_lumping') != 0:
-            self.__notes.append('mass_lumping = 1 requested: gpuSolve assembles the '
-                                'consistent mass matrix')
+            self.__notes.append('mass_lumping = {} {}: gpuSolve assembles the consistent mass '
+                                'matrix, i.e. it behaves as mass_lumping = 0'.format(
+                                    self.value('mass_lumping'), self.__origin_of('mass_lumping')))
         if self.value('operator_splitting') == 0:
-            self.__notes.append('operator_splitting = 0 requested: gpuSolve always splits the '
-                                'ionic and the diffusion update')
-        self.__notes.append('parab_solve = {} requested: gpuSolve advances the diffusion term '
-                            'with implicit Euler'.format(self.value('parab_solve')))
+            self.__notes.append('operator_splitting = 0 {}: gpuSolve always splits the ionic '
+                                'and the diffusion update'.format(
+                                    self.__origin_of('operator_splitting')))
+        self.__notes.append('parab_solve = {} {}: gpuSolve advances the diffusion term with '
+                            'implicit Euler, which is none of the three values this key '
+                            'offers'.format(self.value('parab_solve'),
+                                            self.__origin_of('parab_solve')))
         for index in range(self.__count_or_zero('gregion')):
             for member in ('g_in', 'g_en'):
                 if 'gregion[{}].{}'.format(index, member) in self.__store:
                     self.__notes.append('gregion[{}].{} is set: the diffusion tensor is '
                                         'transversely isotropic, so the sheet-normal '
                                         'conductivity is not used'.format(index, member))
+
+    def __origin_of(self, key: str) -> str:
+        """ says whether a value was written down or inherited. A note about a
+            key the user never typed is otherwise baffling: most of these fire
+            on the default, not on anything the input asked for.
+        """
+        if key in self.__store:
+            return('(set in the input)')
+        return('(the default of this format; the input does not set it)')
 
     def __count_or_zero(self, prefix: str) -> int:
         """ the family size during note collection, before count() is safe """
