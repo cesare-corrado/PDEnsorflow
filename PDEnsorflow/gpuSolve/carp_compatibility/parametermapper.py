@@ -63,7 +63,16 @@ DT_MICROSECONDS_TO_MS : float = 1.0e-3
 # listed rather than derived.
 ARRAY_COUNTERS = {'gregion': 'num_gregions',
                   'imp_region': 'num_imp_regions',
-                  'stim': 'num_stim'}
+                  'stim': 'num_stim',
+                  'tsav': 'num_tsav',
+                  'tsav_ext': 'num_tsav'}
+
+# The format accepts at most this many save times.
+MAX_SAVE_TIMES : int = 50
+
+# Base name of the files written by interval checkpointing (chkpt_intv); the
+# time of the checkpoint is appended to it.
+CHECKPOINT_BASENAME : str = 'checkpoint'
 
 # Cell models. `MitchellSchaeffer` covers both variants: a_crit is 0 by default,
 # which is the plain model, and non-zero selects the modified one.
@@ -133,6 +142,14 @@ REGISTRY = {
     'stim[].elec.p0[]':             ('float', 0.0,       True),
     'stim[].elec.p1[]':             ('float', 0.0,       True),
     'stim[].elec.vtx_file':         ('str',   '',        True),
+    'num_tsav':                     ('int',   0,         True),
+    'tsav[]':                       ('float', None,      True),
+    'tsav_ext[]':                   ('str',   None,      True),
+    'write_statef':                 ('str',   'state',   True),
+    'start_statef':                 ('str',   '',        True),
+    'chkpt_start':                  ('float', 0.0,       True),
+    'chkpt_intv':                   ('float', 0.0,       True),
+    'chkpt_stop':                   ('float', None,      True),
 }
 
 _INDEX = re.compile(r'\[(\d+)\]')
@@ -171,6 +188,15 @@ def expand_idset(text: str) -> list:
         else:
             raise ValueError('cannot read tag range "{}"'.format(chunk))
     return(tags)
+
+
+def time_label(ctime: float) -> str:
+    """ time_label(ctime) writes a time in ms for a file name, without trailing
+        zeros: 100.0 -> "100", 12.5 -> "12.5". Six decimals are kept before the
+        zeros are trimmed, so two save times one microsecond apart still get
+        different names.
+    """
+    return('{:.6f}'.format(ctime).rstrip('0').rstrip('.'))
 
 
 def parse_im_param(text: str) -> dict:
@@ -226,6 +252,13 @@ class ParameterMapper:
         """
         return(self.__notes)
 
+    def add_note(self, note: str):
+        """ add_note(note) records a line for the run banner. The simulation
+            runner uses it for what only shows up while the run is being built
+            (a restart that overwrites an existing output file)
+        """
+        self.__notes.append(note)
+
     def count(self, prefix: str) -> int:
         """ count(prefix) returns the number of entries of an indexed family
             ('gregion', 'imp_region' or 'stim')
@@ -280,6 +313,49 @@ class ParameterMapper:
                 'vofile': self.value('vofile'),
                 'gridout_i': self.value('gridout_i'),
                 'timedt': self.value('timedt')})
+
+    def savestate_settings(self) -> dict:
+        """ savestate_settings() returns when to save the state and what to resume
+            from, with every time in ms:
+              'save_times':   [(time, file name without extension)], one per tsav
+              'start_statef': the checkpoint to resume from ('' for a fresh run)
+              'chkpt_start', 'chkpt_intv', 'chkpt_stop': interval checkpointing,
+                              off when chkpt_intv is 0
+            The derived defaults are the reference's: a tsav that is not given is
+            one time step before tend, and its file-name suffix is the save time.
+        """
+        tend  = self.value('tend')
+        dt_ms = self.value('dt') * DT_MICROSECONDS_TO_MS
+        nsav  = self.count('tsav')
+        if nsav > MAX_SAVE_TIMES:
+            raise ValueError('num_tsav = {}: at most {} save times are accepted'.format(
+                nsav, MAX_SAVE_TIMES))
+        basename = self.value('write_statef')
+        saves : list = []
+        for index in range(nsav):
+            tsav = self.value('tsav[{}]'.format(index))
+            if tsav is None:
+                tsav = tend - dt_ms
+            if tsav < 0.0:
+                raise ValueError('tsav[{}] = {}: a save time cannot be negative'.format(index, tsav))
+            suffix = self.value('tsav_ext[{}]'.format(index))
+            if suffix is None or len(suffix.strip()) == 0:
+                suffix = time_label(tsav)
+            saves.append((tsav, '{}.{}'.format(basename, suffix.strip())))
+        chkpt_start = self.value('chkpt_start')
+        chkpt_intv  = self.value('chkpt_intv')
+        chkpt_stop  = self.value('chkpt_stop')
+        if chkpt_stop is None:
+            chkpt_stop = tend
+        for key, val in (('chkpt_start', chkpt_start), ('chkpt_intv', chkpt_intv),
+                         ('chkpt_stop', chkpt_stop)):
+            if val < 0.0 or val > tend:
+                raise ValueError('{} = {}: must lie between 0 and tend = {}'.format(key, val, tend))
+        return({'save_times': saves,
+                'start_statef': self.value('start_statef').strip(),
+                'chkpt_start': chkpt_start,
+                'chkpt_intv': chkpt_intv,
+                'chkpt_stop': chkpt_stop})
 
     def region_tags(self, prefix: str, index: int) -> list:
         """ region_tags(prefix, index) returns the element tags claimed by one
@@ -548,6 +624,11 @@ class ParameterMapper:
                             'implicit Euler, which is none of the three values this key '
                             'offers'.format(self.value('parab_solve'),
                                             self.__origin_of('parab_solve')))
+        for index in range(self.__count_or_zero('tsav')):
+            tsav = self.value('tsav[{}]'.format(index))
+            if tsav is not None and tsav > self.value('tend'):
+                self.__notes.append('tsav[{}] = {} is after tend = {}: that state is never '
+                                    'saved'.format(index, tsav, self.value('tend')))
         for index in range(self.__count_or_zero('gregion')):
             for member in ('g_in', 'g_en'):
                 if 'gregion[{}].{}'.format(index, member) in self.__store:

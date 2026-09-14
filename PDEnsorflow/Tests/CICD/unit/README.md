@@ -69,6 +69,22 @@ names five nodes must depolarise exactly those and leave the far end at rest
 (over 2 ms the diffusion length is ~700 um, so the far end cannot be reached),
 and an index outside the mesh must be refused rather than wrapping round.
 
+### `test_savestate.py` &mdash; checkpoints: saving and resuming a run
+A run of the paced cable saves its state half way (`tsav`) and every 2 ms
+(`chkpt_intv`), then a second run resumes from the half-way state with
+renumbering switched on. The restarted output must start with the saved
+potential, be recorded on the same steps, and match the uninterrupted run within
+`1e-2` mV. It cannot match to round-off: the CG warm-start history `U^{n-1}` is
+not in the file, so the first step after the restart starts CG from a different
+guess.
+
+Also covers: every tf.Variable that `differentiate()` changes is declared by
+`state_variable_names()`, for all five cell models; a ten Tusscher-Panfilov state
+on a scrambled mesh survives the renumbering for every variable; a pure-diffusion
+run saves and resumes; the file round-trips and a damaged one is refused; a
+checkpoint from another cell model or mesh, one saved after `tend`, or a missing
+file stops the run; and the `savestate` defaults and ranges of the parameters.
+
 ### `test_mesh_roundtrip.py` &mdash; the external mesh format
 Writes a small strip through `Triangulation.exportCarpFormat` and reads it back.
 Pins the line-element specifier: the writer emits `Ln`, which is what the

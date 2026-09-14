@@ -16,13 +16,6 @@ from gpuSolve.physics.heatSolver import HeatSolver
 from gpuSolve.ionic.ionicmodel import IonicModel
 
 
-# Attribute names of state variables exposed by the ionic models shipped with
-# gpuSolve (mms2v / fenton4v). They are tf.Variables created in
-# initialize_state_variables(U) and must be permuted in lockstep with U when
-# the user activates reverse Cuthill-McKee reordering.
-_IONIC_STATE_ATTRS = ('_H_state', '_V_state', '_W_state', '_S_state')
-
-
 class MonodomainSolver(HeatSolver):
     """ Monodomain step: heat-equation step + ionic forward Euler. """
 
@@ -75,7 +68,12 @@ class MonodomainSolver(HeatSolver):
         if self._use_renumbering:
             perm = self._renumbering['perm']
             self._U = tf.Variable(tf.gather(self._U, perm), name=self._U.name)
-            for attr in _IONIC_STATE_ATTRS:
+            # every variable the model advances in time is permuted in lockstep
+            # with U. The list comes from the model itself: a variable left out
+            # would be harmless while all nodes share the initial value, and
+            # silently wrong as soon as a restored state varies from node to node.
+            for name in self._ionic_model.state_variable_names():
+                attr = '_{}'.format(name)
                 sv = getattr(self._ionic_model, attr, None)
                 if sv is not None:
                     setattr(self._ionic_model, attr,
@@ -121,3 +119,21 @@ class MonodomainSolver(HeatSolver):
         if self._use_renumbering:
             return tf.gather(sv, self._renumbering['iperm'])
         return sv
+
+    # ---- checkpoint hooks ---------------------------------------------------
+    def checkpoint_model_name(self) -> str:
+        """ checkpoint_model_name() returns the cell-model name recorded in a
+            checkpoint: the class name, which is unambiguous where a parameter
+            file name is not (`MitchellSchaeffer` selects one of two classes)
+        """
+        return(type(self._ionic_model).__name__)
+
+    def _checkpoint_state_variables(self) -> dict:
+        """ the cell-model state variables, in the user's node order """
+        states = self._ionic_model.get_state_variables()
+        return({name: self._to_user_order(values) for name, values in states.items()})
+
+    def _restore_state_variables(self, states: dict):
+        """ pushes user-ordered state variables into the cell model """
+        self._ionic_model.set_state_variables(
+            {name: self._to_solver_order(np.asarray(values)) for name, values in states.items()})

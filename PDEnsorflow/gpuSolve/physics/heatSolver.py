@@ -2,9 +2,9 @@
 """
     HeatSolver: one-step implicit FEM heat-equation solver (TensorFlow backend).
 
-    Applies the architectural pattern of torchcor.simulator.Monodomain
-    (load/setup -> assemble -> per-step kernel) to the physics implemented in
-    PDEnsorflow/Tests/FEM/HeatEquation/heat.py.
+    Organised as load/setup -> assemble -> per-step kernel, so the expensive
+    assembly runs once and the time loop only calls a small kernel, around the
+    physics implemented in PDEnsorflow/Tests/FEM/HeatEquation/heat.py.
 
     The class advances the solution by a single time step (`step`). The main
     temporal loop must be driven by the caller.
@@ -42,7 +42,7 @@ class HeatSolver:
         self._use_renumbering : bool = False
         # warm-start strategy for the CG solve: when True the initial
         # guess is the linear extrapolation 2 U^n - U^{n-1} of the two
-        # previous solutions (torchcor's linear_guess), which typically
+        # previous solutions, which typically
         # saves CG iterations per step; when False the guess is U^n.
         self._linear_guess : bool    = True
 
@@ -133,8 +133,8 @@ class HeatSolver:
     def _warm_start_X0(self, U: tf.Variable) -> tf.constant:
         """ _warm_start_X0(U) returns the CG initial guess for the current step
             and records U as the new previous solution. With linear_guess
-            active the guess is the linear extrapolation 2 U^n - U^{n-1}
-            (torchcor's linear_guess); otherwise it is U^n unchanged.
+            active the guess is the linear extrapolation 2 U^n - U^{n-1} of the
+            two previous solutions; otherwise it is U^n unchanged.
         """
         if not self._linear_guess:
             return(U)
@@ -181,6 +181,95 @@ class HeatSolver:
         self._U = U1
         self._ctime = t
         return self._U
+
+    # ---- checkpoints --------------------------------------------------------
+    def checkpoint(self) -> dict:
+        """ checkpoint() returns the state needed to resume the run from ctime():
+            {'ionic_model': name of the cell model ('' for pure diffusion),
+             'time': ctime() in ms, 'num_nodes': number of mesh nodes,
+             'Vm': nodal potential, 'state_variables': {name: nodal values}}.
+            Every nodal array is flat and in the user's node order, whatever the
+            renumbering: a checkpoint then does not depend on the renumbering
+            setting, and a run can resume with it switched on or off.
+        """
+        try:
+            return({'ionic_model': self.checkpoint_model_name(),
+                    'time': float(self._ctime),
+                    'num_nodes': int(self._Domain.Pts().shape[0]),
+                    'Vm': self._to_user_order(np.reshape(self._U.numpy(), (-1,))),
+                    'state_variables': self._checkpoint_state_variables()})
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+
+    def restore_checkpoint(self, checkpoint: dict):
+        """ restore_checkpoint(checkpoint) resumes from a dict made by checkpoint():
+            it sets the potential, the state variables and ctime().
+            It can be called before finalize_for_run() (the values are then
+            renumbered with the rest of the solver) or after it (they are
+            renumbered here). It raises ValueError when the checkpoint comes
+            from a different mesh or cell model.
+        """
+        try:
+            npt = int(self._Domain.Pts().shape[0])
+            if int(checkpoint['num_nodes']) != npt:
+                raise ValueError('the checkpoint holds {} nodes but the mesh has {}'.format(
+                    int(checkpoint['num_nodes']), npt))
+            if checkpoint['ionic_model'] != self.checkpoint_model_name():
+                raise ValueError('the checkpoint was written with cell model "{}" but this run '
+                                 'uses "{}"'.format(checkpoint['ionic_model'],
+                                                    self.checkpoint_model_name()))
+            Vm = np.asarray(checkpoint['Vm'])
+            if Vm.size != npt:
+                raise ValueError('the checkpoint potential has {} values but the mesh has '
+                                 '{} nodes'.format(Vm.size, npt))
+            U0 = np.reshape(Vm, (npt, 1)).astype(np.float32)
+            if self._ready_for_run:
+                self._U = tf.Variable(self._to_solver_order(U0), name="U", dtype=tf.float32)
+            else:
+                self.set_initial_condition(U0)
+            self._restore_state_variables(checkpoint['state_variables'])
+            self._ctime = float(checkpoint['time'])
+            # the warm-start history U^{n-1} is not part of a checkpoint, so the
+            # first step after a restart starts CG from U^n. This changes the
+            # initial guess only: the solution agrees with an uninterrupted run
+            # to within the CG tolerance, at the cost of a few extra iterations
+            # on that one step.
+            self._U_prev = None
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+
+    def checkpoint_model_name(self) -> str:
+        """ checkpoint_model_name() returns the cell-model name recorded in a
+            checkpoint: '' for the heat equation, which has no cell model
+        """
+        return('')
+
+    def _checkpoint_state_variables(self) -> dict:
+        """ the heat equation advances no state besides the potential """
+        return({})
+
+    def _restore_state_variables(self, states: dict):
+        """ refuses state variables: the heat equation has none to receive them """
+        if len(states) > 0:
+            raise ValueError('the checkpoint carries state variables ({}) but this run has '
+                             'no cell model'.format(', '.join(sorted(states.keys()))))
+
+    def _to_user_order(self, values: np.ndarray) -> np.ndarray:
+        """ maps a nodal array from the solver's node order to the user's.
+            The permutation is applied by finalize_for_run(), so before it the
+            two orders coincide.
+        """
+        if self._use_renumbering and self._ready_for_run:
+            return(np.take(values, self._renumbering['iperm'], axis=0))
+        return(values)
+
+    def _to_solver_order(self, values: np.ndarray) -> np.ndarray:
+        """ maps a nodal array from the user's node order to the solver's """
+        if self._use_renumbering and self._ready_for_run:
+            return(np.take(values, self._renumbering['perm'], axis=0))
+        return(values)
 
     # ---- accessors ----------------------------------------------------------
     def domain(self) -> Triangulation:

@@ -3,6 +3,9 @@ This package implements the ionic models for cardiac simulations. All the models
 
 * `set_parameter(pname,pvalue)`  sets the parameter `pname` to the value specified in `pvalue` (if `pname` exists; otherwise id does nothing)
 * `get_parameter(pname)` returns the parameter values of `pname` in `pname` exists; `None` otherwise
+* `state_variable_names()` returns the names of the variables `differentiate()` advances in time. Each model declares its own list; per-node conductances held as `tf.Variable`s are parameters and are not listed
+* `get_state_variables()` returns `{name: flat per-node array}` for every state variable
+* `set_state_variables(states)` overwrites the state variables; the names must match `state_variable_names()` exactly
 * `set_vmin(vmin = 0.0)` sets the minimum value of the potential for rescaling to `vmin`
 * `set_vmax(vmax = 1.0)` sets the maximum value of the potential for rescaling to `vmax`
 * `vmin()` returns the minimum value of the potential vmin
