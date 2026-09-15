@@ -17,6 +17,33 @@ python check_result.py               # conduction velocity, and the two compared
 python make_mesh.py --remove         # delete the generated mesh
 ```
 
+### Saving the state and resuming from it
+
+```
+PDEnsorflow +F parameters.par -num_tsav 1 -tsav[0] 100                          # also writes OUT_mMS/state.100.pkl
+PDEnsorflow +F parameters.par -simID OUT_mMS_restart -start_statef OUT_mMS/state.100
+python check_restart.py              # the resumed run against the uninterrupted one
+```
+
+The resumed run starts at step 1000 (t = 100 ms) and writes frames for
+[100, 250] ms. Measured on an RTX A2000:
+
+```
+state file : OUT_mMS/state.100.pkl at t = 100.0000 ms, model ModifiedMS2v, 63001 nodes, 1 state variable(s)
+frames     : uninterrupted 251, restarted 151
+restart frame 0 vs saved Vm: max |dV| = 0.000e+00 mV
+restarted vs uninterrupted over the last 150 frames (150 ms):
+            max |dV| = 5.648e-02 mV, mean |dV| = 4.740e-06 mV, all finite: True
+            max |dV| on the first / last compared frame: 3.815e-05 / 2.012e-02 mV
+```
+
+The resumed run is not identical to round-off, for two reasons. The CG
+warm-start history `U^{n-1}` is not stored in the state file, so the first step
+after the restart starts CG from a different guess. Also, two GPU runs of the
+same file already differ by about `2.4e-2` mV (see below). The restart
+difference is the same size as that floor. Saving the state does not change the
+uninterrupted run: `check_result.py` still gives 45.839 um/ms.
+
 The mesh is a build artefact, not data: `make_mesh.py` converts
 `Tests/data/triangulated_square.pkl` (a 10 x 10 mm sheet stored in millimetres)
 into the three-file format with coordinates in **micrometres**, which is the

@@ -67,5 +67,71 @@ class IonicModel:
         """
         internal_name = '_{}'.format(pname)
         return( getattr(self, internal_name, None))
-    
+
+    def state_variable_names(self) -> tuple:
+        """
+        state_variable_names() returns the names (without the leading underscore)
+        of the state variables that differentiate() advances in time.
+        The list is declared by each model rather than discovered by scanning the
+        tf.Variable attributes: some models also hold per-node conductances as
+        tf.Variables that differentiate() never assigns, and those are parameters
+        (rebuilt from the parameter file), not state. Override in subclasses.
+        """
+        return(())
+
+    def get_state_variables(self) -> dict:
+        """
+        get_state_variables() returns {name: values} for every state variable, each
+        value a flat numpy array with one entry per node, in the order the model
+        holds them (the caller undoes any node renumbering)
+        """
+        try:
+            states : dict = {}
+            for name in self.state_variable_names():
+                variable = getattr(self, '_{}'.format(name), None)
+                if variable is None:
+                    raise ValueError('{}: state variable {} is not initialised; call '
+                                     'initialize_state_variables(U) first'.format(
+                                         type(self).__name__, name))
+                states[name] = np.reshape(variable.numpy(), (-1,))
+            return(states)
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+
+    def set_state_variables(self, states: dict):
+        """
+        set_state_variables(states) overwrites every state variable with the flat
+        per-node arrays in states ({name: values}). The names must match
+        state_variable_names() exactly: a missing variable would silently restart
+        from its initial value, and an extra one belongs to another model.
+        Values are assigned into the existing tf.Variables, so a differentiate()
+        that has already been traced keeps updating the same objects.
+        """
+        try:
+            expected = set(self.state_variable_names())
+            given    = set(states.keys())
+            if given != expected:
+                missing = sorted(expected - given)
+                extra   = sorted(given - expected)
+                raise ValueError('{}: the state variables do not match the model (missing: {}; '
+                                 'not in the model: {})'.format(type(self).__name__,
+                                                              ', '.join(missing) or 'none',
+                                                              ', '.join(extra) or 'none'))
+            for name in self.state_variable_names():
+                variable = getattr(self, '_{}'.format(name), None)
+                if variable is None:
+                    raise ValueError('{}: state variable {} is not initialised; call '
+                                     'initialize_state_variables(U) first'.format(
+                                         type(self).__name__, name))
+                values = np.asarray(states[name])
+                if values.size != int(np.prod(variable.shape)):
+                    raise ValueError('{}: state variable {} has {} values, the model holds {}'.format(
+                        type(self).__name__, name, values.size, int(np.prod(variable.shape))))
+                variable.assign(tf.constant(np.reshape(values, variable.shape),
+                                            dtype=variable.dtype))
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+
 

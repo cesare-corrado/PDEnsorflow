@@ -21,7 +21,16 @@ from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
 from gpuSolve.physics import no_mass_property
 from gpuSolve.IO.readers import VtxReader
+from gpuSolve.IO.readers import StateReader
 from gpuSolve.IO.writers import IGBWriter
+from gpuSolve.IO.writers import StateWriter
+from gpuSolve.carp_compatibility.parametermapper import CHECKPOINT_BASENAME
+from gpuSolve.carp_compatibility.parametermapper import time_label
+
+
+# Extension of the checkpoint files. The format's own state files are binary
+# and are not read here, so the extension says which kind a file is.
+STATE_FILE_EXTENSION : str = '.pkl'
 
 
 class SimulationRunner:
@@ -39,6 +48,12 @@ class SimulationRunner:
         self._nframes : int          = 0
         self._elapsed : float        = 0.0
         self._verbose : bool         = True
+        self._first_step : int       = 0
+        self._state_writer : StateWriter = None
+        self._pending_saves : list   = None
+        self._savestate : dict       = None
+        self._chkpt_index : int      = 0
+        self._next_chkpt : float     = None
 
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -85,7 +100,9 @@ class SimulationRunner:
             self.__configure_linear_solver()
             self.__set_initial_condition()
             self.__add_stimuli()
+            self.__restore_state()
             self.__open_output()
+            self.__schedule_saves()
             self._model.finalize_for_run()
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
@@ -93,7 +110,9 @@ class SimulationRunner:
 
     def run(self):
         """ run() advances the solution to Tend, recording a frame every
-            dt_per_plot steps, and closes the output file
+            dt_per_plot steps and saving the states the parameters ask for,
+            and closes the output file. A restarted run continues from the step
+            the checkpoint was saved at.
         """
         try:
             settings = self._mapper.output_settings()
@@ -101,15 +120,23 @@ class SimulationRunner:
             model    = self._model
             self._writer.imshow(model.U())
             frames   = 1
-            report   = timedt
-            ctime    = 0.0
+            # ctime starts from the solver's own clock (0 for a fresh run, the
+            # saved time on a restart) and is still advanced by accumulating dt.
+            # A checkpoint stores the accumulated value itself, so a restarted
+            # run sees exactly the same sequence of times as an uninterrupted one.
+            ctime    = model.ctime()
+            report   = timedt * (np.floor(ctime / timedt) + 1.0)
+            self.__save_due_states(ctime)
             then     = time.time()
-            for istep in range(model.nt()):
+            # the step counter is global, so frames are recorded on the same
+            # steps as in an uninterrupted run
+            for istep in range(self._first_step, model.nt()):
                 ctime += model.dt()
                 model.step(ctime)
                 if istep % model.dt_per_plot() == 0:
                     self._writer.imshow(model.U())
                     frames += 1
+                self.__save_due_states(ctime)
                 if self._verbose and ctime >= report:
                     print('  t = {:9.3f} ms  ({:5.1f}%)'.format(
                         ctime, 100.0 * ctime / model.Tend()), flush=True)
@@ -216,6 +243,103 @@ class SimulationRunner:
             U0 = values.reshape(npt, 1).astype(np.float32)
         self._model.set_initial_condition(U0)
 
+    def __restore_state(self):
+        """ loads the checkpoint named by start_statef, if any, into the solver
+            and sets the step the run resumes from. It runs before
+            finalize_for_run(), so the restored values are renumbered together
+            with the rest of the solver.
+        """
+        self._savestate  = self._mapper.savestate_settings()
+        self._first_step = 0
+        fname = self._savestate['start_statef']
+        if len(fname) == 0:
+            return
+        path = self.__find_state_file(fname)
+        checkpoint = StateReader().read(path)
+        model = self._model
+        model.restore_checkpoint(checkpoint)
+        dt    = model.dt()
+        first = int(round(checkpoint['time'] / dt))
+        if first >= model.nt():
+            raise ValueError('start_statef = "{}": the state was saved at t = {} ms, which leaves '
+                             'no step before tend = {} ms'.format(fname, checkpoint['time'],
+                                                                  model.Tend()))
+        if abs(first * dt - checkpoint['time']) > 1.0e-3 * dt:
+            self._mapper.add_note('start_statef = "{}": the saved time {} ms is not a multiple of '
+                                  'dt = {} ms; was it written with another dt?'.format(
+                                      fname, checkpoint['time'], dt))
+        self._first_step = first
+        if self._verbose:
+            print('restarting from {} at t = {} ms (step {})'.format(
+                path, checkpoint['time'], first), flush=True)
+
+    def __find_state_file(self, fname: str) -> str:
+        """ accepts the checkpoint name with or without its extension, relative
+            to the working directory as meshname is
+        """
+        for candidate in (fname, '{}{}'.format(fname, STATE_FILE_EXTENSION)):
+            if os.path.isfile(candidate):
+                return(candidate)
+        raise ValueError('start_statef = "{}": cannot find {} or {}{}'.format(
+            fname, fname, fname, STATE_FILE_EXTENSION))
+
+    def __schedule_saves(self):
+        """ prepares the save times of tsav and of interval checkpointing.
+            A save time is matched to the first step that reaches it within half
+            a step, because the times in the parameters need not be multiples of
+            dt. Save times already behind the start of a restarted run are
+            dropped with a note.
+        """
+        model = self._model
+        half  = 0.5 * model.dt()
+        t0    = model.ctime()
+        self._state_writer  = StateWriter()
+        self._pending_saves = []
+        for tsav, name in sorted(self._savestate['save_times']):
+            if tsav < t0 - half:
+                self._mapper.add_note('tsav = {} ms is before the restart time {} ms: that state '
+                                      'is not saved'.format(tsav, t0))
+            else:
+                self._pending_saves.append((tsav, name))
+        self._next_chkpt = None
+        intv = self._savestate['chkpt_intv']
+        if intv > 0.0:
+            start = self._savestate['chkpt_start']
+            # the first checkpoint time not behind the start of the run
+            self._chkpt_index = max(0, int(np.ceil((t0 - half - start) / intv)))
+            self.__advance_checkpoint_time(start + self._chkpt_index * intv)
+
+    def __advance_checkpoint_time(self, candidate: float):
+        """ arms the next checkpoint time, or disarms checkpointing past chkpt_stop """
+        if candidate <= self._savestate['chkpt_stop'] + 0.5 * self._model.dt():
+            self._next_chkpt = candidate
+        else:
+            self._next_chkpt = None
+
+    def __save_due_states(self, ctime: float):
+        """ writes every state whose save time the current step has reached """
+        half = 0.5 * self._model.dt()
+        while len(self._pending_saves) > 0 and ctime >= self._pending_saves[0][0] - half:
+            _tsav, name = self._pending_saves.pop(0)
+            self.__write_state(name)
+        if self._next_chkpt is not None and ctime >= self._next_chkpt - half:
+            self.__write_state('{}.{}'.format(CHECKPOINT_BASENAME, time_label(self._next_chkpt)))
+            # a checkpoint interval shorter than dt would name several times
+            # inside one step; the state is written once and the rest skipped
+            start = self._savestate['chkpt_start']
+            intv  = self._savestate['chkpt_intv']
+            while self._next_chkpt is not None and ctime >= self._next_chkpt - half:
+                self._chkpt_index += 1
+                self.__advance_checkpoint_time(start + self._chkpt_index * intv)
+
+    def __write_state(self, name: str):
+        """ writes the current state to <simID>/<name>.pkl """
+        path = os.path.join(self._outdir, '{}{}'.format(name, STATE_FILE_EXTENSION))
+        self._state_writer.write(self._model.checkpoint(), path)
+        if self._verbose:
+            print('  state at t = {:9.3f} ms saved to {}'.format(self._model.ctime(), path),
+                  flush=True)
+
     def __add_stimuli(self):
         """ turns each electrode description into the node mask Stimulus expects """
         points = self._model.domain().Pts()
@@ -271,10 +395,19 @@ class SimulationRunner:
         os.makedirs(self._outdir, exist_ok=True)
         model       = self._model
         dt_per_plot = model.dt_per_plot()
-        # one frame before the loop, then one every dt_per_plot steps
-        nframes = 1 + (model.nt() + dt_per_plot - 1) // dt_per_plot
-        self._writer = IGBWriter({'fname': os.path.join(self._outdir,
-                                                        '{}.igb'.format(settings['vofile'])),
+        # one frame before the loop, then one on every step index in
+        # [first_step, nt) that is a multiple of dt_per_plot
+        nframes = 1
+        if model.nt() > self._first_step:
+            nframes += ((model.nt() - 1) // dt_per_plot
+                        - (self._first_step + dt_per_plot - 1) // dt_per_plot + 1)
+        igbname = os.path.join(self._outdir, '{}.igb'.format(settings['vofile']))
+        if self._first_step > 0 and os.path.isfile(igbname):
+            self._mapper.add_note('restart: {} already exists and is overwritten by the '
+                                  'segment from t = {} ms; choose another simID to keep '
+                                  'it'.format(igbname, model.ctime()))
+        self._writer = IGBWriter({'fname': igbname,
+                                  'org_t': model.ctime(),
                                   'Tend': model.Tend(),
                                   'nt': nframes,
                                   'nx': model.domain().Pts().shape[0]})

@@ -401,6 +401,16 @@ class TenTusscherPanfilov(IonicModel):
             self._D_state = tf.Variable(tf.fill(shape, tf.constant(self._D_init, dtype=_DTYPE)), name="D_state")
             self._initialized = True
 
+    def state_variable_names(self) -> tuple:
+        """state_variable_names() returns the 18 variables advanced by differentiate().
+        GCaL, GKr, GKs and Gto are also per-node tf.Variables but differentiate()
+        never assigns them: they are conductances, rebuilt from the parameters on a
+        restart, so they are deliberately not listed here.
+        """
+        return(('CaSR', 'CaSS', 'Cai', 'Ki', 'Nai', 'R_bar',
+                'D_state', 'F_state', 'F2_state', 'FCaSS_state', 'H_state', 'J_state',
+                'M_state', 'R_state', 'S_state', 'Xr1_state', 'Xr2_state', 'Xs_state'))
+
 
     @tf.function
     def differentiate(self, U: tf.Variable) -> tf.Variable:

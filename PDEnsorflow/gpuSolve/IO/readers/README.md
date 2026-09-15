@@ -5,6 +5,15 @@ This is the sub-directory of I/O contains functions for reading data from files 
 * `ImageData`: a class to handle images in tensor format
 * `CarpMeshReader`: a class to read carp meshes
 * `IGBReader`:      a class to read igb files
+* `StateReader`:    a class to read checkpoint (saved state) files
+
+## StateReader
+Reads a checkpoint written by `StateWriter`: a pickled dict with `ionic_model`
+(cell-model class name, `''` for pure diffusion), `time` (ms), `num_nodes`, `Vm`
+and `state_variables` (`{name: per-node values}`), every nodal array in the
+user's node order. `read(fname)` checks that the file is complete, that every
+array has `num_nodes` values and that none is NaN or Inf, and returns the dict.
+Loading a pickle can run code: read only checkpoint files you produced.
 
 
 ## ImageData
