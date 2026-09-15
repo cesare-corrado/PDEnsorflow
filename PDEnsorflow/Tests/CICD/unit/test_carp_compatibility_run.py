@@ -239,6 +239,32 @@ def test_notes_collected_during_setup_reach_the_banner(tmp_path, capsys):
     assert 'region tag 77' in printed
 
 
+def test_a_pure_diffusion_run_stays_finite(tmp_path):
+    """No cell model makes it a heat-equation run, which starts from U = 0. With
+    no stimulus the first linear system is exactly zero, and the solve used to
+    turn it into NaN (0/0 in the CG step length), leaving every later frame
+    non-finite. The output must stay finite, and stay at 0 with nothing to
+    drive it."""
+    folder = str(tmp_path)
+    _write_cable(folder)
+    with open(os.path.join(folder, 'heat.par'), 'w') as fout:
+        fout.write('meshname = cable\nsimID = OUT_HEAT\ntend = 1.0\ndt = {}\n'
+                   'spacedt = 0.25\ntimedt = 100.0\n'.format(_DT_US))
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        status = main(['+F', 'heat.par'])
+    finally:
+        os.chdir(cwd)
+    assert status == 0
+    reader = IGBReader()
+    reader.read(os.path.join(folder, 'OUT_HEAT', 'vm.igb'))
+    V = np.array(reader.data()).reshape(reader.header()['t'], reader.header()['x'])
+    assert V.shape[0] > 1
+    assert np.all(np.isfinite(V))
+    np.testing.assert_array_equal(V, 0.0)
+
+
 def test_a_missing_mesh_is_reported_by_name(tmp_path, capsys):
     """meshname has a default, so a mesh that is not there is the commonest
     first mistake. It must name the files it looked for rather than raise a

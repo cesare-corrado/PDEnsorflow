@@ -21,6 +21,16 @@ variable-size GPU container that buffers the solution and flushes it in chunks:
 The test is autonomous: it creates an isolated temporary directory in `setUp()`
 and removes every artefact in `tearDown()`.
 
+### `test_conjgrad.py` &mdash; `gpuSolve.linearsolvers.ConjGrad`
+Assembles `A = M + K` on the coarse square mesh, prescribes a solution
+(all ones, and a fixed random vector), and checks that the Jacobi-preconditioned
+CG recovers it, once through the absolute tolerance and once through the
+relative one (`toll = 0`, `toll_rel = 1e-6`). Also covers the **zero system**: a
+zero right-hand side from a zero guess must leave X exactly 0 on both the eager
+and the graph path. That system has a residual of exactly 0, and an unguarded
+step length `r.z / p.Ap` would be 0/0 and write NaN, which is what a
+pure-diffusion run meets on its first step.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the
@@ -68,6 +78,10 @@ Also covers the **vertex-file electrode**: a short run whose `elec.vtx_file`
 names five nodes must depolarise exactly those and leave the far end at rest
 (over 2 ms the diffusion length is ~700 um, so the far end cannot be reached),
 and an index outside the mesh must be refused rather than wrapping round.
+
+A **pure-diffusion run** (no cell model) must stay finite: it starts from
+`U = 0` with nothing driving it, so its output must stay exactly 0 rather than
+turning into NaN on the first step.
 
 ### `test_mesh_roundtrip.py` &mdash; the external mesh format
 Writes a small strip through `Triangulation.exportCarpFormat` and reads it back.
