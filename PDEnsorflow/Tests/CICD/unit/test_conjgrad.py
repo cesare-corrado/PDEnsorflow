@@ -98,7 +98,8 @@ def _build_system_matrix(mesh_file: str, alpha: float, beta: float):
     return(A, npt)
 
 
-def _solve(A, B: tf.Tensor, npt: int, maxiter: int, toll: float, toll_rel: float = 0.0):
+def _solve(A, B: tf.Tensor, npt: int, maxiter: int, toll: float, toll_rel: float = 0.0,
+           use_graph_loop: bool = False):
     """Solve A x = B from a zero guess with a Jacobi-preconditioned CG.
     toll_rel is handed to ConjGrad through the config dict, so this also
     exercises the config-dict population of the new attribute.
@@ -106,7 +107,7 @@ def _solve(A, B: tf.Tensor, npt: int, maxiter: int, toll: float, toll_rel: float
     """
     A_st    = A.to_sparse_tensor()
     solver  = ConjGrad({'maxiter': maxiter, 'toll': toll, 'toll_rel': toll_rel,
-                        'verbose': False, 'use_graph_loop': False})
+                        'verbose': False, 'use_graph_loop': use_graph_loop})
     solver.set_matrix(A)
     precond = JacobiPrecond()
     precond.build_preconditioner(A_st.indices.numpy()[:, 0],
@@ -167,6 +168,22 @@ def test_cg_recovers_gold_solution(system_matrix, gold):
     # in float32 (true rel_res ~1e-3 while the solution itself is accurate to
     # ~3e-5). This bound only guards against gross non-convergence / divergence.
     assert rel_res < 1.0e-2, 'residual too large: rel_res={0:.3e}'.format(rel_res)
+
+
+@pytest.mark.parametrize('use_graph_loop', [False, True], ids=['eager', 'graph'])
+def test_cg_zero_system_stays_exact(system_matrix, use_graph_loop):
+    """A zero right-hand side from a zero guess is already solved. The residual,
+    the search direction and r.z are all exactly 0 on entry, so an unguarded
+    alpha = r.z / p.Ap is 0/0 and writes NaN into X before the batched
+    convergence check can stop the loop. This is what a pure-diffusion run
+    meets on its first step, before any stimulus. X must stay exactly 0."""
+    npt = system_matrix['npt']
+    B   = tf.zeros(shape=(npt, 1), dtype=tf.float32)
+    X, niters = _solve(system_matrix['A'], B, npt, maxiter=100, toll=1.0e-8,
+                       use_graph_loop=use_graph_loop)
+    assert np.all(np.isfinite(X.numpy())), 'CG turned a zero system into NaN'
+    np.testing.assert_array_equal(X.numpy(), 0.0)
+    assert niters < 100
 
 
 @pytest.mark.parametrize('gold', ['ones', 'random'])

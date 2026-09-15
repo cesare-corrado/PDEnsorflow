@@ -328,11 +328,6 @@ def test_a_restored_state_survives_renumbering_for_every_variable(tmp_path, monk
         np.testing.assert_allclose(solver_order[name], values[perm], rtol=1.0e-6)
 
 
-@pytest.mark.xfail(strict=True, raises=ValueError,
-                   reason='pre-existing on develop: a pure-diffusion run of the parameter-file '
-                          'front end turns non-finite on its first step (CG residual nan), so '
-                          'the saved state is refused as non-finite. Remove this mark once '
-                          'that is fixed.')
 def test_a_pure_diffusion_run_saves_and_resumes(tmp_path):
     """Without a cell model the checkpoint holds the potential only."""
     folder = str(tmp_path)
@@ -345,8 +340,15 @@ def test_a_pure_diffusion_run_saves_and_resumes(tmp_path):
     reader.read(os.path.join(folder, 'OUT_H', 'state.0.5.pkl'))
     assert reader.ionic_model() == ''
     assert reader.state_variables() == {}
-    assert _run_in(folder, ['+F', 'heat.par', '-simID', 'OUT_H2', '-num_tsav', '0',
-                            '-start_statef', 'OUT_H/state.0.5.pkl']) == 0
+    # the restart reads its own file: overriding num_tsav to 0 while the file
+    # still assigns tsav[0] is refused by the counter check, as it should be
+    with open(os.path.join(folder, 'heat_restart.par'), 'w') as fout:
+        fout.write('meshname = cable\nsimID = OUT_H2\ntend = 1.0\ndt = {}\nspacedt = 0.25\n'
+                   'timedt = 100.0\nstart_statef = OUT_H/state.0.5.pkl\n'.format(_DT_US))
+    assert _run_in(folder, ['+F', 'heat_restart.par']) == 0
+    V = _read_igb(os.path.join(folder, 'OUT_H2', 'vm.igb'))
+    assert np.all(np.isfinite(V))
+    np.testing.assert_array_equal(V, 0.0)
 
 
 @pytest.mark.parametrize('argv,message', [
