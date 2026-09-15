@@ -20,6 +20,14 @@ This class store the output in a *numpy* array format and writes it to a file.
 
 This class writes the output in *igb* format (meshalyzer).
 
+## StateWriter
+
+This class writes a checkpoint, the dict returned by `HeatSolver.checkpoint()` /
+`MonodomainSolver.checkpoint()`, as a pickle file (see `readers/StateReader`).
+`write(checkpoint, fname)` stores plain values only, and writes to
+`<fname>.partial` before renaming it, so a run killed while saving keeps the
+previous file intact.
+
 ## CarpMeshWriter
 
 This class writes a mesh in carp format (*.pts*, *.elem* and *.lon* files)

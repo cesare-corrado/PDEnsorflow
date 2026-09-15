@@ -66,6 +66,10 @@ class ModifiedMS2v(IonicModel):
             self._H_state = tf.Variable(tf.ones_like(U), name="H_state")
             self._initialized = True
 
+    def state_variable_names(self) -> tuple:
+        """state_variable_names() returns the state advanced by differentiate(): the H gate"""
+        return(('H_state',))
+
     def tau_in(self) -> tf.constant:
         return(self._tau_in)        
 

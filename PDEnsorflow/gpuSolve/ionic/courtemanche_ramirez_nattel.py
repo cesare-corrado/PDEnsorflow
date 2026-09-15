@@ -419,6 +419,15 @@ class CourtemancheRamirezNattel(IonicModel):
             self._xs_state = tf.Variable(tf.fill(shape, tf.constant(self._xs_init, dtype=_DTYPE)), name="xs_state")
             self._initialized = True
 
+    def state_variable_names(self) -> tuple:
+        """state_variable_names() returns the 19 variables advanced by differentiate():
+        the four concentrations and the fifteen gates
+        """
+        return(('Ca_rel', 'Ca_up', 'Cai', 'Ki',
+                'd_state', 'f_state', 'f_Ca_state', 'h_state', 'j_state', 'm_state',
+                'oa_state', 'oi_state', 'u_state', 'ua_state', 'ui_state', 'v_state',
+                'w_state', 'xr_state', 'xs_state'))
+
 
     @tf.function
     def differentiate(self, U: tf.Variable) -> tf.Variable:

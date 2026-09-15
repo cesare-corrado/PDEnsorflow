@@ -7,6 +7,7 @@ Contains:
     * VedoPlotter: a class implementing a plotter based on ved library
     * CarpMeshWriter: a class to write the mesh in carp {.pts, .elem, .lon} format
     * IGBWriter: a class to write the output in .igb format (meshalyzer)
+    * StateWriter: a class to write checkpoint (saved state) files
 
 """
 
@@ -28,3 +29,4 @@ from gpuSolve.IO.writers.resultwriter import ResultWriter
 #from gpuSolve.IO.writers.vedoplotter import VedoPlotter
 from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
 from gpuSolve.IO.writers.igbwriter import IGBWriter
+from gpuSolve.IO.writers.statewriter import StateWriter

@@ -94,6 +94,10 @@ class Fenton4v(IonicModel):
             self._S_state = tf.Variable(tf.zeros_like(U), name="S_state")
             self._initialized = True
 
+    def state_variable_names(self) -> tuple:
+        """state_variable_names() returns the state advanced by differentiate(): the V, W and S gates"""
+        return(('V_state', 'W_state', 'S_state'))
+
     def tau_vp(self)  -> tf.constant:
         return(self._tau_vp)
 
