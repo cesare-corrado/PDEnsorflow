@@ -13,8 +13,9 @@ class ConjGrad:
     def __init__(self,config : dict = None):
         self._maxiter : int = 100
         self._toll : float   = 1.e-5
-        # relative tolerance on the residual, scaled by the norm of the
-        # (preconditioned) right-hand side, mirroring torchcor's r_tol.
+        # relative tolerance on the residual: a relative stopping test, scaled
+        # by the norm of the preconditioned right-hand side, so the same
+        # tolerance means the same accuracy whatever the size of the problem.
         # Inert by default: 0.0 can never fire the relative test, so every
         # caller that does not opt in via set_toll_rel/config keeps the
         # absolute-only stopping behaviour.
@@ -193,26 +194,35 @@ class ConjGrad:
     @tf.function
     def _iterate(self,rzold:tf.constant) -> tf.constant:
         Ap             = self._spmv(self._p)
-        alpha          = rzold /tf.reduce_sum(tf.multiply(self._p, Ap))
+        # alpha and beta are safe divisions. An exactly zero residual (a zero
+        # initial guess with a zero right-hand side, as in a pure-diffusion run
+        # before any stimulus) makes r, p and rzold all 0, and the plain
+        # division 0/0 would write NaN into X before the batched convergence
+        # check (every _check_every iterations) could stop the loop. The graph
+        # path does not need this: its loop condition tests the residual before
+        # the first iteration. divide_no_nan returns exactly x/y for any
+        # non-zero y, so every non-degenerate solve is bit-identical, and 0 for
+        # y = 0, which leaves X at its exact value.
+        alpha          = tf.math.divide_no_nan(rzold, tf.reduce_sum(tf.multiply(self._p, Ap)))
         self._X.assign_add(alpha *self._p)
         self._r      -= alpha * Ap
         if self._Precond:
-            # Convergence bookkeeping is uniform with torchcor's
-            # ConjugateGradient: the tested quantity is the *preconditioned*
-            # residual ||z||^2 = ||M^-1 r||^2, not the raw ||r||^2. z is
-            # needed anyway for the search direction, so this only adds one
-            # reduction and no extra preconditioner solve.
+            # the tested quantity is the *preconditioned* residual
+            # ||z||^2 = ||M^-1 r||^2, not the raw ||r||^2, so the stopping
+            # test measures the error the preconditioned system actually
+            # sees. z is needed anyway for the search direction, so this only
+            # adds one reduction and no extra preconditioner solve.
             z        = self._Precond.solve_precond_system(self._r)
             rznew    = tf.reduce_sum(tf.multiply(self._r, z))
             self._residual = tf.reduce_sum(tf.multiply(z, z))
-            beta     = (rznew / rzold)
+            beta     = tf.math.divide_no_nan(rznew, rzold)
             self._p = z + beta * self._p
         else:
             # no preconditioner: the tested residual falls back to the raw
-            # ||r||^2 (torchcor's identity-preconditioner case).
+            # ||r||^2, which is the identity-preconditioner case of the above.
             self._residual = tf.reduce_sum(tf.multiply(self._r, self._r))
             rznew    = self._residual
-            beta     = (rznew / rzold)
+            beta     = tf.math.divide_no_nan(rznew, rzold)
             self._p = self._r + beta * self._p
         return(rznew)
 
@@ -227,8 +237,8 @@ class ConjGrad:
             rzold     = tf.reduce_sum(tf.multiply(self._r, z))
             self._residual = tf.reduce_sum(tf.multiply(z, z))
             # reference norm for the relative test: ||M^-1 b||, computed
-            # once per solve exactly as torchcor computes b_norm before
-            # its loop (one extra preconditioner solve per solve() call).
+            # once per solve before the loop, since b does not change during
+            # it (one extra preconditioner solve per solve() call).
             zb            = self._Precond.solve_precond_system(self._RHS)
             self._b_norm  = tf.sqrt(tf.reduce_sum(tf.multiply(zb, zb)))
         else:
@@ -257,8 +267,9 @@ class ConjGrad:
         # Same convergence bookkeeping as the eager path (_iterate /
         # _initialize): the tested quantity zsq is the *preconditioned*
         # residual ||z||^2 = ||M^-1 r||^2 (raw ||r||^2 without a
-        # preconditioner), uniform with torchcor, and the relative
-        # threshold is scaled by ||M^-1 b||^2 computed once before the loop.
+        # preconditioner), so both paths stop at the same point, and the
+        # relative threshold is scaled by ||M^-1 b||^2 computed once before
+        # the loop.
         if self._Precond is not None:
             z0       = self._Precond.solve_precond_system(r0)
             rzold0   = tf.reduce_sum(tf.multiply(r0, z0))
@@ -345,8 +356,8 @@ class ConjGrad:
                 toll_sq     = self._toll * self._toll
                 # relative threshold, fixed once per solve: (toll_rel *
                 # ||M^-1 b||)^2 -- or (toll_rel * ||b||)^2 without a
-                # preconditioner -- mirroring torchcor's b_norm computed
-                # before its loop. With the default _toll_rel = 0.0 the
+                # preconditioner -- from the right-hand-side norm computed in
+                # _initialize before the loop. With the default _toll_rel = 0.0 the
                 # threshold is 0, the relative test never fires, and the
                 # host-side read of _b_norm is skipped so the default path
                 # pays no extra GPU->CPU synchronisation.
