@@ -6,4 +6,4 @@ Markdown and cannot import Python). Every package ``__init__`` re-exports
 exactly one number to change.
 """
 
-__version__ = ['1', '5', '0']
+__version__ = ['1', '5', '1']
