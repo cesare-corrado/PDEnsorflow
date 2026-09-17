@@ -72,12 +72,14 @@ class MonodomainSolver(HeatSolver):
             # with U. The list comes from the model itself: a variable left out
             # would be harmless while all nodes share the initial value, and
             # silently wrong as soon as a restored state varies from node to node.
+            # The permuted values are written into the existing variables, not
+            # into new ones: a compiled differentiate() keeps the variable
+            # objects it was traced with, so a model compiled before this call
+            # would otherwise go on advancing the old, unpermuted copies.
             for name in self._ionic_model.state_variable_names():
-                attr = '_{}'.format(name)
-                sv = getattr(self._ionic_model, attr, None)
+                sv = getattr(self._ionic_model, '_{}'.format(name), None)
                 if sv is not None:
-                    setattr(self._ionic_model, attr,
-                            tf.Variable(tf.gather(sv, perm), name=sv.name))
+                    sv.assign(tf.gather(sv, perm))
             if self._StimulusDict is not None:
                 for _key, stim in self._StimulusDict.items():
                     stim.apply_indices_permutation(perm)
@@ -93,9 +95,11 @@ class MonodomainSolver(HeatSolver):
         self._ready_for_run = True
 
     # ---- per-step kernel ----------------------------------------------------
-    @tf.function
     def solve_step(self, U: tf.Variable, I0: tf.constant) -> tf.Variable:
-        """ Forward Euler for the ionic ODEs + implicit step for diffusion. """
+        """ Forward Euler for the ionic ODEs + implicit step for diffusion.
+            Not a tf.function, for the reason given in HeatSolver.solve_step;
+            the ionic step (differentiate) is compiled with XLA.
+        """
         dU   = self._ionic_model.differentiate(U)
         dU   = tf.add(dU, I0)
         RHS0 = tf.add(U, tf.math.scalar_mul(self._dt, dU))

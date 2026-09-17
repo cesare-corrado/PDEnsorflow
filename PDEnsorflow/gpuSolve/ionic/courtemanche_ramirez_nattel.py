@@ -429,7 +429,10 @@ class CourtemancheRamirezNattel(IonicModel):
                 'w_state', 'xr_state', 'xs_state'))
 
 
-    @tf.function
+    # Compiled with XLA: one step is many small per-node kernels, and fusing
+    # them removes most of the kernel-launch cost (ten Tusscher-Panfilov on
+    # 63001 nodes, RTX A2000: 4.0 ms per step as a graph, 0.46 ms with XLA).
+    @tf.function(jit_compile=True)
     def differentiate(self, U: tf.Variable) -> tf.Variable:
         """Compute ionic current dV/dt and update all 19 internal state variables.
 

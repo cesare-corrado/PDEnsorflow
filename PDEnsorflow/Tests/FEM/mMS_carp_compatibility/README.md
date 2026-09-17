@@ -33,15 +33,15 @@ state file : OUT_mMS/state.100.pkl at t = 100.0000 ms, model ModifiedMS2v, 63001
 frames     : uninterrupted 251, restarted 151
 restart frame 0 vs saved Vm: max |dV| = 0.000e+00 mV
 restarted vs uninterrupted over the last 150 frames (150 ms):
-            max |dV| = 5.648e-02 mV, mean |dV| = 4.740e-06 mV, all finite: True
-            max |dV| on the first / last compared frame: 3.815e-05 / 2.012e-02 mV
+            max |dV| = 3.836e-02 mV, mean |dV| = 4.592e-06 mV, all finite: True
+            max |dV| on the first / last compared frame: 3.815e-05 / 1.740e-02 mV
 ```
 
 The resumed run is not identical to round-off, for two reasons. The CG
 warm-start history `U^{n-1}` is not stored in the state file, so the first step
 after the restart starts CG from a different guess. Also, two GPU runs of the
-same file already differ by about `2.4e-2` mV (see below). The restart
-difference is the same size as that floor. Saving the state does not change the
+same file already differ by `2e-2` to `6e-2` mV, depending on the pair of runs
+(see below). The restart difference is of the same order as that floor. Saving the state does not change the
 uninterrupted run: `check_result.py` still gives 45.839 um/ms.
 
 The mesh is a build artefact, not data: `make_mesh.py` converts
@@ -93,7 +93,7 @@ front end : 251 frames x 63001 nodes
 CV measured:  45.839 um/ms (4.58 cm/s)
 CV analytic:  46.188 um/ms (4.62 cm/s)
 rel. error : 0.76%
-vs Python API: max |dV| = 2.366e-02 mV, mean |dV| = 7.339e-06 mV
+vs Python API: max |dV| = 5.581e-02 mV, mean |dV| = 7.024e-06 mV
 ```
 
 The 0.76% is the linear-FEM and forward-Euler discretisation bias, in line with
@@ -101,19 +101,27 @@ the 1D and 2D regressions under `Tests/CICD`.
 
 The difference between the two routes is round-off, not a difference in what was
 solved. Re-running the *same* parameter file a second time gives a difference of
-the same size, which settles where it comes from:
+the same order, which settles where it comes from:
 
 ```
-front end vs itself (same .par, rerun): max |dV| = 2.361e-02 mV   mean = 7.570e-06 mV
-front end vs Python API               : max |dV| = 2.366e-02 mV   mean = 7.339e-06 mV
+front end vs itself (same .par, rerun): max |dV| = 5.634e-02 mV   mean = 7.827e-06 mV
+front end vs Python API               : max |dV| = 5.581e-02 mV   mean = 7.024e-06 mV
 ```
 
 The sparse kernels do not reduce in a fixed order on the GPU, so two identical
 runs already differ by that much. The maximum sits on the upstroke, where the
 steepest gradient turns the smallest timing difference into the largest voltage
-difference; the mean over 251 frames and 63001 nodes is 7e-6 mV.
+difference; the mean over 251 frames and 63001 nodes is 8e-6 mV. The size of the
+maximum varies from one pair of runs to the next (2.0e-2 to 5.6e-2 mV measured
+for the front end against itself).
 
-Both runs take about 41 s on an RTX A2000.
+Both runs take about 36 s in the time loop on an RTX A2000. Before the cell
+model was compiled with XLA and the zero forcing was kept on the device, the
+same file took 43 s; the fields of the two versions differ by at most 5.6e-2 mV,
+the size of the run-to-run floor above. On a mesh of this size the CG loop is
+faster still as one GPU graph (24 s for this file): call
+`model.solver().set_use_graph_loop(True)`. It is off by default because it is
+slower on meshes of 1M nodes and more.
 
 ## Files
 

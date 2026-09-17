@@ -28,7 +28,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import time
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
 
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )

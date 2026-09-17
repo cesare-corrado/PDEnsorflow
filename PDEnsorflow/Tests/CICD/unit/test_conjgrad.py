@@ -20,9 +20,10 @@
     against a regression of the JacobiPrecond._V drop (build_preconditioner
     must populate self._V).
 
-    Note: the default ConjGrad path keeps intermediate vectors (r, p) on the
-    solver object between @tf.function calls, so it must run eagerly -- exactly
-    as the FEM demos do (tf.config.run_functions_eagerly(True)).
+    Every test runs twice, with traced kernels (the solver's normal mode) and
+    with tf.config.run_functions_eagerly(True): the CG kernels return r and p
+    to the caller instead of storing them, and must give the same solve both
+    ways.
 
     Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
@@ -43,13 +44,13 @@ from gpuSolve.linearsolvers.conjgrad import ConjGrad
 from gpuSolve.linearsolvers.jacobi_precond import JacobiPrecond
 
 
-@pytest.fixture(scope='module', autouse=True)
-def _eager_mode():
-    """ConjGrad stores r/p between traced calls, so it must run eagerly. Set the
-    flag in fixture *setup* (not at import time) so it holds regardless of the
-    eager state another test module may have left behind, then restore it."""
+@pytest.fixture(scope='module', autouse=True, params=[False, True], ids=['traced', 'eager'])
+def _execution_mode(request):
+    """Run the module with traced kernels, then eagerly. Set in fixture *setup*
+    (not at import time) so it holds whatever eager state another module left
+    behind, then restore it."""
     prev = tf.config.functions_run_eagerly()
-    tf.config.run_functions_eagerly(True)
+    tf.config.run_functions_eagerly(request.param)
     yield
     tf.config.run_functions_eagerly(bool(prev))
 
@@ -108,6 +109,7 @@ def _solve(A, B: tf.Tensor, npt: int, maxiter: int, toll: float, toll_rel: float
     A_st    = A.to_sparse_tensor()
     solver  = ConjGrad({'maxiter': maxiter, 'toll': toll, 'toll_rel': toll_rel,
                         'verbose': False, 'use_graph_loop': use_graph_loop})
+    assert solver.use_graph_loop() == use_graph_loop
     solver.set_matrix(A)
     precond = JacobiPrecond()
     precond.build_preconditioner(A_st.indices.numpy()[:, 0],
@@ -129,8 +131,9 @@ def system_matrix(data_dir):
     return({'A': A, 'npt': npt})
 
 
+@pytest.mark.parametrize('use_graph_loop', [False, True], ids=['per_iteration', 'graph_loop'])
 @pytest.mark.parametrize('gold', ['ones', 'random'])
-def test_cg_recovers_gold_solution(system_matrix, gold):
+def test_cg_recovers_gold_solution(system_matrix, gold, use_graph_loop):
     """CG must recover a prescribed gold-truth solution x* from b = A x*."""
     A       = system_matrix['A']
     npt     = system_matrix['npt']
@@ -151,7 +154,7 @@ def test_cg_recovers_gold_solution(system_matrix, gold):
     # norm, so target a small residual relative to ||b|| by scaling the
     # tolerance from the outside.
     toll = 1.0e-6 * b_norm
-    X, niters = _solve(A, B, npt, maxiter=maxiter, toll=toll)
+    X, niters = _solve(A, B, npt, maxiter=maxiter, toll=toll, use_graph_loop=use_graph_loop)
 
     # relative residual ||A x - b|| / ||b|| and relative solution error
     AX      = tf.raw_ops.SparseMatrixMatMul(a=A._matrix, b=X)
@@ -170,7 +173,7 @@ def test_cg_recovers_gold_solution(system_matrix, gold):
     assert rel_res < 1.0e-2, 'residual too large: rel_res={0:.3e}'.format(rel_res)
 
 
-@pytest.mark.parametrize('use_graph_loop', [False, True], ids=['eager', 'graph'])
+@pytest.mark.parametrize('use_graph_loop', [False, True], ids=['per_iteration', 'graph_loop'])
 def test_cg_zero_system_stays_exact(system_matrix, use_graph_loop):
     """A zero right-hand side from a zero guess is already solved. The residual,
     the search direction and r.z are all exactly 0 on entry, so an unguarded
@@ -186,8 +189,9 @@ def test_cg_zero_system_stays_exact(system_matrix, use_graph_loop):
     assert niters < 100
 
 
+@pytest.mark.parametrize('use_graph_loop', [False, True], ids=['per_iteration', 'graph_loop'])
 @pytest.mark.parametrize('gold', ['ones', 'random'])
-def test_cg_relative_tolerance(system_matrix, gold):
+def test_cg_relative_tolerance(system_matrix, gold, use_graph_loop):
     """CG driven by its internal relative tolerance (toll=0, toll_rel=1e-6)
     must recover the gold-truth solution as tightly as the externally-scaled
     absolute run in test_cg_recovers_gold_solution."""
@@ -209,7 +213,8 @@ def test_cg_relative_tolerance(system_matrix, gold):
     # toll=0 disables the absolute test, so the solver must stop on its own
     # relative test ||z|| < toll_rel * ||M^-1 b|| -- the scaling that
     # test_cg_recovers_gold_solution applies from the outside.
-    X, niters = _solve(A, B, npt, maxiter=maxiter, toll=0.0, toll_rel=1.0e-6)
+    X, niters = _solve(A, B, npt, maxiter=maxiter, toll=0.0, toll_rel=1.0e-6,
+                       use_graph_loop=use_graph_loop)
 
     # relative residual ||A x - b|| / ||b|| and relative solution error
     AX      = tf.raw_ops.SparseMatrixMatMul(a=A._matrix, b=X)
@@ -221,3 +226,12 @@ def test_cg_relative_tolerance(system_matrix, gold):
     assert niters < maxiter, 'CG hit maxiter ({0}) without converging'.format(maxiter)
     assert rel_err < 1.0e-3, 'gold-truth solution not recovered: rel_err={0:.3e}'.format(rel_err)
     assert rel_res < 1.0e-2, 'residual too large: rel_res={0:.3e}'.format(rel_res)
+
+
+def test_cg_defaults_to_the_eager_path():
+    """The per-iteration eager path is the default (faster on meshes of 1M nodes
+    and more); the graph loop is switched on explicitly for small meshes."""
+    solver = ConjGrad()
+    assert solver.use_graph_loop() is False
+    solver.set_use_graph_loop(True)
+    assert solver.use_graph_loop() is True

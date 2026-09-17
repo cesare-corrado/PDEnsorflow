@@ -51,6 +51,7 @@ from gpuSolve.ionic.ms2v import MitchellSchaeffer2v
 from gpuSolve.ionic.fenton4v import Fenton4v
 from gpuSolve.ionic.courtemanche_ramirez_nattel import CourtemancheRamirezNattel
 from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
+from gpuSolve.ionic.tomek import Tomek
 
 
 # S/m and micrometres to um^2/ms, once beta (um^-1) has divided it out.
@@ -80,6 +81,7 @@ IONIC_MODELS = {'mMS': ModifiedMS2v,
                 'MitchellSchaeffer': None,
                 'Courtemanche': CourtemancheRamirezNattel,
                 'tenTusscherPanfilov': TenTusscherPanfilov,
+                'Tomek': Tomek,
                 'Fenton': Fenton4v}
 
 # Cell-parameter names that differ between the two vocabularies. Everything

@@ -31,7 +31,8 @@ class JacobiPrecond(AbstractPrecond):
         V[diag_idx, 0] = 1.0 / V0[diag_mask]
         self._V = tf.constant(V, name="Vprecond", dtype=tf.float32)
 
-    @tf.function
+    # Not a tf.function: a single multiply, which the graph CG loop inlines
+    # and the per-iteration path runs faster eagerly than through a call.
     def solve_precond_system(self, residual : tf.constant) -> tf.constant:
         """solve_precond_system(residual) computes the preconditioned residual 
         solving z = M^-1 r.

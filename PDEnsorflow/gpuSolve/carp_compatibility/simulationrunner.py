@@ -14,7 +14,6 @@ import os
 import time
 
 import numpy as np
-import tensorflow as tf
 
 from gpuSolve.physics import HeatSolver
 from gpuSolve.physics import MonodomainSolver
@@ -87,12 +86,10 @@ class SimulationRunner:
             assembles the matrices and opens the output file
         """
         try:
-            # ConjGrad carries the residual and the search direction in Python
-            # attributes from one call of its kernels to the next, so those
-            # kernels must not be traced into a graph that outlives the call.
-            # Every example script enables eager execution before building a
-            # solver for the same reason.
-            tf.config.run_functions_eagerly(True)
+            # The kernels run as traced functions and the cell model's step is
+            # compiled with XLA, so eager execution is deliberately not forced
+            # here: forcing it runs every kernel operation by operation, and
+            # made a step of the Tomek model 27 times slower on 63001 nodes.
             self.__build_solver()
             self.__assign_materials()
             self.__assign_cell_parameters()

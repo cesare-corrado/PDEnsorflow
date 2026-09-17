@@ -22,4 +22,5 @@ This package implements the ionic models for cardiac simulations. All the models
 * `Fenton4v`: The Cherry-Ehrlich-Nattel-Fenton (4v) canine left-atrial model (Heart Rhythm. 2007 Dec;4(12):1553-62)
 * `ModifiedMS2v`: The modified Mitchell-Shaeffer (2v) human left-atrial model (Math Biosci. 2016 Nov 281:46-54)
 * `MitchellSchaeffer2v`: The Mitchell-Shaeffer (2v) human left-atrial model (Bull Math Bi 2003 Sep 65(5):767-93)
+* `Tomek`: The ToR-ORd human ventricular model (eLife 2019;8:e48890). Cell type (`celltype` 0 ENDO, 1 EPI, 2 MCELL) and the base conductances `GNa`, `GNaL_b`, `PCa_b`, `Gto_b`, `GKr_b`, `GKs_b`, `GK1_b` may differ by region; the drug-block factors `CoefGNa`, `CoefGNaL`, `CoefCaL`, `CoefK1`, `CoefKr`, `CoefKs`, `Coefto` multiply the conductances. The extracellular concentrations `Ko`, `Nao`, `Cao` are tunable, one value for the whole tissue. Integrated in float64, gates with Rush-Larsen by default (`set_use_rush_larsen(False)` gives the forward Euler of the reference); `differentiate()` is compiled with XLA; `Cai` is held in mM. Selected in a parameter file with `imp_region[].im = Tomek`
 
