@@ -25,9 +25,10 @@ and removes every artefact in `tearDown()`.
 Assembles `A = M + K` on the coarse square mesh, prescribes a solution
 (all ones, and a fixed random vector), and checks that the Jacobi-preconditioned
 CG recovers it, once through the absolute tolerance and once through the
-relative one (`toll = 0`, `toll_rel = 1e-6`). Also covers the **zero system**: a
-zero right-hand side from a zero guess must leave X exactly 0 on both the eager
-and the graph path. That system has a residual of exactly 0, and an unguarded
+relative one (`toll = 0`, `toll_rel = 1e-6`), on both the eager per-iteration path
+(the default) and the GPU-resident graph loop, and with traced as well as eager
+execution. Also covers the **zero system**: a zero right-hand side from a zero
+guess must leave X exactly 0 on both paths. That system has a residual of exactly 0, and an unguarded
 step length `r.z / p.Ap` would be 0/0 and write NaN, which is what a
 pure-diffusion run meets on its first step.
 
@@ -43,6 +44,26 @@ dimensionless family (`MitchellSchaeffer2v`, `ModifiedMS2v`, `Fenton4v`):
   Guards the defect where a cached span mapped +40 mV to 1.25.
 * **per-node range** &mdash; `vmin`/`vmax` may be `(npt, 1)` columns, as pushed
   by `assign_nodal_properties()`, and the span broadcasts.
+
+### `test_tomek.py` &mdash; the ToR-ORd cell model (`gpuSolve.ionic.tomek.Tomek`)
+What is specific to this model beyond the generic contract of `test_ionic.py`:
+
+* **parameters** &mdash; `celltype` accepts 0 (ENDO), 1 (EPI) and 2 (MCELL) only,
+  because a cell-type name is read as ENDO by the reference single-cell tool;
+  a constant folded into the lookup tables (e.g. `KNa3`) cannot be set; the
+  extracellular `Ko`, `Nao`, `Cao` take one value for the tissue (10 mM `Ko`
+  depolarises a resting node; `Nao` set after initialisation rebuilds the table).
+* **per-node composition** &mdash; an effective conductance is
+  `Coef x cell-type factor x base` (`CoefCaL` acts on `PCa`); an ENDO/EPI/MCELL
+  column follows, node by node, the uniform model of each type; one forward
+  Euler step of `iF` on an EPI node uses the time constant scaled by
+  `delta_epi(V)`, checked against the model equations.
+* **physics hooks** &mdash; `GNa = 0` on a node removes its upstroke (both
+  integration schemes), as a scar region needs.
+* **units and singularities** &mdash; `Cai` is held in mM; the GHK terms are
+  finite at exactly 0 mV.
+* **front end** &mdash; `imp_region[].im = Tomek` selects the class, and
+  `im_param = "celltype=1,GNa=0"` maps per region.
 
 ### `test_optionreader.py` &mdash; the `.par` lexer and the command line
 Pure text handling, no mesh and no TensorFlow, so it runs in hundredths of a
@@ -93,7 +114,9 @@ not in the file, so the first step after the restart starts CG from a different
 guess.
 
 Also covers: every tf.Variable that `differentiate()` changes is declared by
-`state_variable_names()`, for all five cell models; a ten Tusscher-Panfilov state
+`state_variable_names()`, for all six cell models; a cell model compiled before
+`finalize_for_run()` renumbers its state advances the renumbered variables, and
+matches a run compiled afterwards; a ten Tusscher-Panfilov state
 on a scrambled mesh survives the renumbering for every variable; a pure-diffusion
 run saves and resumes; the file round-trips and a damaged one is refused; a
 checkpoint from another cell model or mesh, one saved after `tend`, or a missing

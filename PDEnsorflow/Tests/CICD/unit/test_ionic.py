@@ -8,7 +8,7 @@
       * dimensionless -- transmembrane potential rescaled to [vmin, vmax] = [-80, 20]
         (MitchellSchaeffer2v, ModifiedMS2v, Fenton4v); rest is u = 0 -> V = vmin.
       * dimensional (physiological mV) with a resting potential V_init
-        (CourtemancheRamirezNattel, TenTusscherPanfilov).
+        (CourtemancheRamirezNattel, TenTusscherPanfilov, Tomek).
 
     Checks over all models: differentiate() returns a finite dU of U's shape, is
     deterministic from a fresh state, and the resting state is quasi-stable (it
@@ -32,9 +32,10 @@ from gpuSolve.ionic.mms2v import ModifiedMS2v
 from gpuSolve.ionic.fenton4v import Fenton4v
 from gpuSolve.ionic.courtemanche_ramirez_nattel import CourtemancheRamirezNattel
 from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
+from gpuSolve.ionic.tomek import Tomek
 
 DIMENSIONLESS = [MitchellSchaeffer2v, ModifiedMS2v, Fenton4v]
-PHYSIOLOGICAL = [CourtemancheRamirezNattel, TenTusscherPanfilov]
+PHYSIOLOGICAL = [CourtemancheRamirezNattel, TenTusscherPanfilov, Tomek]
 ALL_MODELS    = DIMENSIONLESS + PHYSIOLOGICAL
 
 _DT        = 0.01                                # small step for the resting gate update

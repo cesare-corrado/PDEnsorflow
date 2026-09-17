@@ -33,8 +33,8 @@
     regression uses (0.5 mm^2/ms). u_crit and tau_in are left at the cell
     model's own defaults, so a parameter file and a script agree.
 
-    Requires eager execution (ConjGrad stores r/p between traced calls; see the
-    module fixture). Marked nightly + gpu.
+    Runs the traced solver kernels and the XLA-compiled cell model, as the
+    front end does (see the module fixture). Marked nightly + gpu.
 
     Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
@@ -71,12 +71,12 @@ _ELEMENT_CODES = {'Edges': 'Ln', 'Trias': 'Tr', 'Quads': 'Qd',
 
 
 @pytest.fixture(scope='module', autouse=True)
-def _eager_mode():
-    """ConjGrad stores r/p between traced calls, so it must run eagerly. The
-    front end sets this itself while building; the fixture restores whatever
-    state another module left behind."""
+def _graph_mode():
+    """Run with traced kernels and the XLA-compiled cell model, as the solver
+    and the front end do. Set in fixture *setup* (not at import time) so it
+    holds whatever eager state another module left behind, then restore it."""
     prev = tf.config.functions_run_eagerly()
-    tf.config.run_functions_eagerly(True)
+    tf.config.run_functions_eagerly(False)
     yield
     tf.config.run_functions_eagerly(bool(prev))
 
@@ -157,7 +157,7 @@ def _local_activation_times(V: np.ndarray, times: np.ndarray, vth: float) -> np.
 
 
 @pytest.fixture(scope='module')
-def sheet_run(_eager_mode, data_dir, tmp_path_factory) -> dict:
+def sheet_run(_graph_mode, data_dir, tmp_path_factory) -> dict:
     """Drive the front end ONCE through a parameter file and return the fields
     plus the measured and analytic conduction velocities."""
     folder   = str(tmp_path_factory.mktemp('carp_nightly'))

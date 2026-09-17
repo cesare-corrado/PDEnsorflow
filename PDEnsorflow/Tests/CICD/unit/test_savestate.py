@@ -41,9 +41,11 @@ from gpuSolve.ionic.mms2v import ModifiedMS2v
 from gpuSolve.ionic.fenton4v import Fenton4v
 from gpuSolve.ionic.courtemanche_ramirez_nattel import CourtemancheRamirezNattel
 from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
+from gpuSolve.ionic.tomek import Tomek
+from gpuSolve.physics import MonodomainSolver
 
 ALL_MODELS = [MitchellSchaeffer2v, ModifiedMS2v, Fenton4v,
-              CourtemancheRamirezNattel, TenTusscherPanfilov]
+              CourtemancheRamirezNattel, TenTusscherPanfilov, Tomek]
 
 _NELEM  = 50
 _DX     = 100.0                                   # micrometres
@@ -326,6 +328,63 @@ def test_a_restored_state_survives_renumbering_for_every_variable(tmp_path, monk
     for name, values in written['state_variables'].items():
         np.testing.assert_allclose(back['state_variables'][name], values, rtol=1.0e-6)
         np.testing.assert_allclose(solver_order[name], values[perm], rtol=1.0e-6)
+
+
+def _renumbered_cable_run(mesh: str, compile_first: bool, nsteps: int) -> tuple:
+    """Run the mMS cable with renumbering for nsteps; with compile_first the
+    cell model's compiled step is traced before finalize_for_run() renumbers
+    the state. Returns (potential, state variables), both in solver order."""
+    ionic = ModifiedMS2v(dt=0.05)
+    model = MonodomainSolver(ionic, {'mesh_file_name': mesh, 'use_renumbering': True,
+                                     'dt': 0.05, 'dt_per_plot': 1, 'Tend': nsteps * 0.05})
+    model.add_element_material_property('sigma_l', 'region', {1: 0.1})
+    model.add_element_material_property('sigma_t', 'region', {1: 0.1})
+    model.add_material_function('mass', lambda elemtype, iElem, domain, matprop: None)
+    model.add_material_function('stiffness', lambda elemtype, iElem, domain, matprop: 0.1 * np.eye(3))
+    model.assemble_matrices()
+    x = model.domain().Pts()[:, 0]
+    model.set_initial_condition(np.where(x < 0.5, 20.0, -80.0).astype(np.float32))
+    if compile_first:
+        initial = ionic.get_state_variables()
+        ionic.differentiate(tf.Variable(model.U().numpy()))
+        ionic.set_state_variables(initial)
+    model.finalize_for_run()
+    ctime = 0.0
+    for _i in range(nsteps):
+        ctime += 0.05
+        model.step(ctime)
+    return(model.U().numpy().ravel(), ionic.get_state_variables())
+
+
+def test_a_model_compiled_before_renumbering_advances_the_renumbered_state(tmp_path):
+    """finalize_for_run() renumbers the state variables by writing into the
+    existing tf.Variables. A compiled step keeps the variable objects it was
+    traced with, so replacing them instead would leave a model compiled before
+    the renumbering updating the old, unrenumbered copies while the solver reads
+    the new ones. The run must match the one compiled after the renumbering."""
+    npt   = 41
+    order = np.random.default_rng(3).permutation(npt)
+    Pts   = np.zeros(shape=(npt, 3), dtype=np.float64)
+    Pts[order, 0] = np.linspace(0.0, 4.0, npt)               # scrambled node numbers, mm
+    Edges = np.zeros(shape=(npt - 1, 3), dtype=np.int32)
+    Edges[:, 0] = order[:-1]
+    Edges[:, 1] = order[1:]
+    Edges[:, 2] = 1
+    mesh = str(tmp_path / 'cable.pkl')
+    with open(mesh, 'wb') as fout:
+        pickle.dump({'Pts': Pts, 'Elems': {'Edges': Edges}, 'Fibres': None}, fout)
+
+    previous = tf.config.functions_run_eagerly()
+    tf.config.run_functions_eagerly(False)
+    try:
+        U_after, states_after   = _renumbered_cable_run(mesh, compile_first=False, nsteps=40)
+        U_before, states_before = _renumbered_cable_run(mesh, compile_first=True, nsteps=40)
+    finally:
+        tf.config.run_functions_eagerly(previous)
+
+    np.testing.assert_allclose(U_before, U_after, rtol=0.0, atol=1.0e-4)
+    for name, values in states_after.items():
+        np.testing.assert_allclose(states_before[name], values, rtol=0.0, atol=1.0e-6, err_msg=name)
 
 
 def test_a_pure_diffusion_run_saves_and_resumes(tmp_path):
