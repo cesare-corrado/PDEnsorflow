@@ -31,7 +31,7 @@
         (~4.2% at these parameters; the margin absorbs the linear-FEM /
         forward-Euler discretisation bias).
 
-    Requires eager execution (ConjGrad stores r/p between traced calls; see the
+    Runs the traced solver kernels and the XLA-compiled cell model (see the
     module fixture). Marked nightly + gpu: intended for the scheduled self-hosted
     GPU runner, where it also runs the whole Tier-1 unit suite (un-skipping the
     device-gated csr_axpby native-path cases).
@@ -65,12 +65,12 @@ _CV_TOL = 0.10                                    # relative tolerance on conduc
 
 
 @pytest.fixture(scope='module', autouse=True)
-def _eager_mode():
-    """ConjGrad stores r/p between traced calls, so it must run eagerly. Set the
-    flag in fixture *setup* (not at import time) so it holds regardless of the
-    eager state another test module may have left behind, then restore it."""
+def _graph_mode():
+    """Run with traced kernels and the XLA-compiled cell model, as the solver
+    and the front end do. Set in fixture *setup* (not at import time) so it
+    holds whatever eager state another module left behind, then restore it."""
     prev = tf.config.functions_run_eagerly()
-    tf.config.run_functions_eagerly(True)
+    tf.config.run_functions_eagerly(False)
     yield
     tf.config.run_functions_eagerly(bool(prev))
 
@@ -100,10 +100,10 @@ def _local_activation_times(Vrec: np.ndarray, times: np.ndarray, vth: float) -> 
 
 
 @pytest.fixture(scope='module')
-def mms2d_run(_eager_mode, data_dir):
+def mms2d_run(_graph_mode, data_dir):
     """Run the 2D mMS sheet ONCE and return the recorded fields plus the measured
     and analytic conduction velocities, shared by the tests below. Depends on
-    _eager_mode so eager execution is guaranteed active before the solve."""
+    _graph_mode so the production execution path is active before the solve."""
     mesh = os.path.join(data_dir, _MESH_FILE)
 
     ionic = ModifiedMS2v(dt=_DT)

@@ -28,7 +28,6 @@ import numpy as np
 import time
 from gpuSolve.IO.writers import IGBWriter
 import tensorflow as tf
-tf.config.run_functions_eagerly(True)
 if(tf.config.list_physical_devices('GPU')):
       print('GPU device' )
 else:

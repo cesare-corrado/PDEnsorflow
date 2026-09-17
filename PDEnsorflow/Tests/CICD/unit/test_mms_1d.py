@@ -24,7 +24,8 @@
         (~3.6% at these parameters; the margin absorbs the linear-FEM /
         forward-Euler discretisation bias).
 
-    CPU-only; ConjGrad requires eager execution (see the module fixture).
+    CPU-only; runs the traced solver kernels and the XLA-compiled cell model
+    (see the module fixture).
 
     Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
@@ -54,12 +55,12 @@ _CV_TOL = 0.10                                    # relative tolerance on conduc
 
 
 @pytest.fixture(scope='module', autouse=True)
-def _eager_mode():
-    """ConjGrad stores r/p between traced calls, so it must run eagerly. Set the
-    flag in fixture *setup* (not at import time) so it holds regardless of the
-    eager state another test module may have left behind, then restore it."""
+def _graph_mode():
+    """Run with traced kernels and the XLA-compiled cell model, as the solver
+    and the front end do. Set in fixture *setup* (not at import time) so it
+    holds whatever eager state another module left behind, then restore it."""
     prev = tf.config.functions_run_eagerly()
-    tf.config.run_functions_eagerly(True)
+    tf.config.run_functions_eagerly(False)
     yield
     tf.config.run_functions_eagerly(bool(prev))
 
@@ -102,10 +103,10 @@ def _local_activation_times(Vrec: np.ndarray, times: np.ndarray, vth: float) -> 
 
 
 @pytest.fixture(scope='module')
-def mms_run(_eager_mode, tmp_path_factory):
+def mms_run(_graph_mode, tmp_path_factory):
     """Run the 1D mMS cable ONCE and return the recorded fields plus the measured
     and analytic conduction velocities, shared by the tests below. Depends on
-    _eager_mode so eager execution is guaranteed active before the solve."""
+    _graph_mode so the production execution path is active before the solve."""
     mesh = str(tmp_path_factory.mktemp('mms') / 'cable.pkl')
     _write_1d_mesh(mesh, _NELEM, _LENGTH)
 

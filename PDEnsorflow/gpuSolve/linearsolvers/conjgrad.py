@@ -41,11 +41,18 @@ class ConjGrad:
         # convergence happens in <10 iterations) break out before the
         # algorithm runs into denormals (rzold -> 0, alpha = 0/0 -> NaN).
         self._check_every : int = 5
-        # opt-in GPU-resident path (single @tf.function +
-        # tf.while_loop, see _solve_graph). Correct, but empirically slower
-        # on this system (no XLA: ptxas 10.1 < 11.1). Default stays on the
-        # eager+batched-sync path which is measurably faster here. Flip to
-        # True on hardware where XLA is available and can fuse the body.
+        # GPU-resident path (single @tf.function + tf.while_loop, see
+        # _solve_graph), off by default; switch it on with set_use_graph_loop
+        # for small meshes. Which path is faster depends on the mesh size
+        # (TensorFlow 2.21, RTX A2000, ms per CG iteration, eager / graph loop):
+        # 0.87 / 0.65 on 63001 nodes, 0.92 / 1.41 on 1002001, 1.70 / 2.33 on
+        # 2002225. On small meshes the per-operation launch cost dominates and
+        # one graph launch saves it (a monodomain step on 63001 nodes: 18.4 ms
+        # against 51.7 ms); on production-size meshes the eager path is faster.
+        # It also loses when CG converges within the first _check_every
+        # iterations, where one graph launch per step costs more than it saves.
+        # Both paths test convergence every _check_every iterations, so they
+        # stop at the same iteration.
         self._use_graph_loop : bool = False
 
         if config is not None:
@@ -157,6 +164,19 @@ class ConjGrad:
         """
         return(self._toll_rel)
 
+    def set_use_graph_loop(self, use_graph_loop: bool):
+        """
+        set_use_graph_loop(use_graph_loop) runs the whole CG loop as one graph
+        on the GPU (True) instead of the eager per-iteration path (False,
+        default). Faster on small meshes (about 63k nodes), slower on meshes of
+        1M nodes and more.
+        """
+        self._use_graph_loop = use_graph_loop
+
+    def use_graph_loop(self) -> bool:
+        """ use_graph_loop() returns True if the CG loop runs as one graph """
+        return(self._use_graph_loop)
+
     def matrix(self) ->  tf.sparse.SparseTensor :
         """
         matrix() returns the sparse matrix that defines the linear system
@@ -191,9 +211,16 @@ class ConjGrad:
             tf.print('WARNING: max nb of iteration reached (residual: {:4.3f})'.format(self._residual))
 
 
-    @tf.function
-    def _iterate(self,rzold:tf.constant) -> tf.constant:
-        Ap             = self._spmv(self._p)
+    # _iterate and _initialize serve the per-iteration path (use_graph_loop
+    # False). They are plain eager functions, not tf.functions: the cost of
+    # calling a traced function at every CG iteration exceeds what tracing
+    # saves on a handful of vector operations (51.0 ms against 81.4 ms per
+    # monodomain step on 63001 nodes). They return the vectors they update and
+    # the caller stores them, so they behave the same whether or not
+    # tf.config.run_functions_eagerly is set.
+    def _iterate(self, rzold: tf.Tensor, r: tf.Tensor, p: tf.Tensor) -> tuple:
+        """ one CG iteration from (rzold, r, p); returns (rznew, r, p, residual) """
+        Ap             = self._spmv(p)
         # alpha and beta are safe divisions. An exactly zero residual (a zero
         # initial guess with a zero right-hand side, as in a pure-diffusion run
         # before any stimulus) makes r, p and rzold all 0, and the plain
@@ -203,50 +230,50 @@ class ConjGrad:
         # the first iteration. divide_no_nan returns exactly x/y for any
         # non-zero y, so every non-degenerate solve is bit-identical, and 0 for
         # y = 0, which leaves X at its exact value.
-        alpha          = tf.math.divide_no_nan(rzold, tf.reduce_sum(tf.multiply(self._p, Ap)))
-        self._X.assign_add(alpha *self._p)
-        self._r      -= alpha * Ap
+        alpha          = tf.math.divide_no_nan(rzold, tf.reduce_sum(tf.multiply(p, Ap)))
+        self._X.assign_add(alpha * p)
+        r              = r - alpha * Ap
         if self._Precond:
             # the tested quantity is the *preconditioned* residual
             # ||z||^2 = ||M^-1 r||^2, not the raw ||r||^2, so the stopping
             # test measures the error the preconditioned system actually
             # sees. z is needed anyway for the search direction, so this only
             # adds one reduction and no extra preconditioner solve.
-            z        = self._Precond.solve_precond_system(self._r)
-            rznew    = tf.reduce_sum(tf.multiply(self._r, z))
-            self._residual = tf.reduce_sum(tf.multiply(z, z))
+            z        = self._Precond.solve_precond_system(r)
+            rznew    = tf.reduce_sum(tf.multiply(r, z))
+            residual = tf.reduce_sum(tf.multiply(z, z))
             beta     = tf.math.divide_no_nan(rznew, rzold)
-            self._p = z + beta * self._p
+            p        = z + beta * p
         else:
             # no preconditioner: the tested residual falls back to the raw
             # ||r||^2, which is the identity-preconditioner case of the above.
-            self._residual = tf.reduce_sum(tf.multiply(self._r, self._r))
-            rznew    = self._residual
+            residual = tf.reduce_sum(tf.multiply(r, r))
+            rznew    = residual
             beta     = tf.math.divide_no_nan(rznew, rzold)
-            self._p = self._r + beta * self._p
-        return(rznew)
+            p        = r + beta * p
+        return(rznew, r, p, residual)
 
 
-    @tf.function
-    def _initialize(self) -> tf.constant:
+    def _initialize(self) -> tuple:
+        """ starts CG from X; returns (rzold, r, p, residual, b_norm) """
         AX             = self._spmv(self._X)
-        self._r       = tf.subtract(self._RHS, AX)
+        r              = tf.subtract(self._RHS, AX)
         if self._Precond:
-            z         = self._Precond.solve_precond_system(self._r)
-            self._p  = z
-            rzold     = tf.reduce_sum(tf.multiply(self._r, z))
-            self._residual = tf.reduce_sum(tf.multiply(z, z))
+            z         = self._Precond.solve_precond_system(r)
+            p         = z
+            rzold     = tf.reduce_sum(tf.multiply(r, z))
+            residual  = tf.reduce_sum(tf.multiply(z, z))
             # reference norm for the relative test: ||M^-1 b||, computed
             # once per solve before the loop, since b does not change during
             # it (one extra preconditioner solve per solve() call).
-            zb            = self._Precond.solve_precond_system(self._RHS)
-            self._b_norm  = tf.sqrt(tf.reduce_sum(tf.multiply(zb, zb)))
+            zb        = self._Precond.solve_precond_system(self._RHS)
+            b_norm    = tf.sqrt(tf.reduce_sum(tf.multiply(zb, zb)))
         else:
-            self._p = self._r
-            self._residual = tf.reduce_sum(tf.multiply(self._r, self._r))
-            rzold    = self._residual
-            self._b_norm  = tf.sqrt(tf.reduce_sum(tf.multiply(self._RHS, self._RHS)))
-        return(rzold)
+            p         = r
+            residual  = tf.reduce_sum(tf.multiply(r, r))
+            rzold     = residual
+            b_norm    = tf.sqrt(tf.reduce_sum(tf.multiply(self._RHS, self._RHS)))
+        return(rzold, r, p, residual, b_norm)
 
     # fused GPU-resident CG.
     # The original solve() ran a Python for-loop that called _iterate() and
@@ -293,22 +320,34 @@ class ConjGrad:
                     tf.logical_and(zsq > toll_sq, zsq > rel_sq),
                     tf.math.is_finite(zsq)))
 
+        # The loop condition is a GPU value that the host must read before
+        # every pass, and while it waits the GPU has nothing queued. One pass
+        # therefore runs check_every iterations, unrolled when the function is
+        # traced, so the host reads the residual as often as the per-iteration
+        # path does. With a pass per iteration, a CG iteration on 1002001
+        # nodes cost 1.49 ms against 1.10 ms on the per-iteration path.
+        # Iterations after convergence inside a pass are harmless: the step
+        # lengths are safe divisions, as in _iterate.
+        check_every = self._check_every if self._check_every > 0 else 1
+
         def body(i, X, r, p, rzold, zsq):
-            Ap      = self._spmv(p)
-            alpha   = rzold / tf.reduce_sum(tf.multiply(p, Ap))
-            X       = X + alpha * p
-            r       = r - alpha * Ap
-            if self._Precond is not None:
-                z       = self._Precond.solve_precond_system(r)
-                rznew   = tf.reduce_sum(tf.multiply(r, z))
-                zsq_new = tf.reduce_sum(tf.multiply(z, z))
-            else:
-                z       = r
-                rznew   = tf.reduce_sum(tf.multiply(r, r))
-                zsq_new = rznew
-            beta = rznew / rzold
-            p    = z + beta * p
-            return i + 1, X, r, p, rznew, zsq_new
+            for _k in range(check_every):
+                Ap      = self._spmv(p)
+                alpha   = tf.math.divide_no_nan(rzold, tf.reduce_sum(tf.multiply(p, Ap)))
+                X       = X + alpha * p
+                r       = r - alpha * Ap
+                if self._Precond is not None:
+                    z   = self._Precond.solve_precond_system(r)
+                    rznew = tf.reduce_sum(tf.multiply(r, z))
+                    zsq   = tf.reduce_sum(tf.multiply(z, z))
+                else:
+                    z     = r
+                    rznew = tf.reduce_sum(tf.multiply(r, r))
+                    zsq   = rznew
+                beta  = tf.math.divide_no_nan(rznew, rzold)
+                p     = z + beta * p
+                rzold = rznew
+            return i + check_every, X, r, p, rzold, zsq
 
         i0 = tf.constant(0, dtype=tf.int32)
         i, Xf, _rf, _pf, _rzf, zsqf = tf.while_loop(
@@ -327,16 +366,14 @@ class ConjGrad:
                 t0 = time()
             # two implementations are kept:
             #   * use_graph_loop=True -> dispatch one @tf.function containing
-            #     a tf.while_loop (see _solve_graph). Fully GPU-resident; no
-            #     device->host sync during the loop. This is the right path
-            #     on hardware where XLA can fuse the body, but on systems
-            #     without XLA (e.g. ptxas < 11.1) the tf.while_loop overhead
-            #     exceeds the saved per-iteration sync cost.
+            #     a tf.while_loop (see _solve_graph), GPU-resident. It cannot
+            #     be compiled with XLA (the CSR SpMV has no XLA kernel). It
+            #     pays off on small meshes; see the timings in __init__.
             #   * use_graph_loop=False (default) -> Python for-loop calling
-            #     a cached @tf.function (_iterate). The convergence check
-            #     reads ||r||^2 back to the host every _check_every iters,
-            #     so 4/5 of the per-iteration stalls are avoided while the
-            #     CPU still keeps the GPU queue full between graph launches.
+            #     the eager kernels _initialize / _iterate. The convergence
+            #     check reads ||z||^2 back to the host every _check_every
+            #     iters, so 4/5 of the per-iteration stalls are avoided while
+            #     the CPU keeps the GPU queue full.
             if self._use_graph_loop:
                 toll_sq     = tf.constant(self._toll * self._toll, dtype=self._X.dtype)
                 toll_rel_sq = tf.constant(self._toll_rel * self._toll_rel, dtype=self._X.dtype)
@@ -349,7 +386,7 @@ class ConjGrad:
                 self._residual = float(zsq.numpy())
             else:
                 self._niters   = 0
-                rzold = self._initialize()
+                rzold, self._r, self._p, self._residual, self._b_norm = self._initialize()
                 if self._verbose:
                     tf.print('initial residual: {:4.3f}'.format(self._residual))
                 check_every = self._check_every if self._check_every > 0 else 1
@@ -366,7 +403,7 @@ class ConjGrad:
                 else:
                     rel_sq  = 0.0
                 for self._niters in range(1,1+self._maxiter):
-                    rznew = self._iterate(rzold)
+                    rznew, self._r, self._p, self._residual = self._iterate(rzold, self._r, self._p)
                     if (self._niters % check_every) == 0:
                         # Batched convergence check + NaN/Inf guard
                         # (see _check_every docstring in __init__). The

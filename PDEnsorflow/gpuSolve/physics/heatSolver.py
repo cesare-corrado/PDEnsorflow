@@ -63,6 +63,7 @@ class HeatSolver:
         self._nbstim : int                   = 0
         self._renumbering : dict             = None
         self._StimulusDict : dict            = None
+        self._I0_zero : tf.Tensor            = None
         self._nt : int                       = int(self._Tend // self._dt)
 
         if self._mesh_file_name is not None:
@@ -149,9 +150,13 @@ class HeatSolver:
         self._U_prev = U_curr
         return(X0)
 
-    @tf.function
     def solve_step(self, U: tf.Variable, I0: tf.constant) -> tf.Variable:
-        """ Implicit Euler solve for the heat equation. """
+        """ Implicit Euler solve for the heat equation.
+            Not a tf.function: it drives the CG loop, whose convergence test
+            reads the residual on the host, and keeps the warm-start history
+            in a Python attribute. Its kernels (CG iterations, preconditioner,
+            cell model) are traced functions of their own.
+        """
         X0   = self._warm_start_X0(U)
         RHS0 = tf.add(U, self._dt * I0)
         RHS  = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=RHS0)
@@ -162,12 +167,18 @@ class HeatSolver:
 
     def _compute_forcing(self, ctime: float) -> tf.constant:
         """ Aggregate active stimuli at simulation time ctime. """
-        I0 = tf.constant(np.zeros(shape=self._U.shape),
-                         name="I", dtype=tf.float32)
+        # The zero forcing is created once, on the device. Building it from a
+        # host array at every step copied n_nodes values to the GPU per step
+        # (4 MB on the 1M-node spiral mesh), and that copy waited for the queued
+        # GPU work. An inactive stimulus adds exactly zero, so it is skipped.
+        if self._I0_zero is None or self._I0_zero.shape != self._U.shape:
+            self._I0_zero = tf.zeros(shape=self._U.shape, dtype=tf.float32, name="I")
+        I0 = self._I0_zero
         if self._StimulusDict is not None:
             t_const = tf.constant(ctime, dtype=tf.float32)
             for _name, stim in self._StimulusDict.items():
-                I0 = tf.add(I0, stim.stimApp(t_const))
+                if stim.stimulate_tissue_timevalue(t_const):
+                    I0 = tf.add(I0, stim())
         return I0
 
     def step(self, t: float) -> tf.Variable:

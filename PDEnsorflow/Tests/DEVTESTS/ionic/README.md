@@ -36,3 +36,29 @@ One `.npy` file per model:
 ```
 conda run -n PDEnsorflow python ionic.py
 ```
+
+# tomek.py
+
+Single-cell pacing of the Tomek (ToR-ORd) model for ENDO, EPI and MCELL at once
+(three nodes of one model). The step follows the order of the reference
+single-cell tool, `bench`: the stimulus is added to V, the model is advanced with
+that V, then `V -= dt*Iion`. The gates use Rush-Larsen, the model default;
+`--forward_euler` selects the scheme of the reference. The 1 ms stepping loop is compiled with XLA (about
+12 s per beat on the RTX A2000 instead of about 19 minutes); `--no_xla` turns
+that off.
+
+```
+python tomek.py --dt 0.01 --beats 100 [--forward_euler] [--reference DIR]
+```
+
+For each cell type it saves `tomek_<TYPE>_<rl|fe>_dt<dt>.npy`, columns
+`[time (ms), V (mV), Cai (uM)]` of the last beat at 1 ms, and prints peak Vm,
+APD90 and the `Cai` peak. With `--reference DIR` it prints the same numbers for
+`bench` dumps in `DIR/ct0`, `DIR/ct1` and `DIR/ct2`, produced with
+
+```
+bench --imp Tomek --imp-par celltype=<0|1|2> --numstim <beats> --bcl 1000 \
+      --duration <beats*1000> --dt <dt> --dt-out 1 -v
+```
+
+(`bench` reports `Cai` in uM; the model holds it in mM.)

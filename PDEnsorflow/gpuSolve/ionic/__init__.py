@@ -8,6 +8,7 @@ Contains:
     * ms2v.py:                     the 2 variables Mitchell Schaeffer model
     * courtemanche_ramirez_nattel: the Courtemanche-Ramirez-Nattel (1998) human atrial model
     * ten_tusscher_panfilov:       the ten Tusscher-Panfilov (2006) human ventricular model
+    * tomek:                       the Tomek (ToR-ORd, 2019) human ventricular model
 """
 
 

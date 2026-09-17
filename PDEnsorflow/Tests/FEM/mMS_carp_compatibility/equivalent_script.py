@@ -32,8 +32,6 @@ from gpuSolve.IO.writers import IGBWriter
 
 
 if __name__ == '__main__':
-    # ConjGrad keeps its residual and search direction between calls
-    tf.config.run_functions_eagerly(True)
     if tf.config.list_physical_devices('GPU'):
         print('GPU device')
     else:

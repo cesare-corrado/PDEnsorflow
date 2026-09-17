@@ -47,6 +47,13 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   `beta` itself; RCM renumbering of a real mesh; and the IGB writer's chunked
   flush. Two defects of exactly that kind were found by running the real example
   rather than the unit suite. Marked `nightly` + `gpu`.
+- `test_tomek_regression.py` &mdash; one paced beat of the Tomek (ToR-ORd) model
+  for ENDO, EPI and MCELL (three nodes of one model), with Rush-Larsen (the
+  default) and with forward Euler (the reference's scheme), at `dt = 0.01` ms. Peak Vm, APD90 and the `Cai` peak are checked
+  against the reference single-cell tool (`bench --imp Tomek`, same protocol;
+  the command is in the module docstring) within 1 mV, 1 ms and 2%. The stepping
+  loop is compiled with XLA, which brings the beat from about 20 minutes to
+  about 15 seconds. Marked `nightly` + `gpu`.
 - `_gpu_check.py` &mdash; GPU sanity gate for the workflow (imports gpuSolve, then
   fails if no physical GPU is visible). Not a test; the leading underscore keeps
   pytest from collecting it. Run it as a script, never via `python -c`.
