@@ -35,6 +35,7 @@ from gpuSolve.carp_compatibility.optionreader import OptionReader
 from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
 from gpuSolve.carp_compatibility.parametermapper import expand_idset
 from gpuSolve.carp_compatibility.parametermapper import parse_im_param
+from gpuSolve.carp_compatibility.parametermapper import apply_param_mod
 from gpuSolve.force_terms import Stimulus
 from gpuSolve.ionic.mms2v import ModifiedMS2v
 from gpuSolve.ionic.ms2v import MitchellSchaeffer2v
@@ -151,7 +152,57 @@ def test_a_tag_that_is_not_in_the_mesh_is_reported_and_the_run_continues():
 def test_im_param_aliases():
     """The cell-parameter names that differ are translated; the rest pass."""
     assert parse_im_param('V_gate=0.1,a_crit=0.2,tau_in=0.3') == {
-        'u_gate': 0.1, 'u_crit': 0.2, 'tau_in': 0.3}
+        'u_gate': ('=', 0.1, False),
+        'u_crit': ('=', 0.2, False),
+        'tau_in': ('=', 0.3, False)}
+
+
+@pytest.mark.parametrize('item,expected', [
+    ('tau_in=0.3',  ('=', 0.3,  False)),
+    ('tau_in*0.3',  ('*', 0.3,  False)),
+    ('tau_in/2',    ('/', 2.0,  False)),
+    ('tau_in+0.05', ('+', 0.05, False)),
+    ('tau_in-0.05', ('-', 0.05, False)),
+    ('tau_in-10%',  ('-', 10.0, True)),
+    ('tau_in = 0.3', ('=', 0.3, False)),
+    ('tau_in=-0.3', ('=', -0.3, False)),
+])
+def test_im_param_modifier_forms(item, expected):
+    """The name is cut at the first operator, and `%` is kept as a flag."""
+    assert parse_im_param(item) == {'tau_in': expected}
+
+
+@pytest.mark.parametrize('base,item,expected', [
+    (0.5, 'tau_in=0.3',  0.3),
+    (0.5, 'tau_in*0.3',  0.15),
+    (0.5, 'tau_in/2',    0.25),
+    (0.5, 'tau_in+0.25', 0.75),
+    (0.5, 'tau_in-0.25', 0.25),
+    (0.5, 'tau_in-10%',  0.45),
+    (0.5, 'tau_in=10%',  0.05),
+])
+def test_apply_param_mod(base, item, expected):
+    """A modifier resolves against the cell model default."""
+    modifier = parse_im_param(item)['tau_in']
+    assert apply_param_mod(base, modifier) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('text', ['tau_in', 'tau_in*', 'tau_in*abc', '*0.3'])
+def test_im_param_rejects_malformed(text):
+    """A malformed item is an error, not a silently ignored default."""
+    with pytest.raises(ValueError):
+        parse_im_param(text)
+
+
+def test_im_param_modifier_scales_the_model_default():
+    """tau_in*0.5 halves the gpuSolve default of the selected model."""
+    mapper = _mapper(['-imp_region[0].im', 'mMS',
+                      '-imp_region[0].im_param', 'tau_in*0.5',
+                      '-imp_region[0].ID', '1'])
+    model   = mapper.ionic_model_class()()
+    default = float(model.get_parameter('tau_in'))
+    maps    = mapper.ionic_parameter_maps(model, {1})
+    assert maps['tau_in'][1] == pytest.approx(0.5 * default)
 
 
 @pytest.mark.parametrize('argv,expected', [
