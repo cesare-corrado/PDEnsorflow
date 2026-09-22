@@ -91,6 +91,12 @@ IM_PARAM_ALIASES = {'V_gate': 'u_gate',
                     'V_min': 'vmin',
                     'V_max': 'vmax'}
 
+# The operator characters that end a cell-parameter name in an `im_param` item.
+# `=` assigns, the other four modify the cell model default in place, which is
+# why the name is cut at the FIRST of them: `GNa*0.3` is a scaling of GNa, not a
+# parameter called "GNa*0".
+PARAM_MOD_OPERATORS : str = '=+-/*'
+
 # The registry. Each entry is (type, default, actuated). `actuated` False means
 # the key is accepted and reported but cannot change what gpuSolve computes.
 # `None` as a default marks one that is derived from other keys at resolve time.
@@ -202,20 +208,71 @@ def time_label(ctime: float) -> str:
 
 
 def parse_im_param(text: str) -> dict:
-    """ parse_im_param(text) reads a "name=value,name=value" cell-parameter list
-        and returns it keyed by the gpuSolve parameter name
+    """ parse_im_param(text) reads a "name<op>value,name<op>value" cell-parameter
+        list and returns {name: (op, value, percent)} keyed by the gpuSolve
+        parameter name. The value is NOT resolved here: `GNa*0.3` means "the
+        model default scaled by 0.3", so the modifier has to travel as far as
+        the point where the cell model, and therefore that default, is known.
+        Use apply_param_mod() there.
     """
     params : dict = {}
     for chunk in text.split(','):
-        item = chunk.strip()
+        item = chunk.strip().replace(' ', '')
         if len(item) == 0:
             continue
-        if '=' not in item:
-            raise ValueError('cannot read cell parameter "{}": expected name=value'.format(item))
-        name, value = item.split('=', 1)
-        name  = name.strip()
-        params[IM_PARAM_ALIASES.get(name, name)] = float(value.strip())
+        params.update([split_param_mod(item)])
     return(params)
+
+
+def split_param_mod(item: str) -> tuple:
+    """ split_param_mod(item) cuts a cell-parameter item at its FIRST operator
+        and returns (gpuSolve name, (op, value, percent)).
+        The name ends at the first of `= + - / *`, so `GNa*0.3` is the parameter
+        GNa scaled by 0.3, and `GNa=0.3` assigns it outright. A trailing `%`
+        makes the operand that percentage OF THE CURRENT VALUE.
+    """
+    for ipos, char in enumerate(item):
+        if char in PARAM_MOD_OPERATORS:
+            name    = item[:ipos]
+            operand = item[1 + ipos:]
+            if len(name) == 0:
+                raise ValueError('cannot read cell parameter "{}": no parameter name '
+                                 'before "{}"'.format(item, char))
+            percent = operand.endswith('%')
+            if percent:
+                operand = operand[:-1]
+            try:
+                value = float(operand)
+            except ValueError:
+                # strict on purpose: the reference simulator logs a malformed
+                # modifier and silently keeps the default, which turns a typo
+                # into a run that looks fine and is not the one that was asked
+                # for.
+                raise ValueError('cannot read cell parameter "{}": "{}" is not a '
+                                 'number'.format(item, operand))
+            return((IM_PARAM_ALIASES.get(name, name), (char, value, percent)))
+    raise ValueError('cannot read cell parameter "{}": expected name=value, or a '
+                     'modifier such as name*0.3'.format(item))
+
+
+def apply_param_mod(base: float, modifier: tuple) -> float:
+    """ apply_param_mod(base, modifier) resolves one (op, value, percent) triple
+        against the cell model default `base` and returns the parameter value.
+        A percentage operand is first turned into that fraction of `base`, so
+        `GNa-10%` is base - 0.1 base and `GNa=10%` is 0.1 base.
+    """
+    op, value, percent = modifier
+    if percent:
+        value = base * value / 100.0
+    if op == '=':
+        return(value)
+    if op == '*':
+        return(base * value)
+    if op == '/':
+        return(base / value)
+    if op == '+':
+        return(base + value)
+    return(base - value)
 
 
 class ParameterMapper:
@@ -478,8 +535,14 @@ class ParameterMapper:
         modified = False
         for index in range(self.count('imp_region')):
             params = parse_im_param(self.value('imp_region[{}].im_param'.format(index)))
-            if params.get('u_crit', 0.0) != 0.0:
-                modified = True
+            if 'u_crit' in params:
+                # no model exists yet, so a modifier has nothing to modify. It is
+                # resolved against the modified variant's own default, because
+                # the plain one has no u_crit at all: naming the parameter only
+                # makes sense against the model that owns it.
+                reference = float(ModifiedMS2v().get_parameter('u_crit'))
+                if apply_param_mod(reference, params['u_crit']) != 0.0:
+                    modified = True
         return(ModifiedMS2v if modified else MitchellSchaeffer2v)
 
     def ionic_parameter_maps(self, model, tags: set) -> dict:
@@ -505,7 +568,11 @@ class ParameterMapper:
             maps[pname] = {}
             for tag in tags:
                 index = assignment.get(tag)
-                maps[pname][tag] = per_region.get(index, {}).get(pname, fallback)
+                modifier = per_region.get(index, {}).get(pname)
+                if modifier is None:
+                    maps[pname][tag] = fallback
+                else:
+                    maps[pname][tag] = apply_param_mod(fallback, modifier)
         return(maps)
 
     def stimuli(self) -> list:

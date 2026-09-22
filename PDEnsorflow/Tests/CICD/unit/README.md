@@ -82,7 +82,9 @@ which keep the gpuSolve class default); the **unit conversion**
 the **conductivity rule**, since `bidm_eqv_mono` defaults to 1 and makes the
 monodomain conductivity the half harmonic mean of the two domains rather than
 `g_il`. Also covers which region governs which tag, cell-model selection by
-`a_crit`, the `cg_norm_parab` stopping tests, stimulus defaults derived from
+`a_crit`, the cell-parameter modifiers (`tau_in*0.3`, `tau_in-10%` and the
+other forms, resolved against the cell model default, and the malformed ones
+that must raise), the `cg_norm_parab` stopping tests, stimulus defaults derived from
 `tend`, and the errors: unknown key, counter that would drop an entry,
 non-transmembrane electrode.
 

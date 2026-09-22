@@ -86,6 +86,13 @@ Three points are worth knowing before writing a parameter file:
   one exception is a cell parameter that no `im_param` names: it keeps the
   default of the gpuSolve cell model, so that a parameter file and a
   hand-written script agree.
+* **A cell parameter can be modified instead of assigned.** An `im_param` item
+  is `name<op>value`, where `op` is one of `= + - / *`: `GNa=0.3` assigns,
+  while `GNa*0.3`, `GNa/2`, `GNa+0.3` and `GNa-0.3` act on the cell model
+  default. A trailing `%` makes the operand that percentage of the default, so
+  `GNa-10%` is `GNa - 0.1 GNa`. The base is the **gpuSolve** default of the
+  parameter, which is the same rule as for an unnamed parameter above. A
+  malformed modifier stops the run rather than silently keeping the default.
 
 `PDEnsorflow --help` lists every key that is understood, with its type and
 default, and the cell models available for `imp_region[].im`.
