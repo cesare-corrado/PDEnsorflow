@@ -20,10 +20,17 @@ name: Nightly GPU
 #         interpreter mid-pytest.
 #   * The runner's shell profile must initialise conda (this workflow uses a
 #     login shell so `conda` / `conda run` are on PATH).
-#   * On a SHARED GPU box, pin the job to an idle card via CUDA_VISIBLE_DEVICES.
-#     Set it host-side in the runner's `.env` file (e.g. CUDA_VISIBLE_DEVICES=3),
-#     NOT here -- which card is free is a property of the host, not the workflow,
-#     and hard-coding it would break on any other runner.
+#   * The env's activate.d shim must ALSO put the CUDA wheel's
+#     site-packages/nvidia/cuda_nvcc/bin on PATH. Every cell model compiles
+#     differentiate() with XLA, and XLA shells out to ptxas. TensorFlow takes the
+#     first ptxas it considers new enough, so a SYSTEM ptxas in the 12.0-12.7
+#     range is selected and then cannot target an sm_120 (Blackwell) card: the
+#     run dies with "ptxas too old". The wheel ships a newer one; PATH decides.
+#   * On a SHARED GPU box the job now picks the least-loaded card itself, see the
+#     "Pick the least-loaded GPU" step. CUDA_VISIBLE_DEVICES in the runner's
+#     `.env` still applies as a fallback if nvidia-smi cannot be read, but it is
+#     no longer the primary mechanism: a fixed index goes stale the moment
+#     somebody else starts using that card.
 #   * For the failure-reporting job below, a repo secret PUBLIC_ISSUE_TOKEN on
 #     the mirror: a fine-grained PAT scoped to the PUBLIC repo with
 #     "Issues: read and write". Because the GPU run happens on the private
@@ -64,6 +71,33 @@ jobs:
     runs-on: [self-hosted, gpu]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pick the least-loaded GPU
+        # Which card is free is a property of the HOST, so ask the host at run
+        # time rather than hard-coding an index in the workflow or letting one
+        # go stale in the runner's .env.
+        #
+        # Selected by UUID, not by index: nvidia-smi's enumeration order and
+        # CUDA's device ordinals are not guaranteed to agree, and a UUID means
+        # the same card either way. Ranked by memory used, because running out
+        # of memory is the failure mode; utilisation only costs time.
+        #
+        # This is a snapshot, not a reservation: another job can claim the card
+        # a second later. It makes a collision unlikely, not impossible.
+        #
+        # If nvidia-smi cannot be read we set nothing, so whatever the runner's
+        # .env specifies still applies and the gate below still fails loudly.
+        run: |
+          set -uo pipefail
+          picked=$(nvidia-smi --query-gpu=uuid,memory.used --format=csv,noheader,nounits \
+                   | sort -t, -k2 -n | head -1 | cut -d, -f1 | tr -d ' ') || picked=""
+          if [ -n "${picked}" ]; then
+            echo "CUDA_VISIBLE_DEVICES=${picked}" >> "$GITHUB_ENV"
+            nvidia-smi --query-gpu=index,uuid,memory.used,memory.total --format=csv,noheader \
+              | grep -- "${picked}" | sed 's/^/selected GPU /'
+          else
+            echo "nvidia-smi unreadable; leaving CUDA_VISIBLE_DEVICES to the runner's .env"
+          fi
 
       - name: GPU sanity gate (fail loudly if no GPU is visible)
         # Imports gpuSolve first, then asserts a physical GPU is present, so the

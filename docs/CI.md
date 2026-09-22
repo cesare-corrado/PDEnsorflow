@@ -75,9 +75,23 @@ To make a red Tier-1 actually *block* a merge, enable branch protection on
   `activate.d` shim that exports `LD_LIBRARY_PATH` to the `nvidia-*-cu12` lib dirs
   + `$CONDA_PREFIX/lib` **at activation time** (so `gpuSolve/__init__.py` doesn't
   re-exec the interpreter mid-pytest).
-- **Shared box → pin the GPU host-side:** set `CUDA_VISIBLE_DEVICES` in the
-  runner's `.env` (e.g. `CUDA_VISIBLE_DEVICES=3`), *not* in the workflow — which
-  card is free is a property of the host.
+- **The `activate.d` shim must also put `site-packages/nvidia/cuda_nvcc/bin` on
+  `PATH`.** Every cell model compiles `differentiate()` with XLA, and XLA shells
+  out to `ptxas`. TensorFlow takes the first `ptxas` it considers new enough, so
+  a *system* `ptxas` in the 12.0–12.7 range wins the race and then cannot target
+  an `sm_120` card: the run dies with `ptxas too old`. The CUDA wheel ships a
+  newer one (12.9), so `PATH` order is what decides. Add the removal to
+  `deactivate.d` too: conda only unwinds the prefixes it added itself, so the
+  entry otherwise survives deactivation and accumulates. Note `lib/python3.1` is
+  a symlink to `lib/python3.11`, so resolve the glob with `readlink -f` or the
+  same directory is added twice.
+- **Shared box → the workflow picks the card.** The `Pick the least-loaded GPU`
+  step queries `nvidia-smi` at run time and exports the freest card *by UUID*
+  (nvidia-smi's index order and CUDA's device ordinals are not guaranteed to
+  agree). `CUDA_VISIBLE_DEVICES` in the runner's `.env` remains a fallback for
+  when `nvidia-smi` cannot be read, but a fixed index goes stale as soon as
+  somebody else starts using that card. The pick is a snapshot, not a
+  reservation: it makes a collision unlikely, not impossible.
 
 ---
 
