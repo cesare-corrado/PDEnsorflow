@@ -106,6 +106,21 @@ default in `test_ionic.py`, `test_savestate.py` and the parameter-file tests.
   renumbering on a scrambled cable (this fails if the solver looks the state up
   with `getattr` instead of `state_variable()`).
 
+### `test_defib_ashihara_trayanova.py` &mdash; the outward current Ia (`gpuSolve.ionic.plugins.DefibAshiharaTrayanova`)
+* **two lower branches** &mdash; the default follows Cheng et al. (1999), Eq. 1,
+  to 1e-12 and is continuous (with a continuous slope for `slopeFac = 1`) at
+  `VtakeOff` = 100, 160 and 210 mV; the reference form (`set_use_reference_form(True)`)
+  matches a NumPy transcription of the reference's generated C to 1e-12, jumps
+  221-fold at `VtakeOff`, and equals the default for `VtakeOff = 100` mV.
+* **range and precision** &mdash; finite up to 1e5 mV; float64 with a float32
+  potential; per-node parameters.
+* **interface** &mdash; no state variable (the reference's `Ki` is inert), only
+  `VtakeOff` and `slopeFac` accepted; `dU` of the wrapper is the model's minus `Ia`.
+* **front end** &mdash; `Defib_AshiharaTrayanova` next to the electroporation
+  plugin, `plug_param` per region; a cable run, and a checkpoint named
+  `ModifiedMS2v+DefibAshiharaTrayanova` holding only the model's state, which
+  restores.
+
 ### `test_optionreader.py` &mdash; the `.par` lexer and the command line
 Pure text handling, no mesh and no TensorFlow, so it runs in hundredths of a
 second: comments inside and outside quotes, backslash continuations, quoted and
