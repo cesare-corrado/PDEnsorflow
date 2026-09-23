@@ -19,10 +19,11 @@
 
     Tolerances: 1 mV on the peak, 1 ms on APD90, 2% on the Cai peak. When the
     test was written, forward Euler (the reference's own scheme) matched bench
-    to 4.3e-5 mV over the whole beat, and Rush-Larsen (the default) was within
-    0.06 mV, 0 ms and 0.07%. Both schemes are run: forward Euler checks the
-    equations against the reference step for step, Rush-Larsen checks that the
-    default stays within the limits.
+    to 4.3e-5 mV over the whole beat, and the default (Rush-Larsen gates; since
+    then also the matrix exponential for the IKr Markov chain, which left these
+    three numbers unchanged) was within 0.06 mV, 0 ms and 0.07%. Both schemes
+    are run: forward Euler checks the equations against the reference step for
+    step, the default checks that it stays within the limits.
 
     The 1 ms stepping loop is compiled with XLA: the model has several hundred
     small kernels per step, and uncompiled the beat takes about 20 minutes on

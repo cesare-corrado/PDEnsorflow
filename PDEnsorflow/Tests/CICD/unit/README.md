@@ -46,7 +46,12 @@ dimensionless family (`MitchellSchaeffer2v`, `ModifiedMS2v`, `Fenton4v`):
   by `assign_nodal_properties()`, and the span broadcasts.
 
 ### `test_tomek.py` &mdash; the ToR-ORd cell model (`gpuSolve.ionic.tomek.Tomek`)
-What is specific to this model beyond the generic contract of `test_ionic.py`:
+What is specific to this model beyond the generic contract of `test_ionic.py`.
+Tests whose subject does not depend on the integration scheme use forward Euler:
+the default tables (with the IKr step matrix on 200001 grid points) take about
+2 s to build per model, the forward-Euler ones a fraction of a second. The
+default schemes are tested where they are the subject, and through Tomek's
+default in `test_ionic.py`, `test_savestate.py` and the parameter-file tests.
 
 * **parameters** &mdash; `celltype` accepts 0 (ENDO), 1 (EPI) and 2 (MCELL) only,
   because a cell-type name is read as ENDO by the reference single-cell tool;
@@ -63,6 +68,12 @@ What is specific to this model beyond the generic contract of `test_ionic.py`:
 * **units and singularities** &mdash; `Cai` is held in mM; the GHK terms, 0/0
   at 0 mV, return their exact limit (L'Hopital) at 0 and within the 1e-6 mV band
   around it, continuous with the formula 1e-3 mV away.
+* **the IKr Markov chain** &mdash; in the default mode one step moves the five
+  states by `exp(dt Q(V))`, checked against an eigen-decomposition at -80, +20
+  and +150 mV; at +860 mV (eigenvalues near -1e17 /ms) the states stay
+  nonnegative, keep their total and `O` settles monotonically near 1e-3, where
+  forward Euler jumps between the clamps. All four cases fail with the
+  forward-Euler chain.
 * **forward Euler at high potentials** &mdash; above +300 mV `tm` is below
   1e-16 ms; a gate at its steady state (`m = mL = 1`) must stay there, as it does
   in the reference. Written as `A + B x`, the update cancelled to 0 at +330 mV.

@@ -48,8 +48,9 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   flush. Two defects of exactly that kind were found by running the real example
   rather than the unit suite. Marked `nightly` + `gpu`.
 - `test_tomek_regression.py` &mdash; one paced beat of the Tomek (ToR-ORd) model
-  for ENDO, EPI and MCELL (three nodes of one model), with Rush-Larsen (the
-  default) and with forward Euler (the reference's scheme), at `dt = 0.01` ms. Peak Vm, APD90 and the `Cai` peak are checked
+  for ENDO, EPI and MCELL (three nodes of one model), with the default schemes
+  (Rush-Larsen gates, matrix-exponential IKr chain) and with forward Euler (the
+  reference's scheme), at `dt = 0.01` ms. Peak Vm, APD90 and the `Cai` peak are checked
   against the reference single-cell tool (`bench --imp Tomek`, same protocol;
   the command is in the module docstring) within 1 mV, 1 ms and 2%. The stepping
   loop is compiled with XLA, which brings the beat from about 20 minutes to

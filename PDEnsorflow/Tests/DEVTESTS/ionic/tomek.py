@@ -53,7 +53,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--beats', type=int, default=1, help='number of beats')
     parser.add_argument('--stim', type=float, default=60.0, help='stimulus (mV/ms), from t = 1 ms for 1 ms')
     parser.add_argument('--forward_euler', action='store_true',
-                        help='forward Euler update of the gates (the reference scheme) instead of Rush-Larsen')
+                        help='forward Euler for the gates and the IKr chain (the reference scheme) '
+                             'instead of Rush-Larsen and the matrix exponential')
     parser.add_argument('--no_xla', action='store_true', help='do not compile the stepping loop with XLA')
     parser.add_argument('--reference', default='', help='folder with bench dumps in ct0, ct1, ct2')
     return(parser.parse_args())

@@ -19,11 +19,20 @@
         terms, 0/0 at 0 mV, take their exact limit within 1e-6 mV of it.
       * the FORWARD-EULER option at high potentials, where tau is tiny: a gate
         at its steady state must stay there, as in the reference.
+      * the IKr MARKOV CHAIN in the default mode: one step is exp(dt Q(V)),
+        checked against an eigen-decomposition, and under a shock potential it
+        stays a probability distribution (forward Euler, the reference scheme,
+        jumps between the clamps there).
 
     The agreement with the reference implementation over full beats is a GPU
     regression (Tests/CICD/nightly/test_tomek_regression.py).
 
-    CPU-only and small (a few nodes, at most 10 ms at dt = 0.02 ms).
+    CPU-only and small (a few nodes, at most 10 ms at dt = 0.02 ms). Tests whose
+    subject does not depend on the integration scheme use forward Euler, whose
+    tables build in a fraction of a second; the default schemes (Rush-Larsen
+    gates, matrix-exponential IKr chain) are tested where they are the subject,
+    and through Tomek's default in test_ionic.py, test_savestate.py and the
+    parameter-file tests.
 
     Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
@@ -44,8 +53,13 @@ _STIM_DUR  = 1.0                                  # ms
 _GNA       = 11.7802                              # mS/uF, the model default
 
 
-def _model(n_nodes: int, parameters: dict = None, rush_larsen: bool = True) -> tuple:
-    """Build a model with the given parameters, at rest; return (model, U)."""
+def _model(n_nodes: int, parameters: dict = None, rush_larsen: bool = False) -> tuple:
+    """Build a model with the given parameters, at rest; return (model, U).
+    Forward Euler by default, although the model's own default is the
+    exponential schemes: building the default table (the IKr step matrix on
+    200001 grid points) takes about 2 s per model, and what most tests here
+    check (parameters, per-node composition, units, singularities) does not
+    depend on the scheme. The tests of the default schemes ask for them."""
     model = Tomek(dt=_DT, n_nodes=n_nodes)
     model.set_use_rush_larsen(rush_larsen)
     for pname, pvalue in (parameters or {}).items():
@@ -150,6 +164,62 @@ def test_epi_nodes_use_the_scaled_ito_inactivation():
     expected  = iF0 + _DT * (iss - iF0) / tau
     np.testing.assert_allclose(model.get_state_variables()['iF'], expected, rtol=1.0e-6)
     assert abs(expected[1] - expected[0]) > 1.0e-3 * abs(expected[0] - iF0[0])
+
+
+# ---- the IKr Markov chain ------------------------------------------------------
+_IKR = ('C3', 'C2', 'C1', 'O', 'I')
+
+
+def _ikr_generator(V: float) -> np.ndarray:
+    """Q(V) of the IKr chain (dx/dt = Q x, states _IKR), from the model equations."""
+    x   = V * 96485.0 / (8314.0 * 310.0)
+    a   = 0.1161 * np.exp(0.2990 * x)
+    b   = 0.2442 * np.exp(-1.604 * x)
+    a1, b1 = 0.154375, 0.1911
+    a2  = 0.0578 * np.exp(0.9710 * x)
+    b2  = 0.349e-3 * np.exp(-1.062 * x)
+    ai  = 0.2533 * np.exp(0.5953 * x)
+    bi  = 0.06525 * np.exp(-0.8209 * x)
+    aci = 0.52e-4 * np.exp(1.525 * x)
+    bic = (b2 * bi * aci) / (a2 * ai)
+    return(np.array([[-a,  b,         0.0,               0.0,         0.0],
+                     [a,   -(b + a1), b1,                0.0,         0.0],
+                     [0.0, a1,        -(b1 + a2 + aci),  b2,          bic],
+                     [0.0, 0.0,       a2,                -(b2 + ai),  bi],
+                     [0.0, 0.0,       aci,               ai,          -(bic + bi)]]))
+
+
+@pytest.mark.parametrize('V', [-80.0, 20.0, 150.0])
+def test_one_ikr_step_is_the_matrix_exponential(V):
+    """At a potential where the chain is not stiff, one default step moves the
+    IKr states by exp(dt Q(V)), computed here by eigen-decomposition."""
+    model, _U = _model(1, rush_larsen=True)
+    x0 = np.array([model.get_state_variables()[name][0] for name in _IKR])
+    model.differentiate(tf.Variable([[V]], dtype=tf.float64))
+    lam, vec = np.linalg.eig(_DT * _ikr_generator(V))
+    step = np.real(vec @ np.diag(np.exp(lam)) @ np.linalg.inv(vec))
+    after = np.array([model.get_state_variables()[name][0] for name in _IKR])
+    np.testing.assert_allclose(after, step @ x0, rtol=1.0e-7, atol=1.0e-15)
+
+
+def test_the_ikr_chain_stays_a_distribution_under_a_shock_potential():
+    """At +860 mV the generator has eigenvalues near -1e17 /ms. In the default
+    mode the states stay nonnegative, keep their total, and O settles
+    monotonically near 1e-3; forward Euler would jump between 0 and 1."""
+    model, _U = _model(1, rush_larsen=True)
+    total = sum(model.get_state_variables()[name][0] for name in _IKR)
+    U = tf.Variable([[860.0]], dtype=tf.float64)
+    O = []
+    for _step in range(100):
+        model.differentiate(U)
+        states = model.get_state_variables()
+        x = np.array([states[name][0] for name in _IKR])
+        assert np.all(x >= 0.0)
+        assert x.sum() == pytest.approx(total, rel=1.0e-12)
+        O.append(x[_IKR.index('O')])
+    assert max(O) < 1.0e-2
+    increments = np.diff(O)
+    assert np.all(increments[1:] * increments[:-1] >= 0.0), 'O oscillates'
 
 
 # ---- physics hooks -------------------------------------------------------------
