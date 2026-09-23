@@ -181,7 +181,10 @@ class SimulationRunner:
             self._ionic = None
             self._model = HeatSolver(config)
         else:
-            self._ionic = modelclass(dt=config['dt'])
+            # the options (a cell type selected by im_param flags) are
+            # constructor arguments: the type fixes the parameter defaults the
+            # im_param modifiers are then resolved against
+            self._ionic = modelclass(dt=config['dt'], **self._mapper.ionic_model_options())
             plugins     = self._mapper.ionic_plugin_classes()
             if len(plugins) > 0:
                 # the plugins wrap the model; a run without plugins keeps the

@@ -69,6 +69,7 @@ DT_MICROSECONDS_TO_MS : float = 1.0e-3
 ARRAY_COUNTERS = {'gregion': 'num_gregions',
                   'imp_region': 'num_imp_regions',
                   'stim': 'num_stim',
+                  'stimulus': 'num_stim',
                   'tsav': 'num_tsav',
                   'tsav_ext': 'num_tsav'}
 
@@ -88,6 +89,29 @@ IONIC_MODELS = {'mMS': ModifiedMS2v,
                 'Tomek': Tomek,
                 'Fenton': Fenton4v}
 
+# Cell types a model can be switched to with the `flags=<TYPE>` item of
+# im_param, by model name. The reference re-initialises the model parameters
+# for the flag BEFORE it applies the other modifiers, so `GKs*1.5,flags=ENDO`
+# scales the ENDO default. Each region may ask for its own type: the types
+# reach the model as the per-node parameter CELL_TYPE_PARAMETER, and each
+# modifier is resolved against the default of the region's own type (see
+# ParameterMapper.ionic_parameter_maps), which gives the same order. A model that is
+# not listed here has no cell types, and a flags item on it is an error, as it
+# is in the reference.
+IONIC_CELL_TYPES = {'tenTusscherPanfilov': ('EPI', 'MCELL', 'ENDO')}
+
+# Cell type of a model listed in IONIC_CELL_TYPES when im_param has no flags
+# item: the model's own default.
+DEFAULT_CELL_TYPE = {'tenTusscherPanfilov': 'EPI'}
+
+# The per-node parameter that carries the cell type of a model listed in
+# IONIC_CELL_TYPES. The model provides cell_type_default(pname, type), which
+# gives the numeric id of a type for this name and each parameter's default.
+CELL_TYPE_PARAMETER : str = 'celltype'
+
+# The im_param item that selects a cell type rather than modifying a parameter.
+IM_PARAM_FLAGS : str = 'flags='
+
 # Ionic plugins for imp_region[].plugins, by the name the parameter file uses.
 IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKrassowska98,
                  'Defib_AshiharaTrayanova':             DefibAshiharaTrayanova}
@@ -95,6 +119,11 @@ IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKr
 # Separates the plugin names in imp_region[].plugins, and their parameter
 # lists in imp_region[].plug_param.
 PLUGIN_LIST_SEPARATOR : str = ':'
+
+# Label of a stimulus that the input leaves unnamed; the index is appended.
+# It is the reference simulator's own label, for either stimulus family, so a
+# message about a stimulus names the same one in the logs of both solvers.
+DEFAULT_STIM_NAME : str = 'Stimulus_'
 
 # Cell-parameter names that differ between the two vocabularies. Everything
 # else (tau_in, tau_out, tau_open, tau_close) is spelled the same way.
@@ -164,6 +193,24 @@ REGISTRY = {
     'stim[].elec.p0[]':             ('float', 0.0,       True),
     'stim[].elec.p1[]':             ('float', 0.0,       True),
     'stim[].elec.vtx_file':         ('str',   '',        True),
+    # the legacy stimulus family. It is translated onto the same electrode and
+    # protocol as stim[] (see ParameterMapper.stimuli); the defaults are the
+    # reference's, a 100 um box with its corner at the origin.
+    'stimulus[].name':              ('str',   '',        True),
+    'stimulus[].stimtype':          ('int',   0,         True),
+    'stimulus[].strength':          ('float', 0.0,       True),
+    'stimulus[].start':             ('float', 0.0,       True),
+    'stimulus[].duration':          ('float', None,      True),
+    'stimulus[].npls':              ('int',   None,      True),
+    'stimulus[].bcl':               ('float', None,      True),
+    'stimulus[].x0':                ('float', 0.0,       True),
+    'stimulus[].y0':                ('float', 0.0,       True),
+    'stimulus[].z0':                ('float', 0.0,       True),
+    'stimulus[].xd':                ('float', 100.0,     True),
+    'stimulus[].yd':                ('float', 100.0,     True),
+    'stimulus[].zd':                ('float', 100.0,     True),
+    'stimulus[].ctr_def':           ('int',   0,         True),
+    'stimulus[].vtx_file':          ('str',   '',        True),
     'num_tsav':                     ('int',   0,         True),
     'tsav[]':                       ('float', None,      True),
     'tsav_ext[]':                   ('str',   None,      True),
@@ -172,7 +219,28 @@ REGISTRY = {
     'chkpt_start':                  ('float', 0.0,       True),
     'chkpt_intv':                   ('float', 0.0,       True),
     'chkpt_stop':                   ('float', None,      True),
+    # accepted so that files which set them run, but not acted upon: the mesh
+    # reader takes no format switch, and local activation times are not
+    # computed by this front end (see the notes in __collect_notes)
+    'meshformat':                   ('int',   0,         False),
+    'num_LATs':                     ('int',   0,         False),
+    'lats[].ID':                    ('str',   '',        False),
+    'lats[].all':                   ('int',   1,         False),
+    'lats[].measurand':             ('int',   0,         False),
+    'lats[].threshold':             ('float', -10.0,     False),
+    'lats[].mode':                  ('int',   0,         False),
 }
+
+# Keys of the legacy stimulus family that openCARP reads with the same meaning
+# as a stim[] key, by the stim[] key they are translated onto.
+LEGACY_STIM_KEYS = {'name': 'name',
+                    'stimtype': 'crct.type',
+                    'strength': 'pulse.strength',
+                    'start': 'ptcl.start',
+                    'duration': 'ptcl.duration',
+                    'npls': 'ptcl.npls',
+                    'bcl': 'ptcl.bcl',
+                    'vtx_file': 'elec.vtx_file'}
 
 _INDEX = re.compile(r'\[(\d+)\]')
 
@@ -235,10 +303,27 @@ def parse_im_param(text: str, aliases: dict = None) -> dict:
     params : dict = {}
     for chunk in text.split(','):
         item = chunk.strip().replace(' ', '')
-        if len(item) == 0:
+        # a flags item selects a cell type, not a parameter; im_flags() reads it
+        if len(item) == 0 or item.startswith(IM_PARAM_FLAGS):
             continue
         params.update([split_param_mod(item, aliases)])
     return(params)
+
+
+def im_flags(text: str) -> str:
+    """ im_flags(text) returns the value of the `flags=<TYPE>` item of an
+        im_param list, or '' when there is none. Two flags items are an error:
+        the reference would apply both in turn, and which one wins is not
+        something a parameter file should rely on.
+    """
+    found : list = []
+    for chunk in text.split(','):
+        item = chunk.strip().replace(' ', '')
+        if item.startswith(IM_PARAM_FLAGS):
+            found.append(item[len(IM_PARAM_FLAGS):])
+    if len(found) > 1:
+        raise ValueError('im_param "{}" has more than one flags item'.format(text))
+    return(found[0] if len(found) == 1 else '')
 
 
 def split_param_mod(item: str, aliases: dict = None) -> tuple:
@@ -565,12 +650,40 @@ class ParameterMapper:
                     modified = True
         return(ModifiedMS2v if modified else MitchellSchaeffer2v)
 
+    def ionic_model_options(self) -> dict:
+        """ ionic_model_options() returns the extra constructor arguments of the
+            cell model, as {argument: value}: today only {'cell_type': <TYPE>}
+            when the model has cell types (IONIC_CELL_TYPES). The type comes
+            from the `flags=<TYPE>` item of im_param; a region with no flags
+            item asks for the model default, as it would in the reference.
+            When every region asks for the same type, that type is the
+            constructor default; when they differ, the constructor gets the
+            model default (it then only governs tags no region claims) and the
+            per-region types reach the model node by node through
+            ionic_parameter_maps.
+        """
+        types, requested = self.__region_cell_types()
+        if types is None:
+            return({})
+        name = self.ionic_model_name()
+        distinct = set(requested.values())
+        if len(distinct) == 1:
+            return({'cell_type': distinct.pop()})
+        return({'cell_type': DEFAULT_CELL_TYPE[name]})
+
     def ionic_parameter_maps(self, model, tags: set) -> dict:
         """ ionic_parameter_maps(model, tags) returns {parameter: {tag: value}}
             for every cell parameter that some im_param names. A tag whose
             region does not mention a parameter keeps the model's own default,
             so a parameter file and a hand-written script agree wherever the
             file is silent.
+            For a model with cell types, when the regions ask for different
+            types, the map starts with CELL_TYPE_PARAMETER (the numeric type of
+            each tag; it comes first because setting it resets the type-
+            dependent parameters), and every other parameter is resolved
+            against the default of the tag's own cell type: flags first, then
+            modifiers, as in the reference. Tags no region claims take the
+            constructor type (ionic_model_options).
         """
         assignment = self.tag_to_entry('imp_region', tags)
         per_region : dict = {}
@@ -579,14 +692,23 @@ class ParameterMapper:
             per_region[index] = parse_im_param(self.value('imp_region[{}].im_param'.format(index)))
             named |= set(per_region[index].keys())
         maps : dict = {}
+        tag_types = self.__tag_cell_types(assignment, tags)
+        # the cell model itself, also when plugins wrap it
+        cell_model = model.model() if hasattr(model, 'plugin_names') else model
+        if tag_types is not None and len(set(tag_types.values())) > 1:
+            maps[CELL_TYPE_PARAMETER] = {tag: cell_model.cell_type_default(CELL_TYPE_PARAMETER, ctype)
+                                         for tag, ctype in tag_types.items()}
         for pname in sorted(named):
             reference = model.get_parameter(pname)
             if reference is None:
                 raise ValueError('cell model {} has no parameter "{}"'.format(
                     model.model_name(), pname))
-            fallback = float(reference)
             maps[pname] = {}
             for tag in tags:
+                if tag_types is None:
+                    fallback = float(reference)
+                else:
+                    fallback = cell_model.cell_type_default(pname, tag_types[tag])
                 index = assignment.get(tag)
                 modifier = per_region.get(index, {}).get(pname)
                 if modifier is None:
@@ -594,6 +716,44 @@ class ParameterMapper:
                 else:
                     maps[pname][tag] = apply_param_mod(fallback, modifier)
         return(maps)
+
+    def __region_cell_types(self) -> tuple:
+        """ (types, {imp_region index: type}) for the regions that name a cell
+            model; types is None, and the dict empty, for a model without cell
+            types. Validates the flags items.
+        """
+        name = self.ionic_model_name()
+        types = IONIC_CELL_TYPES.get(name)
+        requested : dict = {}
+        for index in range(self.count('imp_region')):
+            if len(self.value('imp_region[{}].im'.format(index)).strip()) == 0:
+                continue
+            flag = im_flags(self.value('imp_region[{}].im_param'.format(index)))
+            if types is None:
+                if len(flag) > 0:
+                    raise ValueError('imp_region[{}].im_param: flags={} is given, but cell model '
+                                     '{} has no cell types in this front end'.format(
+                                         index, flag, name))
+                continue
+            if len(flag) == 0:
+                flag = DEFAULT_CELL_TYPE[name]
+            if flag not in types:
+                # a "|"-separated list lands here too: a node has exactly one
+                # cell type, so a combination has no meaning
+                raise ValueError('imp_region[{}].im_param: flags={} is not a cell type of {}; '
+                                 'use one of {}'.format(index, flag, name, ', '.join(types)))
+            requested[index] = flag
+        return((types, requested))
+
+    def __tag_cell_types(self, assignment: dict, tags: set) -> dict:
+        """ {tag: cell type} for a model with cell types, None otherwise. A tag
+            no region claims takes the constructor type.
+        """
+        types, requested = self.__region_cell_types()
+        if types is None:
+            return(None)
+        default = self.ionic_model_options()['cell_type']
+        return({tag: requested.get(assignment.get(tag), default) for tag in tags})
 
     def region_plugins(self, index: int) -> list:
         """ region_plugins(index) returns the plugin names imp_region[index].plugins
@@ -698,18 +858,27 @@ class ParameterMapper:
         """
         stims : list = []
         tend = self.value('tend')
-        for index in range(self.count('stim')):
-            ctype = self.value('stim[{}].crct.type'.format(index))
+        legacy = self.__uses_legacy_stimuli()
+        # both families share num_stim; without it, each infers its own size
+        for index in range(self.count('stimulus' if legacy else 'stim')):
+            if legacy:
+                entry = self.__legacy_stimulus(index)
+            else:
+                entry = {member: self.value('stim[{}].{}'.format(index, member))
+                         for member in LEGACY_STIM_KEYS.values()}
+                entry['elec.p0'] = [self.value('stim[{}].elec.p0[{}]'.format(index, k)) for k in range(3)]
+                entry['elec.p1'] = [self.value('stim[{}].elec.p1[{}]'.format(index, k)) for k in range(3)]
+            ctype = entry['crct.type']
             if ctype != 0:
                 raise ValueError('stim[{}].crct.type = {}: this front end applies transmembrane '
                                  'stimuli (type 0) only, and silently treating an intra- or '
                                  'extracellular electrode as one would change the '
                                  'physics'.format(index, ctype))
-            start    = self.value('stim[{}].ptcl.start'.format(index))
-            duration = self.value('stim[{}].ptcl.duration'.format(index))
-            npls     = self.value('stim[{}].ptcl.npls'.format(index))
-            bcl      = self.value('stim[{}].ptcl.bcl'.format(index))
-            name     = self.value('stim[{}].name'.format(index))
+            start    = entry['ptcl.start']
+            duration = entry['ptcl.duration']
+            npls     = entry['ptcl.npls']
+            bcl      = entry['ptcl.bcl']
+            name     = entry['name']
             # the derived defaults of the reference: a protocol that says
             # nothing is one pulse covering the rest of the simulation
             if duration is None:
@@ -722,11 +891,11 @@ class ParameterMapper:
                      'nstim': npls,
                      'period': bcl if bcl > 0.0 else 1.0,
                      'duration': duration,
-                     'intensity': self.value('stim[{}].pulse.strength'.format(index)),
-                     'name': name if len(name) > 0 else 'stim{}'.format(index)}
-            p0 = [self.value('stim[{}].elec.p0[{}]'.format(index, k)) for k in range(3)]
-            p1 = [self.value('stim[{}].elec.p1[{}]'.format(index, k)) for k in range(3)]
-            vtx_file = self.value('stim[{}].elec.vtx_file'.format(index)).strip()
+                     'intensity': entry['pulse.strength'],
+                     'name': name if len(name) > 0 else '{}{}'.format(DEFAULT_STIM_NAME, index)}
+            p0 = entry['elec.p0']
+            p1 = entry['elec.p1']
+            vtx_file = entry['elec.vtx_file'].strip()
             if len(vtx_file) > 0:
                 if any(corner != 0.0 for corner in p0 + p1):
                     self.__notes.append('stim[{}] names both a vertex file and a box: the '
@@ -737,6 +906,47 @@ class ParameterMapper:
         return(stims)
 
     # ---- internals ----------------------------------------------------------
+    def __uses_legacy_stimuli(self) -> bool:
+        """ whether the stimuli are written with the legacy stimulus[] keys.
+            Both families share num_stim and their indices. The reference picks
+            ONE family for the whole run, and when both are set it keeps stim[]
+            and drops every stimulus[] entry with only a warning
+            (simulator/sim_utils.cc, the legacy_stim_set / new_stim_set test).
+            A file that mixes them is refused here instead: silently dropping
+            the stimuli someone wrote is the kind of change a run must not hide.
+        """
+        legacy = any(key.startswith('stimulus[') for key in self.__store)
+        modern = any(key.startswith('stim[') for key in self.__store)
+        if legacy and modern:
+            raise ValueError('both stim[] and the legacy stimulus[] keys are set. The reference '
+                             'would use stim[] only and drop every stimulus[] entry; write all '
+                             'the stimuli with one of the two families')
+        return(legacy)
+
+    def __legacy_stimulus(self, index: int) -> dict:
+        """ translates stimulus[index] onto the stim[] members, keyed as in
+            LEGACY_STIM_KEYS plus 'elec.p0' and 'elec.p1'. The box follows the
+            reference translation (physics/stimulate.cc, stimulus::translate):
+            p0 = x0 - (ctr_def ? xd/2 : 0), p1 = p0 + xd, and the same in y, z,
+            so ctr_def makes (x0, y0, z0) the centre of the box rather than its
+            corner.
+        """
+        entry : dict = {}
+        for legacy, member in LEGACY_STIM_KEYS.items():
+            entry[member] = self.value('stimulus[{}].{}'.format(index, legacy))
+        centred = self.value('stimulus[{}].ctr_def'.format(index)) != 0
+        p0 : list = []
+        p1 : list = []
+        for axis in ('x', 'y', 'z'):
+            origin = self.value('stimulus[{}].{}0'.format(index, axis))
+            extent = self.value('stimulus[{}].{}d'.format(index, axis))
+            corner = origin - (0.5 * extent if centred else 0.0)
+            p0.append(corner)
+            p1.append(corner + extent)
+        entry['elec.p0'] = p0
+        entry['elec.p1'] = p1
+        return(entry)
+
     def __parallel(self, g_intra: float, g_extra: float) -> float:
         """ half the harmonic mean of the two domain conductivities """
         total = g_intra + g_extra
@@ -809,6 +1019,16 @@ class ParameterMapper:
             if tsav is not None and tsav > self.value('tend'):
                 self.__notes.append('tsav[{}] = {} is after tend = {}: that state is never '
                                     'saved'.format(index, tsav, self.value('tend')))
+        if any(key.startswith('stimulus[') for key in self.__store):
+            self.__notes.append('legacy stimulus[] keys: the reference shapes every legacy pulse '
+                                'as a truncated exponential (tau_edge, tau_plateau); gpuSolve '
+                                'applies a square pulse of the same strength and duration')
+        if self.value('num_LATs') > 0 or any(key.startswith('lats[') for key in self.__store):
+            self.__notes.append('num_LATs / lats[] are set: local activation times are not '
+                                'computed, so no LAT file is written')
+        if 'meshformat' in self.__store:
+            self.__notes.append('meshformat = {} is accepted but not used: the mesh reader '
+                                'does not take a format switch'.format(self.value('meshformat')))
         for index in range(self.__count_or_zero('gregion')):
             for member in ('g_in', 'g_en'):
                 if 'gregion[{}].{}'.format(index, member) in self.__store:

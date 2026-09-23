@@ -29,8 +29,30 @@ import numpy as np
 import tensorflow as tf
 from math import exp, sqrt
 
+from gpuSolve.ionic.cell_types import CELL_TYPE_IDS
+
 # To switch to float64, change this line and update all tf.constant/tf.Variable dtype args below
 _DTYPE = tf.float32
+
+# Cell types use the numbering shared by every gpuSolve cell model
+# (ENDO = 0, EPI = 1, MCELL = 2, see cell_types.py), NOT the flag enumeration of
+# the reference model file (EPI = 0, MCELL = 1, ENDO = 2): the same celltype
+# number must name the same cell in Tomek and here. The parameter file names
+# the type (flags=ENDO), so the reference order never reaches a number.
+_ENDO : float = float(CELL_TYPE_IDS['ENDO'])
+
+# The cell-type defaults of the two conductances the flag changes, indexed by
+# the cell type id, ENDO, EPI, MCELL (reference model file, lines
+# "if (cell_type == EPI)").
+_GKS_BY_TYPE = (0.392, 0.392, 0.098)
+_GTO_BY_TYPE = (0.073, 0.294, 0.294)
+
+# Parameters that may differ node by node: they only enter differentiate() as
+# tensor factors, so a per-node column is read as a flat (n,) vector there.
+# Every other parameter is folded into the lookup tables or into scalar
+# constants of differentiate(), and takes one value for the whole tissue.
+_PER_NODE_PARAMETERS = ('celltype', 'GNa', 'GK1', 'GbCa', 'GbNa', 'GpCa', 'GpK',
+                        'GCaL', 'GKr', 'GKs', 'Gto')
 
 
 class TenTusscherPanfilov(IonicModel):
@@ -42,13 +64,38 @@ class TenTusscherPanfilov(IonicModel):
         This model uses lookup tables for voltage-dependent and CaSS-dependent
         quantities, with Rush-Larsen integration for gating variables.
 
-        Cell types: "EPI" (epicardial), "ENDO" (endocardial), "MCELL" (midmyocardial)
+        Cell types: "EPI" (epicardial), "ENDO" (endocardial), "MCELL" (midmyocardial).
+        The type changes three quantities (reference model file): the default
+        GKs (0.392 EPI and ENDO, 0.098 MCELL), the default Gto (0.294 EPI and
+        MCELL, 0.073 ENDO) and the time constant of the Ito inactivation gate S
+        (a slower ENDO form).
+
+        Parameters (set_parameter / im_param):
+          * celltype: 0 ENDO, 1 EPI, 2 MCELL (the numbering shared with
+            Tomek, see cell_types.CELL_TYPE_IDS). May differ node by node. The constructor
+            argument cell_type sets the uniform default. Setting celltype
+            resets GKs and Gto to the default of each node's own type, as the
+            reference re-initialises the parameters when it applies a flag; set
+            celltype FIRST, then scale GKs or Gto.
+          * GNa, GK1, GbCa, GbNa, GpCa, GpK, GCaL, GKr, GKs, Gto: conductances.
+            May differ node by node (a scalar or a (n_nodes,) / (n_nodes, 1)
+            column), e.g. GNa = 0 in a scar.
+          * any other parameter: one value for all the nodes (a column is
+            accepted when all its entries are equal), because it is folded into
+            the lookup tables or into scalar constants.
+        Parameters must be set before the first differentiate() call: it runs
+        inside a tf.function that captures them when it is first traced.
     """
 
     def __init__(self, dt=0.0, n_nodes=0, cell_type="EPI"):
         super().__init__(dt, n_nodes)
 
-        self._cell_type = cell_type if cell_type is not None else "EPI"
+        self._cell_type : str = cell_type if cell_type is not None else "EPI"
+        if self._cell_type not in CELL_TYPE_IDS:
+            raise ValueError('TenTusscherPanfilov: cell_type must be one of {}, got {}'.format(
+                ', '.join(CELL_TYPE_IDS.keys()), self._cell_type))
+        # per-node cell type (scalar = uniform); see set_parameter('celltype')
+        self._celltype : tf.Tensor = tf.constant(float(CELL_TYPE_IDS[self._cell_type]), dtype=_DTYPE)
 
         # Constants
         self._CaSR_init = 1.3
@@ -88,12 +135,15 @@ class TenTusscherPanfilov(IonicModel):
         self._Cao = 2.0
         self._D_CaL_off = 0.0
         self._Fconst = 96485.3415
-        self._GK1 = 5.405
-        self._GNa = 14.838
-        self._GbCa = 0.000592
-        self._GbNa = 0.00029
-        self._GpCa = 0.1238
-        self._GpK = 0.0146
+        # The conductances are tensors of _DTYPE (not Python floats) because a
+        # parameter file may set them per node: get_parameter() must return a
+        # value with a dtype, and differentiate() reshapes them to (n,).
+        self._GK1 : tf.Tensor = tf.constant(5.405, dtype=_DTYPE)
+        self._GNa : tf.Tensor = tf.constant(14.838, dtype=_DTYPE)
+        self._GbCa : tf.Tensor = tf.constant(0.000592, dtype=_DTYPE)
+        self._GbNa : tf.Tensor = tf.constant(0.00029, dtype=_DTYPE)
+        self._GpCa : tf.Tensor = tf.constant(0.1238, dtype=_DTYPE)
+        self._GpK : tf.Tensor = tf.constant(0.0146, dtype=_DTYPE)
         self._Kbufc = 0.001
         self._Kbufsr = 0.3
         self._Kbufss = 0.00025
@@ -123,8 +173,8 @@ class TenTusscherPanfilov(IonicModel):
         self._xr2_off = 0.0
         self._GCaL_init = 0.00003980
         self._GKr_init = 0.153
-        self._GKs_init = 0.392 if self._cell_type == "EPI" else 0.098 if self._cell_type == "MCELL" else 0.392
-        self._Gto_init = 0.294 if self._cell_type == "EPI" else 0.294 if self._cell_type == "MCELL" else 0.073
+        self._GKs_init = _GKS_BY_TYPE[CELL_TYPE_IDS[self._cell_type]]
+        self._Gto_init = _GTO_BY_TYPE[CELL_TYPE_IDS[self._cell_type]]
 
         # CaSS_TableIndex
         self._CaSS2_idx = 0
@@ -160,7 +210,11 @@ class TenTusscherPanfilov(IonicModel):
         self._a2_idx = 24
         self._rec_iNaK_idx = 25
         self._rec_ipK_idx = 26
-        self._V_NROWS = 27
+        # the ENDO form of the S gate: both forms are tabulated, and
+        # differentiate() picks one per node from celltype
+        self._S_endo_rush_larsen_A_idx = 27
+        self._S_endo_rush_larsen_B_idx = 28
+        self._V_NROWS = 29
 
         # VEk_TableIndex
         self._rec_iK1_idx = 0
@@ -192,11 +246,18 @@ class TenTusscherPanfilov(IonicModel):
         self._V_tab_lut = None
         self._VEk_tab = None
 
-        # 22 internal state variables (initialized via initialize_state_variables)
-        self._GCaL = None
-        self._GKr = None
-        self._GKs = None
-        self._Gto = None
+        # The four per-node conductances are parameters, not state. They exist
+        # from construction, as scalars holding the cell-type default, so that
+        # get_parameter()/set_parameter() see them before the first step: the
+        # parameter-file front end resolves `GKr*1.5` against this default and
+        # pushes a per-node array before initialize_state_variables() runs,
+        # which then broadcasts whatever value is held here.
+        self._GCaL : tf.Tensor = tf.constant(self._GCaL_init, dtype=_DTYPE)
+        self._GKr : tf.Tensor  = tf.constant(self._GKr_init, dtype=_DTYPE)
+        self._GKs : tf.Tensor  = tf.constant(self._GKs_init, dtype=_DTYPE)
+        self._Gto : tf.Tensor  = tf.constant(self._Gto_init, dtype=_DTYPE)
+
+        # internal state variables (initialized via initialize_state_variables)
         self._CaSR = None
         self._CaSS = None
         self._Cai = None
@@ -299,10 +360,8 @@ class TenTusscherPanfilov(IonicModel):
         V_tab_np[:, self._rec_ipK_idx] = 1.0 / (1.0 + np.exp((25.0 - V_np) / 5.98))
 
         tau_R = 9.5 * np.exp(-(V_np + 40.0) * (V_np + 40.0) / 1800.0) + 0.8
-        if self._cell_type == "ENDO":
-            tau_S = 1000.0 * np.exp(-(V_np + 67.0) * (V_np + 67.0) / 1000.0) + 8.0
-        else:
-            tau_S = 85.0 * np.exp(-(V_np + 45.0) * (V_np + 45.0) / 320.0) + 5.0 / (1.0 + np.exp((V_np - 20.0) / 5.0)) + 3.0
+        tau_S_endo = 1000.0 * np.exp(-(V_np + 67.0) * (V_np + 67.0) / 1000.0) + 8.0
+        tau_S = 85.0 * np.exp(-(V_np + 45.0) * (V_np + 45.0) / 320.0) + 5.0 / (1.0 + np.exp((V_np - 20.0) / 5.0)) + 3.0
 
         V_tab_np[:, self._INaCa_A_idx] = (den * self._Cao) * np.exp(self._n * V_np * F_RT)
         V_tab_np[:, self._INaCa_B_idx] = (den * np.exp((self._n - 1.0) * V_np * F_RT)) * Nao3 * 2.5
@@ -312,6 +371,8 @@ class TenTusscherPanfilov(IonicModel):
         R_rush_larsen_C = np.expm1(-self._dt / tau_R)
         V_tab_np[:, self._S_rush_larsen_B_idx] = np.exp(-self._dt / tau_S)
         S_rush_larsen_C = np.expm1(-self._dt / tau_S)
+        V_tab_np[:, self._S_endo_rush_larsen_B_idx] = np.exp(-self._dt / tau_S_endo)
+        S_endo_rush_larsen_C = np.expm1(-self._dt / tau_S_endo)
 
         tau_D = aa_D * bb_D + cc_D
         tau_F2 = aa_F2 + bb_F2 + cc_F2
@@ -335,6 +396,7 @@ class TenTusscherPanfilov(IonicModel):
         M_rush_larsen_C = np.expm1(-self._dt / tau_M)
         V_tab_np[:, self._R_rush_larsen_A_idx] = (-R_inf) * R_rush_larsen_C
         V_tab_np[:, self._S_rush_larsen_A_idx] = (-S_inf) * S_rush_larsen_C
+        V_tab_np[:, self._S_endo_rush_larsen_A_idx] = (-S_inf) * S_endo_rush_larsen_C
         V_tab_np[:, self._Xr1_rush_larsen_B_idx] = np.exp(-self._dt / tau_Xr1)
         Xr1_rush_larsen_C = np.expm1(-self._dt / tau_Xr1)
         V_tab_np[:, self._Xr2_rush_larsen_B_idx] = np.exp(-self._dt / tau_Xr2)
@@ -371,16 +433,93 @@ class TenTusscherPanfilov(IonicModel):
         self._VEk_tab = tf.constant(VEk_tab_np, dtype=_DTYPE)
 
 
+    def __per_node(self, value, shape) -> tf.Tensor:
+        """ __per_node(value, shape) spreads a conductance over the nodes: a
+            scalar (the default) fills the shape, a per-node array (set by
+            set_parameter) is reshaped onto it, so both layouts, (n,) and
+            (n, 1), are accepted
+        """
+        value = tf.cast(value, _DTYPE)
+        if tf.size(value) == 1:
+            return(tf.fill(shape, tf.reshape(value, [])))
+        return(tf.reshape(value, shape))
+
+    def cell_type(self) -> str:
+        """ cell_type() returns the uniform default cell type given to the constructor """
+        return(self._cell_type)
+
+    def cell_type_default(self, pname: str, cell_type: str) -> float:
+        """ cell_type_default(pname, cell_type) returns the default of parameter
+            pname for a node of the given cell type ('EPI', 'MCELL', 'ENDO'):
+            the value a flag re-initialises it to, which im_param modifiers then
+            scale. Only GKs and Gto depend on the type; for any other parameter
+            it is the value the model holds now (reduced to a float).
+        """
+        type_id = CELL_TYPE_IDS[cell_type]
+        if pname == 'GKs':
+            return(_GKS_BY_TYPE[type_id])
+        if pname == 'Gto':
+            return(_GTO_BY_TYPE[type_id])
+        if pname == 'celltype':
+            return(float(type_id))
+        return(float(np.reshape(np.asarray(self.get_parameter(pname)), (-1,))[0]))
+
+    def set_parameter(self, pname: str, pvalue: np.ndarray):
+        """
+        set_parameter(pname, pvalue) sets the parameter pname to pvalue, a
+        scalar or a per-node (n_nodes,) / (n_nodes, 1) column (see the class
+        docstring for which parameters may differ node by node). Setting
+        celltype also resets GKs and Gto to each node's cell-type default. An
+        unknown name is ignored, as in IonicModel.
+        """
+        try:
+            current = getattr(self, '_{}'.format(pname), None)
+            if current is None and pname not in _PER_NODE_PARAMETERS:
+                return
+            if pname not in _PER_NODE_PARAMETERS and not isinstance(current, (int, float)):
+                # a state variable, a table or a setting: not a cell parameter
+                raise ValueError('TenTusscherPanfilov: "{}" is not a cell parameter'.format(pname))
+            values = np.reshape(np.asarray(pvalue, dtype=np.float64), (-1,))
+            if pname == 'celltype':
+                if not np.all(np.isin(values, list(CELL_TYPE_IDS.values()))):
+                    raise ValueError('TenTusscherPanfilov: celltype must be 0 (ENDO), 1 (EPI) or '
+                                     '2 (MCELL), got {}'.format(sorted(set(values.tolist()))))
+                ids = values.astype(np.int64)
+                self._celltype = self.__column(values)
+                self._GKs = self.__column(np.take(_GKS_BY_TYPE, ids))
+                self._Gto = self.__column(np.take(_GTO_BY_TYPE, ids))
+            elif pname in _PER_NODE_PARAMETERS:
+                setattr(self, '_{}'.format(pname), self.__column(values))
+            else:
+                # folded into the tables or into scalar constants: one value only
+                unique = np.unique(values)
+                if unique.size != 1:
+                    raise ValueError('TenTusscherPanfilov: {} takes one value for all the nodes '
+                                     '(it is not a per-node parameter), got {} distinct '
+                                     'values'.format(pname, unique.size))
+                setattr(self, '_{}'.format(pname), float(unique[0]))
+                if self._initialized:
+                    self.construct_tables()
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+
+    def __column(self, values: np.ndarray) -> tf.Tensor:
+        """ a flat per-node tensor of _DTYPE, or a scalar when there is one value """
+        if values.size == 1:
+            return(tf.constant(float(values[0]), dtype=_DTYPE))
+        return(tf.constant(values, dtype=_DTYPE))
+
     def initialize_state_variables(self, U: tf.Variable):
         """Initialize 22 internal state variables matching U's shape."""
         if not self._initialized:
             self.construct_tables()
             shape = tf.shape(U)
             # To switch to float64, change _DTYPE at the top of this file
-            self._GCaL = tf.Variable(tf.fill(shape, tf.constant(self._GCaL_init, dtype=_DTYPE)), name="GCaL")
-            self._GKr = tf.Variable(tf.fill(shape, tf.constant(self._GKr_init, dtype=_DTYPE)), name="GKr")
-            self._GKs = tf.Variable(tf.fill(shape, tf.constant(self._GKs_init, dtype=_DTYPE)), name="GKs")
-            self._Gto = tf.Variable(tf.fill(shape, tf.constant(self._Gto_init, dtype=_DTYPE)), name="Gto")
+            self._GCaL = tf.Variable(self.__per_node(self._GCaL, shape), name="GCaL")
+            self._GKr = tf.Variable(self.__per_node(self._GKr, shape), name="GKr")
+            self._GKs = tf.Variable(self.__per_node(self._GKs, shape), name="GKs")
+            self._Gto = tf.Variable(self.__per_node(self._Gto, shape), name="Gto")
             self._CaSR = tf.Variable(tf.fill(shape, tf.constant(self._CaSR_init, dtype=_DTYPE)), name="CaSR")
             self._CaSS = tf.Variable(tf.fill(shape, tf.constant(self._CaSS_init, dtype=_DTYPE)), name="CaSS")
             self._Cai = tf.Variable(tf.fill(shape, tf.constant(self._Cai_init, dtype=_DTYPE)), name="Cai")
@@ -431,6 +570,16 @@ class TenTusscherPanfilov(IonicModel):
         GKr = tf.reshape(self._GKr, [-1])
         GKs = tf.reshape(self._GKs, [-1])
         Gto = tf.reshape(self._Gto, [-1])
+        # per-node or scalar conductances: flattened so that a (n, 1) column
+        # never meets the (n,) states (that would broadcast to (n, n)); a
+        # scalar becomes (1,) and broadcasts
+        GNa = tf.reshape(self._GNa, [-1])
+        GK1 = tf.reshape(self._GK1, [-1])
+        GbCa = tf.reshape(self._GbCa, [-1])
+        GbNa = tf.reshape(self._GbNa, [-1])
+        GpCa = tf.reshape(self._GpCa, [-1])
+        GpK = tf.reshape(self._GpK, [-1])
+        is_endo = tf.equal(tf.reshape(self._celltype, [-1]), _ENDO)
         CaSR = tf.reshape(self._CaSR, [-1])
         CaSS = tf.reshape(self._CaSS, [-1])
         Cai = tf.reshape(self._Cai, [-1])
@@ -470,7 +619,7 @@ class TenTusscherPanfilov(IonicModel):
         Ena = RTONF * tf.math.log(self._Nao / Nai)
 
         # Ionic currents
-        IpCa = (self._GpCa * Cai) / (self._KpCa + Cai)
+        IpCa = (GpCa * Cai) / (self._KpCa + Cai)
         a1 = (GCaL * self._Fconst * F_RT * 4.0) * tf.where(
             tf.abs(V - 15.0) < 1e-10,
             0.5 * F_RT,
@@ -480,18 +629,18 @@ class TenTusscherPanfilov(IonicModel):
         ICaL_B = a1 * self._Cao
         IKr = GKr * sqrt_Ko * Xr1_state * Xr2_state * (V - Ek)
         IKs = GKs * Xs_state * Xs_state * (V - Eks)
-        INa = self._GNa * M_state * M_state * M_state * H_state * J_state * (V - Ena)
+        INa = GNa * M_state * M_state * M_state * H_state * J_state * (V - Ena)
         INaK = pmf_INaK * (Nai / (Nai + self._KmNa)) * V_row[:, self._rec_iNaK_idx]
-        IbCa = self._GbCa * (V - Eca)
-        IbNa = self._GbNa * (V - Ena)
-        IpK = self._GpK * V_row[:, self._rec_ipK_idx] * (V - Ek)
+        IbCa = GbCa * (V - Eca)
+        IbNa = GbNa * (V - Ena)
+        IpK = GpK * V_row[:, self._rec_ipK_idx] * (V - Ek)
         Ito = Gto * R_state * S_state * (V - Ek)
         VEk = V - Ek
 
         VEk_row = self._interpolate(VEk, self._VEk_tab, self._VEk_T_mn, self._VEk_T_mx, self._VEk_T_res, self._VEk_T_step, self._VEk_T_mx_idx)
         ICaL = D_state * F_state * F2_state * FCaSS_state * (ICaL_A * CaSS - ICaL_B)
         INaCa = V_row[:, self._INaCa_A_idx] * Nai * Nai * Nai - V_row[:, self._INaCa_B_idx] * Cai
-        IK1 = self._GK1 * VEk_row[:, self._rec_iK1_idx] * (V - Ek)
+        IK1 = GK1 * VEk_row[:, self._rec_iK1_idx] * (V - Ek)
         Iion = IKr + IKs + IK1 + Ito + INa + IbNa + ICaL + IbCa + INaK + INaCa + IpCa + IpK
 
         # Forward Euler update for concentration variables
@@ -526,7 +675,11 @@ class TenTusscherPanfilov(IonicModel):
         self._J_state.assign(tf.reshape(V_row[:, self._J_rush_larsen_A_idx] + V_row[:, self._J_rush_larsen_B_idx] * J_state, orig_shape))
         self._M_state.assign(tf.reshape(V_row[:, self._M_rush_larsen_A_idx] + V_row[:, self._M_rush_larsen_B_idx] * M_state, orig_shape))
         self._R_state.assign(tf.reshape(V_row[:, self._R_rush_larsen_A_idx] + V_row[:, self._R_rush_larsen_B_idx] * R_state, orig_shape))
-        self._S_state.assign(tf.reshape(V_row[:, self._S_rush_larsen_A_idx] + V_row[:, self._S_rush_larsen_B_idx] * S_state, orig_shape))
+        # the S gate has a cell-type dependent time constant: pick the ENDO
+        # columns on ENDO nodes (a select, so the other nodes are bit-identical)
+        S_A = tf.where(is_endo, V_row[:, self._S_endo_rush_larsen_A_idx], V_row[:, self._S_rush_larsen_A_idx])
+        S_B = tf.where(is_endo, V_row[:, self._S_endo_rush_larsen_B_idx], V_row[:, self._S_rush_larsen_B_idx])
+        self._S_state.assign(tf.reshape(S_A + S_B * S_state, orig_shape))
         self._Xr1_state.assign(tf.reshape(V_row[:, self._Xr1_rush_larsen_A_idx] + V_row[:, self._Xr1_rush_larsen_B_idx] * Xr1_state, orig_shape))
         self._Xr2_state.assign(tf.reshape(V_row[:, self._Xr2_rush_larsen_A_idx] + V_row[:, self._Xr2_rush_larsen_B_idx] * Xr2_state, orig_shape))
         self._Xs_state.assign(tf.reshape(V_row[:, self._Xs_rush_larsen_A_idx] + V_row[:, self._Xs_rush_larsen_B_idx] * Xs_state, orig_shape))

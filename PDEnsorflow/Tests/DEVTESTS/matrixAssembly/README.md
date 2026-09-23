@@ -37,7 +37,7 @@ No GPU involvement in assembly.
 
 ### Optimized (after optimization, GPU)
 Vectorized contravariant basis, Sigma, and local matrix computation.
-Direct COO construction with TensorFlow `unsorted_segment_sum` (torchcor-style).
+Direct COO construction with TensorFlow `unsorted_segment_sum`: every element contribution is scattered into its global (row, column) entry in one call, instead of a per-element loop.
 Running with GPU detected (`/physical_device:GPU:0`), TensorFlow 2.12.0.
 
 | Mesh   | Nodes     | Elements  | Mean (s) | Std (s) | Speedup |

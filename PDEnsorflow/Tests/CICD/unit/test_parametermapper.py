@@ -334,3 +334,133 @@ def test_notes_are_silent_when_the_request_matches_what_is_done():
     noisy = _mapper(['-mass_lumping', '1', '-bidomain', '1']).notes()
     assert any('mass_lumping' in note for note in noisy)
     assert any('bidomain' in note for note in noisy)
+
+
+# ---- legacy stimulus[] keys ------------------------------------------------
+def test_legacy_stimulus_maps_onto_stim():
+    """stimulus[] gives the same (props, box) as stim[]: p0 = x0, p1 = x0 + xd."""
+    legacy = _mapper(['-tend', '10', '-num_stim', '1',
+                      '-stimulus[0].strength', '200', '-stimulus[0].duration', '1',
+                      '-stimulus[0].start', '0.5', '-stimulus[0].npls', '3',
+                      '-stimulus[0].bcl', '1000',
+                      '-stimulus[0].x0', '47000', '-stimulus[0].xd', '1000',
+                      '-stimulus[0].y0', '36000', '-stimulus[0].yd', '200',
+                      '-stimulus[0].z0', '-21000', '-stimulus[0].zd', '1000'])
+    modern = _mapper(['-tend', '10', '-num_stim', '1',
+                      '-stim[0].pulse.strength', '200', '-stim[0].ptcl.duration', '1',
+                      '-stim[0].ptcl.start', '0.5', '-stim[0].ptcl.npls', '3',
+                      '-stim[0].ptcl.bcl', '1000',
+                      '-stim[0].elec.p0[0]', '47000', '-stim[0].elec.p1[0]', '48000',
+                      '-stim[0].elec.p0[1]', '36000', '-stim[0].elec.p1[1]', '36200',
+                      '-stim[0].elec.p0[2]', '-21000', '-stim[0].elec.p1[2]', '-20000'])
+    assert legacy.stimuli() == modern.stimuli()
+    # the square-pulse approximation is reported, not hidden
+    assert any('truncated exponential' in note for note in legacy.notes())
+
+
+def test_unnamed_stimulus_takes_the_reference_label():
+    """An unnamed stimulus is Stimulus_<i> in both families; a name is kept."""
+    legacy = _mapper(['-tend', '10', '-num_stim', '2',
+                      '-stimulus[0].strength', '5', '-stimulus[0].xd', '400',
+                      '-stimulus[1].strength', '5', '-stimulus[1].name', 'S2'])
+    assert [props['name'] for props, _geom in legacy.stimuli()] == ['Stimulus_0', 'S2']
+    modern = _mapper(['-tend', '10', '-stim[0].pulse.strength', '5',
+                      '-stim[0].elec.p1[0]', '400'])
+    assert modern.stimuli()[0][0]['name'] == 'Stimulus_0'
+
+
+def test_legacy_stimulus_centred_box_and_defaults():
+    """ctr_def centres the box on (x0, y0, z0); an unset extent is 100 um."""
+    props, geometry = _mapper(['-tend', '10', '-stimulus[0].strength', '5',
+                               '-stimulus[0].ctr_def', '1', '-stimulus[0].x0', '1000',
+                               '-stimulus[0].xd', '400']).stimuli()[0]
+    assert geometry == {'p0': [800.0, -50.0, -50.0], 'p1': [1200.0, 50.0, 50.0]}
+    assert props['nstim'] == 1 and props['duration'] == 10.0
+
+
+def test_legacy_stimulus_rejects_other_types_and_mixing():
+    """Only type 0 is applied, and the two families cannot be mixed."""
+    with pytest.raises(ValueError, match='transmembrane'):
+        _mapper(['-stimulus[0].stimtype', '1', '-stimulus[0].strength', '5']).stimuli()
+    with pytest.raises(ValueError, match='one of the two families'):
+        _mapper(['-num_stim', '2', '-stimulus[0].strength', '5',
+                 '-stim[1].pulse.strength', '5']).stimuli()
+
+
+def test_lats_and_meshformat_accepted_not_actuated():
+    """LAT and mesh-format keys are accepted and reported as not acted upon."""
+    mapper = _mapper(['-meshformat', '0', '-num_LATs', '1', '-lats[0].ID', 'LATs',
+                      '-lats[0].all', '0', '-lats[0].measurand', '0',
+                      '-lats[0].threshold', '-10', '-lats[0].mode', '0'])
+    assert any('activation times are not computed' in note for note in mapper.notes())
+
+
+# ---- im_param flags (cell type) --------------------------------------------
+def _ttp_regions(flags: list) -> list:
+    argv = ['-num_imp_regions', str(len(flags))]
+    for index, flag in enumerate(flags):
+        text = 'GKs*1.5' + (',flags={}'.format(flag) if flag else '')
+        argv += ['-imp_region[{}].im'.format(index), 'tenTusscherPanfilov',
+                 '-imp_region[{}].im_param'.format(index), text,
+                 '-imp_region[{}].ID'.format(index), str(1 + index)]
+    return(argv)
+
+
+def test_flags_select_cell_type():
+    """flags=ENDO in every region builds the ENDO model; no flags means EPI."""
+    assert _mapper(_ttp_regions(['ENDO', 'ENDO'])).ionic_model_options() == {'cell_type': 'ENDO'}
+    assert _mapper(_ttp_regions([None])).ionic_model_options() == {'cell_type': 'EPI'}
+    # the flags item is not a parameter modifier
+    assert parse_im_param('GKs*1.5,flags=ENDO') == {'GKs': ('*', 1.5, False)}
+
+
+def test_flags_may_differ_by_region():
+    """Mixed cell types are per node now: the constructor gets the model
+    default, and each region's type travels in the celltype map."""
+    assert _mapper(_ttp_regions(['ENDO', 'MCELL'])).ionic_model_options() == {'cell_type': 'EPI'}
+    assert _mapper(_ttp_regions(['ENDO', None])).ionic_model_options() == {'cell_type': 'EPI'}
+
+
+@pytest.mark.parametrize('flags,match', [
+    (['EPI|ENDO'], 'not a cell type'),
+    (['APEX'], 'not a cell type'),
+])
+def test_flags_rejected(flags, match):
+    with pytest.raises(ValueError, match=match):
+        _mapper(_ttp_regions(flags)).ionic_model_options()
+
+
+def test_flags_on_model_without_cell_types():
+    mapper = _mapper(['-imp_region[0].im', 'mMS', '-imp_region[0].im_param', 'flags=ENDO'])
+    with pytest.raises(ValueError, match='has no cell types'):
+        mapper.ionic_model_options()
+
+
+def test_ttp_conductance_modifiers_resolve_against_cell_type():
+    """GKr/GKs exist before the first step and scale the cell-type default:
+    GKs is 0.392 for ENDO, 0.098 for MCELL, and the modifier scales that."""
+    from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
+    for cell_type, gks in (('ENDO', 0.392), ('MCELL', 0.098)):
+        argv = ['-imp_region[0].im', 'tenTusscherPanfilov', '-imp_region[0].im_param',
+                'GKr*1.5,GKs*1.5,flags={}'.format(cell_type), '-imp_region[0].ID', '1']
+        mapper = _mapper(argv)
+        model  = mapper.ionic_model_class()(dt=0.02, **mapper.ionic_model_options())
+        maps   = mapper.ionic_parameter_maps(model, {1, 2})
+        assert maps['GKr'][1] == pytest.approx(1.5 * 0.153)
+        assert maps['GKs'][1] == pytest.approx(1.5 * gks)
+        # tag 2 has no region, so it keeps the model default
+        assert maps['GKs'][2] == pytest.approx(gks)
+
+
+def test_ttp_per_node_conductance_survives_initialisation():
+    """A per-node GKr set before initialize_state_variables is kept, not
+    overwritten by the default."""
+    import numpy as np
+    import tensorflow as tf
+    from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
+    model = TenTusscherPanfilov(dt=0.02, n_nodes=3)
+    values = np.array([[0.1], [0.2], [0.3]], dtype=np.float32)
+    model.set_parameter('GKr', values)
+    model.initialize_state_variables(tf.Variable(tf.zeros([3, 1], dtype=tf.float32)))
+    np.testing.assert_allclose(model.get_parameter('GKr').numpy(), values)
+    np.testing.assert_allclose(model.get_parameter('GKs').numpy(), np.full((3, 1), 0.392))

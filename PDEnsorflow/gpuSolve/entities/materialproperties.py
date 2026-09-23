@@ -156,6 +156,17 @@ class MaterialProperties:
             print(f"Unexpected {err=}, {type(err)=}")
             raise
 
+    def nodal_property_map(self, pname: str):
+        """ nodal_property_map(pname) returns the mapping given to
+            add_nodal_property for pname (a value, a region map or a per-point
+            map), or None when pname is not a nodal property. It lets a caller
+            evaluate the property on every point at once rather than calling
+            NodalProperty() point by point.
+        """
+        if self._nodal_properties is None or pname not in self._nodal_properties:
+            return(None)
+        return(self._nodal_properties[pname]['idmap'])
+
     def element_property_names(self) -> list:
         """ element_property_names() returns the names (keys) of the element material properties;
         None if no properties are defined
