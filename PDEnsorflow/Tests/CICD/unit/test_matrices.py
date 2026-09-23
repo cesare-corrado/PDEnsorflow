@@ -38,6 +38,7 @@ import pytest
 from gpuSolve.entities.triangulation import Triangulation
 from gpuSolve.entities.materialproperties import MaterialProperties
 from gpuSolve.matrices.globalMatrices import compute_coo_pattern, assemble_matrices_dict
+from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.matrices.localMass import localMass
 from gpuSolve.matrices.localStiffness import localStiffness
 
@@ -159,3 +160,61 @@ def test_stiffness_matrix_1d_closed_form(tmp_path, nelem, length):
     evals = np.linalg.eigvalsh(K)
     assert evals.min() > -1.0e-6, 'stiffness not PSD: min eigenvalue {0}'.format(evals.min())
     assert abs(evals[0]) < 1.0e-6, 'expected a zero (constant) mode, got {0}'.format(evals[0])
+
+
+# ---- host-side summation ---------------------------------------------------
+def _assemble_values(mesh_file: str, pattern_edit=None, renumber: bool = False) -> tuple:
+    """Assemble mass and stiffness and return ({name: dense}, renumbering)."""
+    domain = Triangulation()
+    domain.readMesh(mesh_file)
+    connectivity = domain.mesh_connectivity(False)
+    pattern      = compute_coo_pattern(connectivity)
+    renumbering  = compute_reverse_cuthill_mckee_indexing(pattern) if renumber else None
+    if pattern_edit is not None:
+        pattern = pattern_edit(pattern)
+    materials = MaterialProperties()
+    materials.add_ud_function('mass', _dfmass)
+    materials.add_ud_function('stiffness', _sigma_iso)
+    matrices = assemble_matrices_dict({'mass': localMass, 'stiffness': localStiffness},
+                                      pattern, domain, materials, connectivity, renumbering=renumbering)
+    dense = {name: tf.sparse.to_dense(tf.sparse.reorder(m.to_sparse_tensor())).numpy()
+             for name, m in matrices.items()}
+    return((dense, renumbering))
+
+
+def test_assembly_is_deterministic(tmp_path):
+    """The element entries are summed on the host in a fixed order, so two
+    identical assemblies agree to the bit (the device sum they replace did not)."""
+    mesh_file = str(tmp_path / 'line.pkl')
+    _write_1d_mesh(mesh_file, 9, 2.0)
+    first, _  = _assemble_values(mesh_file)
+    second, _ = _assemble_values(mesh_file)
+    for name in first:
+        assert np.array_equal(first[name], second[name]), name
+
+
+def test_renumbered_assembly_is_an_exact_permutation(tmp_path):
+    """Only the global entries are renumbered, after the sum, so the renumbered
+    matrix is the plain one with rows and columns permuted, to the bit."""
+    mesh_file = str(tmp_path / 'line.pkl')
+    _write_1d_mesh(mesh_file, 9, 2.0)
+    plain, _         = _assemble_values(mesh_file)
+    renumbered, perm = _assemble_values(mesh_file, renumber=True)
+    iperm = perm['iperm']
+    for name in plain:
+        expected = np.zeros_like(plain[name])
+        expected[np.ix_(iperm, iperm)] = plain[name]
+        assert np.array_equal(renumbered[name], expected), name
+
+
+def test_entry_outside_the_pattern_is_an_error(tmp_path):
+    """An element entry the pattern lacks must stop the assembly, not be summed
+    into a neighbouring entry."""
+    mesh_file = str(tmp_path / 'line.pkl')
+    _write_1d_mesh(mesh_file, 4, 1.0)
+
+    def drop_last(pattern: dict) -> dict:
+        return({'I': pattern['I'][:-1], 'J': pattern['J'][:-1],
+                'StartIndex': pattern['StartIndex']})
+    with pytest.raises(ValueError, match='not in the sparsity pattern'):
+        _assemble_values(mesh_file, pattern_edit=drop_last)

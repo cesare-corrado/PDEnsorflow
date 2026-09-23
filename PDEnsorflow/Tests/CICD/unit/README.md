@@ -32,6 +32,16 @@ guess must leave X exactly 0 on both paths. That system has a residual of exactl
 step length `r.z / p.Ap` would be 0/0 and write NaN, which is what a
 pure-diffusion run meets on its first step.
 
+### `test_matrices.py` &mdash; `gpuSolve.matrices.assemble_matrices_dict`
+Assembles the mass and stiffness matrices of uniform 1D edge meshes and checks
+them entry by entry against their closed tridiagonal forms, plus symmetry,
+total mass, zero row sums and positive semi-definiteness. The element entries
+are summed on the host, so three more tests pin what that path promises: two
+identical assemblies agree **to the bit** (the device sum it replaced did
+not), the RCM-renumbered matrix is the plain one with rows and columns
+permuted, to the bit, and an element entry missing from the sparsity pattern
+raises instead of being summed into a neighbouring entry.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the

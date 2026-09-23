@@ -662,27 +662,54 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
                     all_vals[matr_name].append(
                         batch_lmat[matr_name][:, iEntry, jEntry])  # (nElems,)
 
-    rows = np.concatenate(all_rows).astype(np.int64)
-    cols = np.concatenate(all_cols).astype(np.int64)
-
+    # The element entries are summed into the global entries on the HOST, and
+    # only the finished matrices go to the device. There is one element entry
+    # per (element, i, j), 16 per tetrahedron, so a mesh of 18 M tetrahedra has
+    # about 290 M of them: removing their duplicates on the device (tf.unique)
+    # needed a 3.6 GB scratch buffer on top of the entries themselves and did
+    # not fit a 12 GB card, whereas the finished matrices have only one entry
+    # per node pair of the pattern. The host sum is also DETERMINISTIC: the
+    # device segment sum adds with atomics in an order that changes from run to
+    # run (on a 63001-node mesh about 1% of the entries differed in their last
+    # bits between two identical runs), so the previous assembly was not
+    # reproducible to the bit and this one is, on any card.
+    # The global entries are the sparsity pattern that is already computed
+    # (matrix_pattern), so they are not searched again: each element entry is
+    # located in the sorted pattern keys by a binary search, which needs no sort
+    # of the element entries at all. The keys are sorted here rather than
+    # assumed sorted, because the column order within a row is the order of
+    # the connectivity lists.
+    keys = (np.concatenate(all_rows).astype(np.int64) * npt
+            + np.concatenate(all_cols).astype(np.int64))
+    del all_rows, all_cols
+    pattern_keys = np.sort(matrix_pattern['I'].astype(np.int64) * npt
+                           + matrix_pattern['J'].astype(np.int64))
+    idx = np.searchsorted(pattern_keys, keys)
+    # an entry outside the pattern would otherwise be summed into a neighbour
+    # without a word
+    if np.any(idx >= pattern_keys.shape[0]) or np.any(pattern_keys[np.minimum(idx, pattern_keys.shape[0] - 1)] != keys):
+        raise ValueError('assemble_matrices_dict: an element entry is not in the sparsity pattern')
+    del keys
+    unique_rows = pattern_keys // npt
+    unique_cols = pattern_keys % npt
     if renumbering is not None:
-        iperm = renumbering['iperm']
-        rows  = iperm[rows].astype(np.int64)
-        cols  = iperm[cols].astype(np.int64)
+        # the pattern is in the original numbering, so only the global entries
+        # are renumbered, not every element entry
+        iperm       = renumbering['iperm']
+        unique_rows = iperm[unique_rows].astype(np.int64)
+        unique_cols = iperm[unique_cols].astype(np.int64)
+    indices = tf.constant(np.stack([unique_rows, unique_cols], axis=1), dtype=tf.int64)
 
     dense_shape = [npt, npt]
-    linearized  = tf.constant(rows * npt + cols, dtype=tf.int64)
-    y, idx      = tf.unique(linearized)
-    unique_rows = tf.cast(y // npt, dtype=tf.int64)
-    unique_cols = tf.cast(y % npt, dtype=tf.int64)
-    indices     = tf.stack([unique_rows, unique_cols], axis=1)
-
     MATRICES = {}
     for matr_name in local_matrices_dict.keys():
-        vals   = tf.constant(np.concatenate(all_vals[matr_name]), dtype=tf.float32)
-        values = tf.math.unsorted_segment_sum(vals, idx, tf.shape(y)[0])
+        # summed in float32, as the device sum it replaces was, so the values
+        # agree with the previous assembly up to the order of the additions
+        vals   = np.concatenate(all_vals[matr_name]).astype(np.float32)
+        values = np.zeros(shape=(pattern_keys.shape[0],), dtype=np.float32)
+        np.add.at(values, idx, vals)
         sp = tf.sparse.SparseTensor(
-            indices=indices, values=values, dense_shape=dense_shape)
+            indices=indices, values=tf.constant(values, dtype=tf.float32), dense_shape=dense_shape)
         MATRICES[matr_name] = _wrap_sparse_tensor_as_csr(sp)
 
     elapsed = time() - t0
