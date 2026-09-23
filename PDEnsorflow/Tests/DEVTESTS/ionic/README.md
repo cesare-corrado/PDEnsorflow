@@ -101,3 +101,35 @@ and 5.3e-11 (relative, n); passive parent with `--stim 1000`, 20 ms, V up to
 7.5e-7 mV and 2.0e-8. With `--parent passive --vrest 0` the
 plugin starts at exactly 0 mV, where its pore conductance is 0/0: `bench` turns
 NaN from the first step, this code stays at the finite limit.
+
+# defib_ashihara_trayanova.py
+
+Single cell with the outward-current plugin (`DefibAshiharaTrayanova`) attached
+through `IonicModelWithPlugins`, compared step by step with `bench`, in `bench`'s
+step order (stimulus from 1 to 2 ms, then `V -= dt*(Iion + Ia)`).
+
+```
+python defib_ashihara_trayanova.py [--parent passive|tomek] [--vrest -80] \
+       [--stim 400] [--duration 5] [--dt 0.01] [--reference-form] [--reference DIR]
+```
+
+`--reference-form` selects the lower branch of the reference model description,
+`exp(0.09 (V - VtakeOff))`, the one `bench` computes. Without it the plugin uses
+Cheng et al.'s `exp(0.09 (V - 100))` and differs from `bench` by design. It saves
+`defib_<parent>_stim<stim>_dt<dt>[_refform].npy`, columns `[time (ms), V (mV)]`.
+With `--reference DIR` it prints the largest difference in V against the
+`bench -v` dumps in `DIR`, produced with
+
+```
+bench --imp Plonsey --imp-par "Vrest=<vrest>" --plug-in Defib_AshiharaTrayanova \
+      --stim-curr <stim> --duration <duration> --dt <dt> --dt-out <dt> -v
+bench --imp Tomek --plug-in Defib_AshiharaTrayanova \
+      --stim-curr <stim> --duration <duration> --dt <dt> --dt-out <dt> -v
+```
+
+Results at `dt = 0.01` ms (RTX A2000), `--reference-form`: passive parent, 5 ms,
+`--stim 0`, 400 and 2000 (V up to +163.7 and +227.6 mV): 0 mV (bit-identical);
+Tomek, 50 ms, `--stim 0`: 2.0e-9 mV; `--stim 1000` (V up to +187.9 mV):
+3.0e-7 mV. With Cheng et al.'s branch (the default) the peaks are the same
+(the upper branch is shared) but the passive cell repolarises to 77.0 mV instead
+of 96.3 mV at 5 ms (`--stim 400`), because Ia below `VtakeOff` is 221 times larger.
