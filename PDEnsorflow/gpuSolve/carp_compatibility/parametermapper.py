@@ -53,6 +53,7 @@ from gpuSolve.ionic.courtemanche_ramirez_nattel import CourtemancheRamirezNattel
 from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
 from gpuSolve.ionic.tomek import Tomek
 from gpuSolve.ionic.plugins.electroporation_debruin_krassowska98 import ElectroporationDeBruinKrassowska98
+from gpuSolve.ionic.plugins.defib_ashihara_trayanova import DefibAshiharaTrayanova
 from gpuSolve.ionic.ionicmodelwithplugins import PLUGIN_SEPARATOR
 from gpuSolve.ionic.ionicmodelwithplugins import ACTIVE_PARAMETER
 
@@ -88,7 +89,8 @@ IONIC_MODELS = {'mMS': ModifiedMS2v,
                 'Fenton': Fenton4v}
 
 # Ionic plugins for imp_region[].plugins, by the name the parameter file uses.
-IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKrassowska98}
+IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKrassowska98,
+                 'Defib_AshiharaTrayanova':             DefibAshiharaTrayanova}
 
 # Separates the plugin names in imp_region[].plugins, and their parameter
 # lists in imp_region[].plug_param.

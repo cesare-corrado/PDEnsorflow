@@ -7,6 +7,7 @@ attached to a cell model through gpuSolve.ionic.ionicmodelwithplugins.
 Contains:
     * IonicPlugin:                         the base class for the plugins
     * electroporation_debruin_krassowska98: the DeBruin-Krassowska (1998) membrane electroporation current
+    * defib_ashihara_trayanova:             the Ashihara-Trayanova (2004) outward current activated by strong shocks
 """
 
 
