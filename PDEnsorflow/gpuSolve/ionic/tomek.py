@@ -46,6 +46,12 @@ _MCELL : int = 2
 # Extracellular concentrations: tunable, but one value for the whole tissue.
 _EXTRACELLULAR : tuple = ('Ko', 'Nao', 'Cao')
 
+# The GHK flux terms are 0/0 at V = 0 (see differentiate). Within this distance
+# of 0 their exact limit is used instead of the quotient, whose value at the
+# point itself is NaN, and which one NaN node would spread to the whole mesh
+# through the implicit diffusion solve.
+_SINGULAR_BAND : float = 1.0e-6   # mV
+
 
 class Tomek(IonicModel):
     """
@@ -79,12 +85,12 @@ class Tomek(IonicModel):
         Parameters must be set before the first differentiate() call: it runs
         inside a tf.function that captures them when it is first traced.
 
-        Gating variables are advanced through precomputed voltage tables as
-        x_new = A(V) + B(V) x. With use_rush_larsen True (default) A and B
-        encode the Rush-Larsen exponential update; with False they encode
-        forward Euler, the scheme of the reference implementation, which is
-        useful to compare with it step for step. All other variables use
-        forward Euler.
+        Gating variables are advanced through precomputed voltage tables. With
+        use_rush_larsen True (default) the tables hold A(V), B(V) of the
+        Rush-Larsen update x_new = A + B x. With False they hold x_inf(V) and
+        tau(V), and x_new = x + ((x_inf - x)/tau) dt is forward Euler written
+        as the reference implementation writes it, which is useful to compare
+        with it step for step. All other variables use forward Euler.
 
         differentiate() is compiled with XLA. The model has several hundred
         small kernels per step; fused, a step on the RTX A2000 takes 2.7 ms for
@@ -98,9 +104,10 @@ class Tomek(IonicModel):
 
         # ---- integration ----------------------------------------------------
         # Rush-Larsen by default. Several gates have time constants shorter than
-        # a practical dt: near rest tm is about 0.005 ms, so forward Euler with
-        # dt = 0.01 ms has B = 1 - dt/tm of about -1.2, and m oscillates and is
-        # held only by the [0, 1] clamp (1e-3 away from a dt = 0.001 ms solution
+        # a practical dt: at the resting potential tm is 0.0023 ms, so forward
+        # Euler with dt = 0.01 ms multiplies the distance of m from its steady
+        # state by 1 - dt/tm = -3.28 at every step, and m oscillates and is
+        # held only by the [0, 1] clamp (the reference does exactly this) (1e-3 away from a dt = 0.001 ms solution
         # after repolarisation, against 8e-7 with Rush-Larsen). Measured against
         # that converged solution over one beat, Rush-Larsen is as accurate or
         # better at every dt from 0.01 to 0.1 ms, and halves the upstroke error.
@@ -460,14 +467,10 @@ class Tomek(IonicModel):
                 'step': float(step32), 'mn_ind': mn_ind, 'mx_ind': mx_ind, 'grid': grid})
 
     def __gate_coefficients(self, ss: np.ndarray, tau: np.ndarray) -> tuple:
-        """ returns (A, B) such that x_new = A + B x advances a gate by dt """
+        """ returns (A, B) such that x_new = A + B x is the Rush-Larsen update of a gate """
         dt = self._dt
-        if self._use_rush_larsen:
-            B = np.exp(-dt / tau)
-            A = -ss * np.expm1(-dt / tau)
-        else:
-            B = 1.0 - dt / tau
-            A = dt * ss / tau
+        B = np.exp(-dt / tau)
+        A = -ss * np.expm1(-dt / tau)
         return(A, B)
 
     def construct_tables(self):
@@ -596,10 +599,21 @@ class Tomek(IonicModel):
                      'd': (dss, td), 'ff': (fss, tff), 'fs': (fss, tfs), 'fCaf': (fss, tfCaf),
                      'fCas': (fss, tfCas), 'jCa': (jCass, tjCa), 'ffp': (fss, 2.5 * tff),
                      'fCafp': (fss, 2.5 * tfCaf), 'xs1': (xs1ss, txs1), 'xs2': (xs1ss, txs2)}
+            # Forward Euler is NOT folded into A + B x: at high potentials tau
+            # is tiny (tm is 2e-16 ms at +300 mV), so A = dt x_inf/tau and
+            # B = 1 - dt/tau are two numbers near +-5e13 that must cancel, and
+            # their sum loses every digit (m = x_inf = 1 came out as 0 at
+            # +330 mV). x_inf and tau are tabulated instead, and the update is
+            # computed as the reference does. Rush-Larsen has no such
+            # cancellation: B = exp(-dt/tau) underflows to 0 and A to x_inf.
             for name, (ss, tau) in gates.items():
-                A, B = self.__gate_coefficients(ss, tau)
-                cols['{}_A'.format(name)] = A
-                cols['{}_B'.format(name)] = B
+                if self._use_rush_larsen:
+                    A, B = self.__gate_coefficients(ss, tau)
+                    cols['{}_A'.format(name)] = A
+                    cols['{}_B'.format(name)] = B
+                else:
+                    cols['{}_inf'.format(name)] = ss
+                    cols['{}_tau'.format(name)] = tau
 
         # A table row is only used near the potential it tabulates, but linear
         # interpolation multiplies the neighbouring row by a weight that can be
@@ -755,18 +769,23 @@ class Tomek(IonicModel):
         Nai, Nass, Ki, Kss  = s['Nai'], s['Nass'], s['Ki'], s['Kss']
         Cai, Cass, Cajsr    = s['Cai'], s['Cass'], s['Cajsr']
 
-        # The GHK terms below are 0/0 at V = 0 exactly, which a potential can
-        # hit (the grid point is exactly 0). Moving Vfrt off zero by 1e-12 gives
-        # the correct limit; Vffrt = F*Vfrt is kept consistent with it.
-        Vfrt  = vt('Vfrt')
-        Vffrt = vt('Vffrt')
-        at_zero = tf.abs(Vfrt) < 1.0e-20
-        Vfrt  = tf.where(at_zero, tf.constant(1.0e-12, dtype=_DTYPE), Vfrt)
-        Vffrt = tf.where(at_zero, tf.constant(1.0e-12 * F, dtype=_DTYPE), Vffrt)
-        exp1  = tf.exp(Vfrt)
-        exp2  = tf.exp(2.0 * Vfrt)
-        em1   = tf.math.expm1(Vfrt)
-        em2   = tf.math.expm1(2.0 * Vfrt)
+        # The GHK terms below all read c Vffrt (a e^{z x} - b)/(e^{z x} - 1)
+        # with x = Vfrt = VF/RT and Vffrt = F x: 0/0 at V = 0, which a
+        # potential can hit (the table has a grid point there). By L'Hopital
+        # the limit is c F (a - b)/z, used within _SINGULAR_BAND of 0. There x
+        # is replaced by 1 in the quotient so that the branch tf.where does not
+        # select never computes a NaN. expm1 keeps the quotient accurate right
+        # up to the band, where e^{zx} - 1 would cancel.
+        near_0 = tf.abs(V) < _SINGULAR_BAND
+        Vfrt   = tf.where(near_0, tf.constant(1.0, dtype=_DTYPE), vt('Vfrt'))
+        Vffrt  = tf.where(near_0, tf.constant(F, dtype=_DTYPE), vt('Vffrt'))
+        exp1   = tf.exp(Vfrt)
+        exp2   = tf.exp(2.0 * Vfrt)
+        em1    = tf.math.expm1(Vfrt)
+        em2    = tf.math.expm1(2.0 * Vfrt)
+
+        def ghk(c, z: float, a: tf.Tensor, b, exp_z: tf.Tensor, em_z: tf.Tensor) -> tf.Tensor:
+            return(tf.where(near_0, c * F * (a - b) / z, (c * Vffrt * (a * exp_z - b)) / em_z))
 
         # ---- CaMK ----
         CaMKb = (self._CaMKo * (1.0 - s['CaMKt'])) / (1.0 + self._KmCaM / Cass)
@@ -808,12 +827,12 @@ class Tomek(IonicModel):
         gamma4_i  = tf.exp(-constA * 4.0 * dh_i)
         gamma1_ss = tf.exp(-constA * dh_ss)
         gamma4_ss = tf.exp(-constA * 4.0 * dh_ss)
-        PhiCaL_ss  = (4.0 * Vffrt * (gamma4_ss * Cass * exp2 - gamma_Cao * Cao)) / em2
-        PhiCaNa_ss = (Vffrt * (gamma1_ss * Nass * exp1 - gamma_o1 * Nao)) / em1
-        PhiCaK_ss  = (Vffrt * (gamma1_ss * Kss * exp1 - gamma_o1 * Ko)) / em1
-        PhiCaL_i   = (4.0 * Vffrt * (gamma4_i * Cai * exp2 - gamma_Cao * Cao)) / em2
-        PhiCaNa_i  = (Vffrt * (gamma1_i * Nai * exp1 - gamma_o1 * Nao)) / em1
-        PhiCaK_i   = (Vffrt * (gamma1_i * Ki * exp1 - gamma_o1 * Ko)) / em1
+        PhiCaL_ss  = ghk(4.0, 2.0, gamma4_ss * Cass, gamma_Cao * Cao, exp2, em2)
+        PhiCaNa_ss = ghk(1.0, 1.0, gamma1_ss * Nass, gamma_o1 * Nao, exp1, em1)
+        PhiCaK_ss  = ghk(1.0, 1.0, gamma1_ss * Kss, gamma_o1 * Ko, exp1, em1)
+        PhiCaL_i   = ghk(4.0, 2.0, gamma4_i * Cai, gamma_Cao * Cao, exp2, em2)
+        PhiCaNa_i  = ghk(1.0, 1.0, gamma1_i * Nai, gamma_o1 * Nao, exp1, em1)
+        PhiCaK_i   = ghk(1.0, 1.0, gamma1_i * Ki, gamma_o1 * Ko, exp1, em1)
         PCap   = 1.1 * PCa
         open_ss  = d * (f * (1.0 - s['nCa_ss']) + jCa * fCa * s['nCa_ss'])
         openp_ss = d * (fp * (1.0 - s['nCa_ss']) + jCa * fCap * s['nCa_ss'])
@@ -897,8 +916,8 @@ class Tomek(IonicModel):
         INaK   = PNaK * (self._zNa * JNaKNa + self._zK * JNaKK)
 
         # ---- background, pump and chloride currents ----
-        INab  = (self._PNab * Vffrt * (Nai * exp1 - Nao)) / em1
-        ICab  = (self._PCab * 4.0 * Vffrt * (gamma4_i * Cai * exp2 - gamma_Cao * Cao)) / em2
+        INab  = ghk(self._PNab, 1.0, Nai, Nao, exp1, em1)
+        ICab  = ghk(self._PCab * 4.0, 2.0, gamma4_i * Cai, gamma_Cao * Cao, exp2, em2)
         IpCa  = ct('IpCa')
         IClCa = ((self._Fjunc * self._GClCa) / (1.0 + self._KdClCa / Cass)
                  + ((1.0 - self._Fjunc) * self._GClCa) / (1.0 + self._KdClCa / Cai)) * (V - ECl)
@@ -965,14 +984,22 @@ class Tomek(IonicModel):
 
         new : dict = {name: s[name] + dt * rate for name, rate in diff.items()}
 
-        # ---- gates: x_new = A(V) + B(V) x ----
+        # ---- gates: Rush-Larsen A + B x, or forward Euler as the reference ----
+        def gate(name: str, x: tf.Tensor, epi: bool) -> tf.Tensor:
+            def column(kind: str) -> tf.Tensor:
+                if epi:
+                    return(tf.where(is_epi, vt('{}_epi_{}'.format(name, kind)),
+                                    vt('{}_{}'.format(name, kind))))
+                return(vt('{}_{}'.format(name, kind)))
+            if self._use_rush_larsen:
+                return(column('A') + column('B') * x)
+            return(x + ((column('inf') - x) / column('tau')) * dt)
+
         for name in ('m', 'h', 'j', 'hp', 'jp', 'mL', 'hL', 'hLp', 'a', 'ap', 'd', 'ff', 'fs',
                      'fCaf', 'fCas', 'jCa', 'ffp', 'fCafp', 'xs1', 'xs2'):
-            new[name] = vt('{}_A'.format(name)) + vt('{}_B'.format(name)) * s[name]
+            new[name] = gate(name, s[name], False)
         for name in ('iF', 'iS', 'iFp', 'iSp'):
-            A = tf.where(is_epi, vt('{}_epi_A'.format(name)), vt('{}_A'.format(name)))
-            B = tf.where(is_epi, vt('{}_epi_B'.format(name)), vt('{}_B'.format(name)))
-            new[name] = A + B * s[name]
+            new[name] = gate(name, s[name], True)
 
         # ---- bounds of the reference model, then store ----
         concentrations = ('CaMKt', 'Nai', 'Nass', 'Ki', 'Kss', 'Cai', 'Cass', 'Cansr', 'Cajsr')

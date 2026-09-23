@@ -61,8 +61,10 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   50 ms (the plugin's leak makes the cell fire at about 48 ms), and a passive
   membrane under a 1000 uA/uF shock that drives V to +470.9 mV. V and the pore
   density are checked at fixed times within 0.05 mV and 1e-6. The shock uses a
-  passive parent because Tomek's own IKr Markov chain is unstable under forward
-  Euler above about +100 mV, in both codes. Marked `nightly` + `gpu`.
+  passive parent so that it tests the plugin alone: above +222 mV (at
+  `dt = 0.01` ms) forward Euler on Tomek's IKr Markov chain is unstable in both
+  codes, so that part of a Tomek trajectory is a shared numerical artifact.
+  Marked `nightly` + `gpu`.
 - `_gpu_check.py` &mdash; GPU sanity gate for the workflow (imports gpuSolve, then
   fails if no physical GPU is visible). Not a test; the leading underscore keeps
   pytest from collecting it. Run it as a script, never via `python -c`.

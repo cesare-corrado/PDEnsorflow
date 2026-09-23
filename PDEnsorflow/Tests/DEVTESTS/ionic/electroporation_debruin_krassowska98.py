@@ -30,10 +30,12 @@
 
     Two parent models:
       * --parent tomek (default): the Tomek (ToR-ORd) model, with forward-Euler
-        gates, the reference's own scheme. Use it at rest (--stim 0). Under a
-        shock Tomek itself stops being comparable: above about +100 mV the rates
-        of its IKr Markov chain exceed 2/dt, forward Euler is unstable there in
-        both codes, and the clamped iteration amplifies rounding differences.
+        gates, the reference's own scheme, at rest (--stim 0) or under a shock
+        (--stim 1000). Above +222 mV (at dt = 0.01 ms) forward Euler on
+        Tomek's IKr Markov chain is unstable in both codes: its states
+        saw-tooth on the [0, 1] clamps. Both codes compute the same clamped
+        iteration, so they still agree, but that part of the trajectory is a
+        numerical artifact.
       * --parent passive: a passive membrane, Iion = (V - Vrest)/Rm with
         Rm = 10 kOhm cm^2, the reference's passive model (Plonsey), written
         out below. It stays stable at any potential, so a shock (--stim 1000,
