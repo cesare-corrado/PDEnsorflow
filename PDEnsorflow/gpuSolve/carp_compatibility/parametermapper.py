@@ -52,6 +52,9 @@ from gpuSolve.ionic.fenton4v import Fenton4v
 from gpuSolve.ionic.courtemanche_ramirez_nattel import CourtemancheRamirezNattel
 from gpuSolve.ionic.ten_tusscher_panfilov import TenTusscherPanfilov
 from gpuSolve.ionic.tomek import Tomek
+from gpuSolve.ionic.plugins.electroporation_debruin_krassowska98 import ElectroporationDeBruinKrassowska98
+from gpuSolve.ionic.ionicmodelwithplugins import PLUGIN_SEPARATOR
+from gpuSolve.ionic.ionicmodelwithplugins import ACTIVE_PARAMETER
 
 
 # S/m and micrometres to um^2/ms, once beta (um^-1) has divided it out.
@@ -83,6 +86,13 @@ IONIC_MODELS = {'mMS': ModifiedMS2v,
                 'tenTusscherPanfilov': TenTusscherPanfilov,
                 'Tomek': Tomek,
                 'Fenton': Fenton4v}
+
+# Ionic plugins for imp_region[].plugins, by the name the parameter file uses.
+IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKrassowska98}
+
+# Separates the plugin names in imp_region[].plugins, and their parameter
+# lists in imp_region[].plug_param.
+PLUGIN_LIST_SEPARATOR : str = ':'
 
 # Cell-parameter names that differ between the two vocabularies. Everything
 # else (tau_in, tau_out, tau_open, tau_close) is spelled the same way.
@@ -135,6 +145,8 @@ REGISTRY = {
     'imp_region[].name':            ('str',   '',        True),
     'imp_region[].im':              ('str',   '',        True),
     'imp_region[].im_param':        ('str',   '',        True),
+    'imp_region[].plugins':         ('str',   '',        True),
+    'imp_region[].plug_param':      ('str',   '',        True),
     'imp_region[].cellSurfVolRatio': ('float', 0.14,     True),
     'imp_region[].volFrac':         ('float', 1.0,       True),
     'imp_region[].num_IDs':         ('int',   0,         True),
@@ -207,30 +219,36 @@ def time_label(ctime: float) -> str:
     return('{:.6f}'.format(ctime).rstrip('0').rstrip('.'))
 
 
-def parse_im_param(text: str) -> dict:
-    """ parse_im_param(text) reads a "name<op>value,name<op>value" cell-parameter
-        list and returns {name: (op, value, percent)} keyed by the gpuSolve
-        parameter name. The value is NOT resolved here: `GNa*0.3` means "the
-        model default scaled by 0.3", so the modifier has to travel as far as
-        the point where the cell model, and therefore that default, is known.
-        Use apply_param_mod() there.
+def parse_im_param(text: str, aliases: dict = None) -> dict:
+    """ parse_im_param(text, aliases) reads a "name<op>value,name<op>value"
+        cell-parameter list and returns {name: (op, value, percent)} keyed by
+        the gpuSolve parameter name. The value is NOT resolved here: `GNa*0.3`
+        means "the model default scaled by 0.3", so the modifier has to travel
+        as far as the point where the cell model, and therefore that default,
+        is known. Use apply_param_mod() there.
+        aliases renames parameters on the way in; it defaults to
+        IM_PARAM_ALIASES, the cell-model renames. Plugin parameters pass {}:
+        the plugins use the reference's own names.
     """
     params : dict = {}
     for chunk in text.split(','):
         item = chunk.strip().replace(' ', '')
         if len(item) == 0:
             continue
-        params.update([split_param_mod(item)])
+        params.update([split_param_mod(item, aliases)])
     return(params)
 
 
-def split_param_mod(item: str) -> tuple:
-    """ split_param_mod(item) cuts a cell-parameter item at its FIRST operator
-        and returns (gpuSolve name, (op, value, percent)).
+def split_param_mod(item: str, aliases: dict = None) -> tuple:
+    """ split_param_mod(item, aliases) cuts a cell-parameter item at its FIRST
+        operator and returns (gpuSolve name, (op, value, percent)).
         The name ends at the first of `= + - / *`, so `GNa*0.3` is the parameter
         GNa scaled by 0.3, and `GNa=0.3` assigns it outright. A trailing `%`
-        makes the operand that percentage OF THE CURRENT VALUE.
+        makes the operand that percentage OF THE CURRENT VALUE. aliases is as
+        in parse_im_param().
     """
+    if aliases is None:
+        aliases = IM_PARAM_ALIASES
     for ipos, char in enumerate(item):
         if char in PARAM_MOD_OPERATORS:
             name    = item[:ipos]
@@ -250,7 +268,7 @@ def split_param_mod(item: str) -> tuple:
                 # for.
                 raise ValueError('cannot read cell parameter "{}": "{}" is not a '
                                  'number'.format(item, operand))
-            return((IM_PARAM_ALIASES.get(name, name), (char, value, percent)))
+            return((aliases.get(name, name), (char, value, percent)))
     raise ValueError('cannot read cell parameter "{}": expected name=value, or a '
                      'modifier such as name*0.3'.format(item))
 
@@ -563,7 +581,7 @@ class ParameterMapper:
             reference = model.get_parameter(pname)
             if reference is None:
                 raise ValueError('cell model {} has no parameter "{}"'.format(
-                    type(model).__name__, pname))
+                    model.model_name(), pname))
             fallback = float(reference)
             maps[pname] = {}
             for tag in tags:
@@ -573,6 +591,97 @@ class ParameterMapper:
                     maps[pname][tag] = fallback
                 else:
                     maps[pname][tag] = apply_param_mod(fallback, modifier)
+        return(maps)
+
+    def region_plugins(self, index: int) -> list:
+        """ region_plugins(index) returns the plugin names imp_region[index].plugins
+            lists, in order. An unknown name and a name listed twice are errors:
+            the reference accepts a repeated plugin but tunes only its first
+            copy, so two copies cannot differ there and the file is refused
+            rather than read differently.
+        """
+        text  = self.value('imp_region[{}].plugins'.format(index))
+        names = [name.strip() for name in text.split(PLUGIN_LIST_SEPARATOR) if len(name.strip()) > 0]
+        for name in names:
+            if name not in IONIC_PLUGINS:
+                raise ValueError('imp_region[{}].plugins: unknown plugin "{}"; this front end '
+                                 'provides {}'.format(index, name,
+                                                      ', '.join(sorted(IONIC_PLUGINS.keys()))))
+        repeated = sorted(set(name for name in names if names.count(name) > 1))
+        if len(repeated) > 0:
+            raise ValueError('imp_region[{}].plugins lists {} more than once. The reference '
+                             'simulator accepts this but applies every plug_param entry to the '
+                             'first copy and leaves the others at their defaults, so the copies '
+                             'cannot be tuned apart; list each plugin once and scale its '
+                             'parameters instead'.format(index, ', '.join(repeated)))
+        return(names)
+
+    def ionic_plugin_classes(self) -> list:
+        """ ionic_plugin_classes() returns the plugin classes of the run: every
+            plugin that some imp_region lists, once, in the order they are first
+            listed. A plugin can then be switched on in some regions only (see
+            plugin_parameter_maps). Plugins need a cell model to attach to.
+        """
+        classes : list = []
+        for index in range(self.count('imp_region')):
+            for name in self.region_plugins(index):
+                if IONIC_PLUGINS[name] not in classes:
+                    classes.append(IONIC_PLUGINS[name])
+        if len(classes) > 0 and len(self.ionic_model_name()) == 0:
+            raise ValueError('imp_region[].plugins names a plugin but no imp_region names a cell '
+                             'model (imp_region[].im): a plugin adds a current to a cell model '
+                             'and cannot run on its own')
+        return(classes)
+
+    def plugin_parameter_maps(self, model, tags: set) -> dict:
+        """ plugin_parameter_maps(model, tags) returns {parameter: {tag: value}}
+            for the plugins of an IonicModelWithPlugins, with the parameters
+            named '<plugin class>.<name>':
+              * '<plugin class>.active', 1 on the tags of the regions that list
+                the plugin and 0 elsewhere (omitted when it is 1 everywhere);
+              * every parameter that some plug_param mentions. Entry i of a
+                region's plug_param (':'-separated) tunes plugin i of that
+                region's plugins list; a tag whose region does not mention the
+                parameter keeps the plugin default.
+        """
+        assignment = self.tag_to_entry('imp_region', tags)
+        per_region : dict = {}
+        for index in range(self.count('imp_region')):
+            names = self.region_plugins(index)
+            text  = self.value('imp_region[{}].plug_param'.format(index)).strip()
+            lists = text.split(PLUGIN_LIST_SEPARATOR) if len(text) > 0 else []
+            if len(lists) > len(names):
+                raise ValueError('imp_region[{}].plug_param has {} entries but plugins lists {} '
+                                 'plugin{}; entry i tunes plugin i'.format(
+                                     index, len(lists), len(names), '' if len(names) == 1 else 's'))
+            per_region[index] = {}
+            for iplug, name in enumerate(names):
+                text_i = lists[iplug] if iplug < len(lists) else ''
+                per_region[index][IONIC_PLUGINS[name].__name__] = parse_im_param(text_i, {})
+        maps : dict = {}
+        for classname in model.plugin_names():
+            active = {}
+            for tag in tags:
+                index = assignment.get(tag)
+                active[tag] = 1.0 if classname in per_region.get(index, {}) else 0.0
+            if any(value != 1.0 for value in active.values()):
+                maps['{}{}{}'.format(classname, PLUGIN_SEPARATOR, ACTIVE_PARAMETER)] = active
+            named : set = set()
+            for params in per_region.values():
+                named |= set(params.get(classname, {}).keys())
+            for pname in sorted(named):
+                full = '{}{}{}'.format(classname, PLUGIN_SEPARATOR, pname)
+                reference = model.get_parameter(full)
+                if reference is None or pname == ACTIVE_PARAMETER:
+                    raise ValueError('plugin {} has no parameter "{}"'.format(classname, pname))
+                fallback = float(reference)
+                maps[full] = {}
+                for tag in tags:
+                    modifier = per_region.get(assignment.get(tag), {}).get(classname, {}).get(pname)
+                    if modifier is None:
+                        maps[full][tag] = fallback
+                    else:
+                        maps[full][tag] = apply_param_mod(fallback, modifier)
         return(maps)
 
     def stimuli(self) -> list:

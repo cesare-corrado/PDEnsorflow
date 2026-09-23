@@ -65,6 +65,32 @@ What is specific to this model beyond the generic contract of `test_ionic.py`:
 * **front end** &mdash; `imp_region[].im = Tomek` selects the class, and
   `im_param = "celltype=1,GNa=0"` maps per region.
 
+### `test_ionic_plugins.py` &mdash; ionic plugins (`gpuSolve.ionic.plugins`, `IonicModelWithPlugins`)
+* **the plugin against the reference step** &mdash; the electroporation current
+  and one forward-Euler step of the pore density `n` match a line-by-line NumPy
+  transcription of the reference's generated C to 1e-12; `n` starts at its
+  steady state for the initial potential.
+* **singular points** &mdash; the pore conductance is 0/0 at V = 0 and at
+  V = +-935 mV. At and around those points (inside the 1e-6 mV band) it must be
+  finite, equal to the analytic limit at 0, and continuous with the formula
+  1e-3 mV away. The points +-w0/(nn e/kT) move with the tunable `w0` and `nn`,
+  so they are also checked with per-node non-default values, each node exactly
+  on its own point (`nn = 0` has none). Removing the band makes these tests fail.
+* **precision** &mdash; the plugin works in float64 with a float32 potential.
+* **the wrapper** &mdash; `dU` is the model's `dU` minus the plugin current;
+  names route to the model (bare) or the plugin (`<class>.<name>`); a plugin
+  class is attached once; the per-node `.active` switch removes the current
+  node by node while the state is still advanced; `dt` set on the wrapper
+  reaches the model and the plugins on initialisation.
+* **front end** &mdash; `imp_region[].plugins` (unknown and repeated names are
+  refused, a plugin needs a cell model), `plug_param` per region with modifiers,
+  the regional switch, malformed `plug_param` lists; a two-region cable run
+  attaches the plugin to its region only.
+* **checkpoints** &mdash; the checkpoint name is `ModifiedMS2v+<plugin>` and
+  restores only into a run with the same plugins; the plugin state survives
+  renumbering on a scrambled cable (this fails if the solver looks the state up
+  with `getattr` instead of `state_variable()`).
+
 ### `test_optionreader.py` &mdash; the `.par` lexer and the command line
 Pure text handling, no mesh and no TensorFlow, so it runs in hundredths of a
 second: comments inside and outside quotes, backslash continuations, quoted and

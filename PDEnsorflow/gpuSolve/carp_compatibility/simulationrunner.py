@@ -19,6 +19,7 @@ from gpuSolve.physics import HeatSolver
 from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
 from gpuSolve.physics import no_mass_property
+from gpuSolve.ionic.ionicmodelwithplugins import IonicModelWithPlugins
 from gpuSolve.IO.readers import VtxReader
 from gpuSolve.IO.readers import StateReader
 from gpuSolve.IO.writers import IGBWriter
@@ -181,6 +182,15 @@ class SimulationRunner:
             self._model = HeatSolver(config)
         else:
             self._ionic = modelclass(dt=config['dt'])
+            plugins     = self._mapper.ionic_plugin_classes()
+            if len(plugins) > 0:
+                # the plugins wrap the model; a run without plugins keeps the
+                # bare model, so its numerics and checkpoints are unchanged
+                wrapper = IonicModelWithPlugins(dt=config['dt'])
+                wrapper.set_model(self._ionic)
+                for pluginclass in plugins:
+                    wrapper.add_plugin(pluginclass(dt=config['dt']))
+                self._ionic = wrapper
             self._model = MonodomainSolver(self._ionic, config)
 
     def __mesh_tags(self) -> set:
@@ -202,14 +212,18 @@ class SimulationRunner:
         self._model.add_material_function('stiffness', conductivity_tensor)
 
     def __assign_cell_parameters(self):
-        """ pushes the cell parameters named by im_param into the cell model.
-            This must happen before the first differentiate() call, because the
-            rescaling runs inside a tf.function that captures the parameters
-            when it is first traced.
+        """ pushes the cell parameters named by im_param into the cell model,
+            and those named by plug_param, with the per-region switches, into
+            its plugins. This must happen before the first differentiate() call,
+            because the rescaling runs inside a tf.function that captures the
+            parameters when it is first traced, and before the initial
+            condition, from which the plugins compute their initial state.
         """
         if self._ionic is None:
             return
         maps = self._mapper.ionic_parameter_maps(self._ionic, self.__mesh_tags())
+        if isinstance(self._ionic, IonicModelWithPlugins):
+            maps.update(self._mapper.plugin_parameter_maps(self._ionic, self.__mesh_tags()))
         for pname, pmap in maps.items():
             self._model.add_nodal_material_property(pname, 'region', pmap)
         self._model.assign_nodal_properties()

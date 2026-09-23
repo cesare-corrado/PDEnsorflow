@@ -54,6 +54,15 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   the command is in the module docstring) within 1 mV, 1 ms and 2%. The stepping
   loop is compiled with XLA, which brings the beat from about 20 minutes to
   about 15 seconds. Marked `nightly` + `gpu`.
+- `test_electroporation_regression.py` &mdash; the electroporation plugin
+  (`ElectroporationDeBruinKrassowska98`) attached through
+  `IonicModelWithPlugins`, against the reference single-cell tool (`bench`, the
+  commands are in the module docstring) at `dt = 0.01` ms: Tomek at rest for
+  50 ms (the plugin's leak makes the cell fire at about 48 ms), and a passive
+  membrane under a 1000 uA/uF shock that drives V to +470.9 mV. V and the pore
+  density are checked at fixed times within 0.05 mV and 1e-6. The shock uses a
+  passive parent because Tomek's own IKr Markov chain is unstable under forward
+  Euler above about +100 mV, in both codes. Marked `nightly` + `gpu`.
 - `_gpu_check.py` &mdash; GPU sanity gate for the workflow (imports gpuSolve, then
   fails if no physical GPU is visible). Not a test; the leading underscore keeps
   pytest from collecting it. Run it as a script, never via `python -c`.
