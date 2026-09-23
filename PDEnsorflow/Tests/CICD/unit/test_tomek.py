@@ -16,7 +16,9 @@
       * the PHYSICS HOOKS a scar or border zone relies on: GNa = 0 on a node
         removes its upstroke and leaves its neighbour's untouched.
       * the UNITS and the V = 0 singularity: Cai is held in mM, and the GHK
-        terms stay finite at exactly 0 mV.
+        terms, 0/0 at 0 mV, take their exact limit within 1e-6 mV of it.
+      * the FORWARD-EULER option at high potentials, where tau is tiny: a gate
+        at its steady state must stay there, as in the reference.
 
     The agreement with the reference implementation over full beats is a GPU
     regression (Tests/CICD/nightly/test_tomek_regression.py).
@@ -166,13 +168,37 @@ def test_calcium_is_held_in_millimolar():
     assert model.get_state_variables()['Cai'][0] == pytest.approx(8.1583e-05, rel=1.0e-12)
 
 
-def test_ghk_terms_are_finite_at_zero_potential():
-    """At exactly 0 mV the GHK flux terms are 0/0 unless Vfrt is moved off zero."""
-    model, _U = _model(1)
-    U0 = tf.Variable(np.zeros((1, 1), dtype=np.float32))
-    assert np.all(np.isfinite(model.differentiate(U0).numpy()))
+def test_ghk_terms_take_their_limit_near_zero_potential():
+    """The GHK flux terms are 0/0 at 0 mV. At 0 and within the 1e-6 mV band
+    around it the model must return the exact limit: finite, and equal to the
+    direct formula 1e-3 mV away (the mean of the two sides cancels the slope).
+    Every node starts from the same state, so dU differs only through V."""
+    inside  = [0.0, 5.0e-7, -5.0e-7, 1.0e-9, -1.0e-9]
+    outside = [-1.0e-3, 1.0e-3]
+    model, _U = _model(len(inside) + len(outside))
+    U  = tf.Variable(np.reshape(np.array(inside + outside), (-1, 1)), dtype=tf.float64)
+    dU = np.reshape(model.differentiate(U).numpy(), (-1,))
+    assert np.all(np.isfinite(dU))
     for name, values in model.get_state_variables().items():
         assert np.all(np.isfinite(values)), name
+    np.testing.assert_allclose(dU[:len(inside)], np.mean(dU[len(inside):]), rtol=1.0e-6)
+
+
+@pytest.mark.parametrize('V', [300.0, 330.0, 500.0])
+def test_forward_euler_keeps_a_saturated_gate_at_high_potential(V):
+    """Above +300 mV the steady states of m and mL are exactly 1 and tm is
+    below 1e-16 ms. The reference advances m + dt (m_inf - m)/tm, which leaves
+    m = 1 unchanged; written as A + B m with A = dt m_inf/tm and B = 1 - dt/tm
+    the two terms cancel and m came out as 0 at +330 mV."""
+    model, _U = _model(1, rush_larsen=False)
+    states = model.get_state_variables()
+    states['m']  = np.ones(1)
+    states['mL'] = np.ones(1)
+    model.set_state_variables(states)
+    model.differentiate(tf.Variable([[V]], dtype=tf.float64))
+    after = model.get_state_variables()
+    assert after['m'][0] == 1.0
+    assert after['mL'][0] == 1.0
 
 
 # ---- the parameter-file front end ---------------------------------------------

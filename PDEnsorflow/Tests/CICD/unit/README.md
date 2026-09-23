@@ -60,8 +60,12 @@ What is specific to this model beyond the generic contract of `test_ionic.py`:
   `delta_epi(V)`, checked against the model equations.
 * **physics hooks** &mdash; `GNa = 0` on a node removes its upstroke (both
   integration schemes), as a scar region needs.
-* **units and singularities** &mdash; `Cai` is held in mM; the GHK terms are
-  finite at exactly 0 mV.
+* **units and singularities** &mdash; `Cai` is held in mM; the GHK terms, 0/0
+  at 0 mV, return their exact limit (L'Hopital) at 0 and within the 1e-6 mV band
+  around it, continuous with the formula 1e-3 mV away.
+* **forward Euler at high potentials** &mdash; above +300 mV `tm` is below
+  1e-16 ms; a gate at its steady state (`m = mL = 1`) must stay there, as it does
+  in the reference. Written as `A + B x`, the update cancelled to 0 at +330 mV.
 * **front end** &mdash; `imp_region[].im = Tomek` selects the class, and
   `im_param = "celltype=1,GNa=0"` maps per region.
 

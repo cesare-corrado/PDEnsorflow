@@ -22,14 +22,14 @@
     The step follows bench's order: the state is sampled, the stimulus is added
     to V, the model and then the plugin are advanced with that V, then
     V -= dt*(Iion + I_ep). Tomek uses forward-Euler gates, the reference scheme.
-    The shock uses a passive parent because Tomek itself stops being comparable
-    above about +100 mV, where the rates of its IKr Markov chain exceed 2/dt
-    and forward Euler is unstable in both codes.
+    The shock uses a passive parent so that it tests the plugin alone: above
+    +222 mV (at dt = 0.01 ms) forward Euler on Tomek's IKr Markov chain is
+    unstable, in both codes, and that part of a Tomek trajectory is a numerical
+    artifact, even though the two codes reproduce it alike.
 
-    Tolerances: 0.05 mV on V, 1e-6 relative on n. When the test was written the
-    largest differences over every step were 6.9e-3 mV and 2.4e-8 at rest (on
-    the upstroke, where a shift of about 1e-5 ms in the firing time is enough),
-    and 6.9e-7 mV and 1.8e-8 under the shock.
+    Tolerances: 0.05 mV on V, 1e-6 relative on n. The largest differences over
+    every step are 2.3e-5 mV and 2.6e-10 at rest, and 6.9e-7 mV and 1.8e-8
+    under the shock.
 
     Marked nightly + gpu. Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 """
