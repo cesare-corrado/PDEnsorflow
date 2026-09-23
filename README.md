@@ -93,9 +93,18 @@ Three points are worth knowing before writing a parameter file:
   `GNa-10%` is `GNa - 0.1 GNa`. The base is the **gpuSolve** default of the
   parameter, which is the same rule as for an unnamed parameter above. A
   malformed modifier stops the run rather than silently keeping the default.
+* **Ionic plugins are set per region.** `imp_region[].plugins` is a
+  `:`-separated list of plugins added to the cell model of that region, and
+  `imp_region[].plug_param` holds one parameter list per plugin, also
+  `:`-separated, with the same syntax as `im_param`
+  (`plug_param = "sigma*2:..."` tunes the first plugin, then the second). A
+  plugin listed in some regions only adds its current there. A plugin listed
+  twice in one region is refused: the reference implementation accepts it but
+  tunes only the first copy.
 
 `PDEnsorflow --help` lists every key that is understood, with its type and
-default, and the cell models available for `imp_region[].im`.
+default, and the cell models and plugins available for `imp_region[].im` and
+`imp_region[].plugins`.
 
 `PDEnsorflow +Save resolved.par` writes the fully resolved parameter set back
 out, which is the quickest way to see what a command line actually asked for.

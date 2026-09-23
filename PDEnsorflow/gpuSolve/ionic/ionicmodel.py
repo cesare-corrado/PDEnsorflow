@@ -53,6 +53,36 @@ class IonicModel:
         """
         raise NotImplementedError("differentiate must be implemented in subclass")
 
+    def set_dt(self, dt: float):
+        """
+        set_dt(dt) sets the time step (ms) the model advances by. It must be set
+        before initialize_state_variables(): some models fold dt into their
+        lookup tables there.
+        """
+        self._dt = dt
+
+    def dt(self) -> float:
+        """ dt() returns the time step (ms) the model advances by """
+        return(self._dt)
+
+    def model_name(self) -> str:
+        """
+        model_name() returns the name that identifies the model in a checkpoint:
+        the class name, which is unambiguous where a parameter-file name is not
+        """
+        return(type(self).__name__)
+
+    def state_variable(self, name: str) -> tf.Variable:
+        """
+        state_variable(name) returns the tf.Variable that holds the state
+        variable name (as listed by state_variable_names()); None if the model
+        has no such variable or it is not initialised yet. Callers go through
+        this accessor rather than getattr(model, '_' + name) because a model
+        that holds other models (IonicModelWithPlugins) names their variables
+        with a prefix that is not an attribute of its own.
+        """
+        return(getattr(self, '_{}'.format(name), None))
+
     def set_parameter(self,pname:str, pvalue: np.ndarray):
         """
         set_parameter(pname,pvalue) if pname exists, sets the parameter value to pvalue
@@ -88,7 +118,7 @@ class IonicModel:
         try:
             states : dict = {}
             for name in self.state_variable_names():
-                variable = getattr(self, '_{}'.format(name), None)
+                variable = self.state_variable(name)
                 if variable is None:
                     raise ValueError('{}: state variable {} is not initialised; call '
                                      'initialize_state_variables(U) first'.format(
@@ -119,7 +149,7 @@ class IonicModel:
                                                               ', '.join(missing) or 'none',
                                                               ', '.join(extra) or 'none'))
             for name in self.state_variable_names():
-                variable = getattr(self, '_{}'.format(name), None)
+                variable = self.state_variable(name)
                 if variable is None:
                     raise ValueError('{}: state variable {} is not initialised; call '
                                      'initialize_state_variables(U) first'.format(

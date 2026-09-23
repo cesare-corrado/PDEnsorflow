@@ -76,8 +76,11 @@ class MonodomainSolver(HeatSolver):
             # into new ones: a compiled differentiate() keeps the variable
             # objects it was traced with, so a model compiled before this call
             # would otherwise go on advancing the old, unpermuted copies.
+            # The variable is looked up through state_variable(): a plugin's
+            # variables carry a prefix that is not an attribute of the model,
+            # and getattr would return None and skip them without a word.
             for name in self._ionic_model.state_variable_names():
-                sv = getattr(self._ionic_model, '_{}'.format(name), None)
+                sv = self._ionic_model.state_variable(name)
                 if sv is not None:
                     sv.assign(tf.gather(sv, perm))
             if self._StimulusDict is not None:
@@ -128,9 +131,11 @@ class MonodomainSolver(HeatSolver):
     def checkpoint_model_name(self) -> str:
         """ checkpoint_model_name() returns the cell-model name recorded in a
             checkpoint: the class name, which is unambiguous where a parameter
-            file name is not (`MitchellSchaeffer` selects one of two classes)
+            file name is not (`MitchellSchaeffer` selects one of two classes).
+            A model with plugins adds their class names, so a checkpoint only
+            restores into a run with the same plugins.
         """
-        return(type(self._ionic_model).__name__)
+        return(self._ionic_model.model_name())
 
     def _checkpoint_state_variables(self) -> dict:
         """ the cell-model state variables, in the user's node order """

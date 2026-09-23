@@ -46,7 +46,12 @@ dimensionless family (`MitchellSchaeffer2v`, `ModifiedMS2v`, `Fenton4v`):
   by `assign_nodal_properties()`, and the span broadcasts.
 
 ### `test_tomek.py` &mdash; the ToR-ORd cell model (`gpuSolve.ionic.tomek.Tomek`)
-What is specific to this model beyond the generic contract of `test_ionic.py`:
+What is specific to this model beyond the generic contract of `test_ionic.py`.
+Tests whose subject does not depend on the integration scheme use forward Euler:
+the default tables (with the IKr step matrix on 200001 grid points) take about
+2 s to build per model, the forward-Euler ones a fraction of a second. The
+default schemes are tested where they are the subject, and through Tomek's
+default in `test_ionic.py`, `test_savestate.py` and the parameter-file tests.
 
 * **parameters** &mdash; `celltype` accepts 0 (ENDO), 1 (EPI) and 2 (MCELL) only,
   because a cell-type name is read as ENDO by the reference single-cell tool;
@@ -60,10 +65,46 @@ What is specific to this model beyond the generic contract of `test_ionic.py`:
   `delta_epi(V)`, checked against the model equations.
 * **physics hooks** &mdash; `GNa = 0` on a node removes its upstroke (both
   integration schemes), as a scar region needs.
-* **units and singularities** &mdash; `Cai` is held in mM; the GHK terms are
-  finite at exactly 0 mV.
+* **units and singularities** &mdash; `Cai` is held in mM; the GHK terms, 0/0
+  at 0 mV, return their exact limit (L'Hopital) at 0 and within the 1e-6 mV band
+  around it, continuous with the formula 1e-3 mV away.
+* **the IKr Markov chain** &mdash; in the default mode one step moves the five
+  states by `exp(dt Q(V))`, checked against an eigen-decomposition at -80, +20
+  and +150 mV; at +860 mV (eigenvalues near -1e17 /ms) the states stay
+  nonnegative, keep their total and `O` settles monotonically near 1e-3, where
+  forward Euler jumps between the clamps. All four cases fail with the
+  forward-Euler chain.
+* **forward Euler at high potentials** &mdash; above +300 mV `tm` is below
+  1e-16 ms; a gate at its steady state (`m = mL = 1`) must stay there, as it does
+  in the reference. Written as `A + B x`, the update cancelled to 0 at +330 mV.
 * **front end** &mdash; `imp_region[].im = Tomek` selects the class, and
   `im_param = "celltype=1,GNa=0"` maps per region.
+
+### `test_ionic_plugins.py` &mdash; ionic plugins (`gpuSolve.ionic.plugins`, `IonicModelWithPlugins`)
+* **the plugin against the reference step** &mdash; the electroporation current
+  and one forward-Euler step of the pore density `n` match a line-by-line NumPy
+  transcription of the reference's generated C to 1e-12; `n` starts at its
+  steady state for the initial potential.
+* **singular points** &mdash; the pore conductance is 0/0 at V = 0 and at
+  V = +-935 mV. At and around those points (inside the 1e-6 mV band) it must be
+  finite, equal to the analytic limit at 0, and continuous with the formula
+  1e-3 mV away. The points +-w0/(nn e/kT) move with the tunable `w0` and `nn`,
+  so they are also checked with per-node non-default values, each node exactly
+  on its own point (`nn = 0` has none). Removing the band makes these tests fail.
+* **precision** &mdash; the plugin works in float64 with a float32 potential.
+* **the wrapper** &mdash; `dU` is the model's `dU` minus the plugin current;
+  names route to the model (bare) or the plugin (`<class>.<name>`); a plugin
+  class is attached once; the per-node `.active` switch removes the current
+  node by node while the state is still advanced; `dt` set on the wrapper
+  reaches the model and the plugins on initialisation.
+* **front end** &mdash; `imp_region[].plugins` (unknown and repeated names are
+  refused, a plugin needs a cell model), `plug_param` per region with modifiers,
+  the regional switch, malformed `plug_param` lists; a two-region cable run
+  attaches the plugin to its region only.
+* **checkpoints** &mdash; the checkpoint name is `ModifiedMS2v+<plugin>` and
+  restores only into a run with the same plugins; the plugin state survives
+  renumbering on a scrambled cable (this fails if the solver looks the state up
+  with `getattr` instead of `state_variable()`).
 
 ### `test_optionreader.py` &mdash; the `.par` lexer and the command line
 Pure text handling, no mesh and no TensorFlow, so it runs in hundredths of a

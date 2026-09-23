@@ -26,6 +26,7 @@ from gpuSolve.carp_compatibility.optionreader import OptionReader
 from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
 from gpuSolve.carp_compatibility.parametermapper import REGISTRY
 from gpuSolve.carp_compatibility.parametermapper import IONIC_MODELS
+from gpuSolve.carp_compatibility.parametermapper import IONIC_PLUGINS
 from gpuSolve.carp_compatibility.simulationrunner import SimulationRunner
 
 
@@ -52,6 +53,7 @@ def print_usage():
         print('  {:34s} {:6s} default {:<12} {}'.format(
             pattern, vtype, str(shown), '' if actuated else '(accepted, not actuated)'))
     print('\nCell models for imp_region[].im: {}'.format(', '.join(sorted(IONIC_MODELS.keys()))))
+    print('Plugins for imp_region[].plugins: {}'.format(', '.join(sorted(IONIC_PLUGINS.keys()))))
 
 
 def print_banner():
