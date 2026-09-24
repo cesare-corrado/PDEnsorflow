@@ -184,6 +184,10 @@ names five nodes must depolarise exactly those and leave the far end at rest
 (over 2 ms the diffusion length is ~700 um, so the far end cannot be reached),
 and an index outside the mesh must be refused rather than wrapping round.
 
+Also covers the **mesh export** (`gridout_i = 1`) from both mesh formats: with
+`meshname = cable` or `meshname = cable.pkl` the exported files must be
+`cable.pts` / `.elem` / `.lon`, never `cable.pkl.pts`.
+
 A **pure-diffusion run** (no cell model) must stay finite: it starts from
 `U = 0` with nothing driving it, so its output must stay exactly 0 rather than
 turning into NaN on the first step.
