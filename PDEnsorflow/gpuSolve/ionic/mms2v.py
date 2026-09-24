@@ -70,6 +70,13 @@ class ModifiedMS2v(IonicModel):
         """state_variable_names() returns the state advanced by differentiate(): the H gate"""
         return(('H_state',))
 
+    def tunable_parameter_names(self) -> tuple:
+        """ tunable_parameter_names() returns the names set_parameter() accepts:
+            the four time constants, the gate threshold, the excitation
+            threshold u_crit and the potential range
+        """
+        return(('tau_in', 'tau_out', 'tau_open', 'tau_close', 'u_gate', 'u_crit', 'vmin', 'vmax'))
+
     def tau_in(self) -> tf.constant:
         return(self._tau_in)        
 

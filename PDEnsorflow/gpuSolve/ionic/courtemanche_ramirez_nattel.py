@@ -428,6 +428,17 @@ class CourtemancheRamirezNattel(IonicModel):
                 'oa_state', 'oi_state', 'u_state', 'ua_state', 'ui_state', 'v_state',
                 'w_state', 'xr_state', 'xs_state'))
 
+    def tunable_parameter_names(self) -> tuple:
+        """ tunable_parameter_names() returns the names set_parameter() accepts:
+            the "Parameters" block of the constructor, which is the parameter
+            list of the reference model, in its order. They must be set before
+            initialize_state_variables(), which folds them into the tables.
+        """
+        return(('ACh', 'Cao', 'Cm', 'GACh', 'GCaL', 'GK1', 'GKr', 'GKs', 'GNa', 'GbCa',
+                'GbNa', 'Gto', 'Ko', 'Nao', 'factorGKur', 'factorGrel', 'factorGtr',
+                'factorGup', 'factorhGate', 'factormGate', 'factoroaGate', 'factorxrGate',
+                'maxCaup', 'maxINaCa', 'maxINaK', 'maxIpCa', 'maxIup'))
+
 
     # Compiled with XLA: one step is many small per-node kernels, and fusing
     # them removes most of the kernel-launch cost (ten Tusscher-Panfilov on

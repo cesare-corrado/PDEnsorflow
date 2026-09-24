@@ -26,3 +26,4 @@ from gpuSolve.IO.readers.carpmeshreader import CarpMeshReader
 from gpuSolve.IO.readers.igbreader import IGBReader
 from gpuSolve.IO.readers.vtxreader import VtxReader
 from gpuSolve.IO.readers.statereader import StateReader
+from gpuSolve.IO.readers.svfilereader import SvFileReader

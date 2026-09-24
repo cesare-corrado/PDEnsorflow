@@ -109,6 +109,17 @@ class IonicModel:
         """
         return(())
 
+    def tunable_parameter_names(self) -> tuple:
+        """
+        tunable_parameter_names() returns the names of the cell parameters a
+        caller may set with set_parameter(), in the order a parameter listing
+        shows them. The list is declared by each model, as state_variable_names()
+        is, rather than discovered by scanning the attributes: the constants,
+        table settings and initial values are attributes too, and are not meant
+        to be tuned. The base class declares none. Override in subclasses.
+        """
+        return(())
+
     def get_state_variables(self) -> dict:
         """
         get_state_variables() returns {name: values} for every state variable, each

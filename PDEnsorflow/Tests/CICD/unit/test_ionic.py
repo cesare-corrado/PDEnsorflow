@@ -144,3 +144,17 @@ def test_ionic_rescaling_accepts_per_node_range(Model):
 
     np.testing.assert_allclose(model.to_dimensionless(tf.constant(vmin_col)).numpy(), 0.0, atol=1.0e-6)
     np.testing.assert_allclose(model.to_dimensionless(tf.constant(vmax_col)).numpy(), 1.0, atol=1.0e-6)
+
+
+@pytest.mark.parametrize('Model', ALL_MODELS, ids=_ids(ALL_MODELS))
+def test_ionic_tunable_parameter_names(Model):
+    """Every model declares its tunable parameters, each one is a parameter
+    get_parameter() knows, none is listed twice, and none is a state variable.
+    The listing is what `singlecell --imp-info` prints."""
+    model = Model(dt=_DT, n_nodes=_N_NODES)
+    names = model.tunable_parameter_names()
+    assert len(names) > 0
+    assert len(set(names)) == len(names)
+    for pname in names:
+        assert model.get_parameter(pname) is not None, '{0}: no parameter {1}'.format(Model.__name__, pname)
+    assert set(names).isdisjoint(model.state_variable_names())

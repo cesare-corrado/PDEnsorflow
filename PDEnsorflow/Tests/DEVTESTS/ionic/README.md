@@ -133,3 +133,34 @@ Tomek, 50 ms, `--stim 0`: 2.0e-9 mV; `--stim 1000` (V up to +187.9 mV):
 3.0e-7 mV. With Cheng et al.'s branch (the default) the peaks are the same
 (the upper branch is shared) but the passive cell repolarises to 77.0 mV instead
 of 96.3 mV at 5 ms (`--stim 400`), because Ia below `VtakeOff` is 221 times larger.
+
+# singlecell_vs_bench.py
+
+Runs the reference single-cell tool (`bench`, which must be on the PATH) and the
+`singlecell` executable with the same command lines on every cell model the two
+share, and prints the largest |Vm| difference, the APD90 and peak of the last
+beat, and the wall time of each. It then swaps state files between the two
+(each continues for one beat from the other's saved state, and from its own).
+Everything is written to a scratch folder, never to the repository.
+
+```
+python singlecell_vs_bench.py [--beats 2] [--bcl 1000] [--workdir DIR]
+```
+
+Results with the defaults (2 beats, BCL 1000 ms, dt 0.01 ms, CPU, one thread):
+
+| model | max\|dVm\| | APD90 bench / singlecell | bench s | singlecell s |
+|---|---:|---:|---:|---:|
+| Courtemanche | 30.9 mV | 294 / 392 ms | 0.17 | 4.67 |
+| tenTusscherPanfilov | 0.108 mV | 302 / 302 ms | 0.20 | 4.83 |
+| Tomek (`--reference-scheme`) | 5e-6 mV | 271 / 271 ms | 0.38 | 10.02 |
+| MitchellSchaeffer (`V_min=0,V_max=1,tau_out=5`) | 5.8e-5 | 254 / 254 ms | 0.15 | 2.81 |
+
+The singlecell times include the start of TensorFlow and the compilation of
+the model (a few seconds). The state files swap to 1.3e-3 mV over one Tomek beat,
+which is the 6-digit rounding of bench's file. `singlecell` itself matches a
+hand-written loop over the same model to 5e-8 mV: the Courtemanche difference
+is in the gpuSolve model, not in the front end. Its first diverging state is the
+IKs gate `xs`, from t = 4 ms, on the plateau near 19.9 mV where the rate
+expressions of `xs` are 0/0.
+
