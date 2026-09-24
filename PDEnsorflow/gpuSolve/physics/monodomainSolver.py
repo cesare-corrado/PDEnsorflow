@@ -33,15 +33,24 @@ class MonodomainSolver(HeatSolver):
         self._materials.add_nodal_property(pname, ptype, prop)
 
     def assign_nodal_properties(self):
-        """ Push nodal material properties into the ionic model.
-            Mirrors the assign_nodal_properties from the original demo
-            scripts (mMS.py / fenton.py).
+        """ assign_nodal_properties() pushes the nodal material properties into
+            the ionic model, as a (n_nodes, 1) column (or the single value of a
+            'uniform' property). The column has the dtype of the model's current
+            value of the parameter.
+            The columns are built with NumPy indexing, not a Python loop over
+            the nodes: a 'region' property is looked up once per region and
+            spread with the inverse index of point_region_ids, a 'nodal' one is
+            gathered at once. On a 3.27M-node mesh with five properties the
+            loop made 16M lookups. The values are the ones NodalProperty()
+            returns node by node, and a missing region or node still raises.
         """
         uniform_only = True
         nodal_properties = self._materials.nodal_property_names()
         if nodal_properties is not None:
-            point_region_ids = self._Domain.point_region_ids()
+            point_region_ids = np.asarray(self._Domain.point_region_ids())
             npt = point_region_ids.shape[0]
+            regions, inverse = np.unique(point_region_ids, return_inverse=True)
+            inverse = np.reshape(inverse, (-1,))
             for mat_prop in nodal_properties:
                 prtype = self._materials.nodal_property_type(mat_prop)
                 refval = self._ionic_model.get_parameter(mat_prop)
@@ -50,14 +59,34 @@ class MonodomainSolver(HeatSolver):
                         pvals = self._materials.NodalProperty(mat_prop, -1, -1)
                     else:
                         uniform_only = False
-                        pvals = np.full(shape=(npt, 1), fill_value=refval.numpy())
-                        for pointID, regionID in enumerate(point_region_ids):
-                            new_val = self._materials.NodalProperty(
-                                mat_prop, pointID, regionID)
-                            pvals[pointID] = new_val
+                        # the dtype of the model's value, as the loop that
+                        # filled np.full(..., refval) had
+                        dtype = np.asarray(refval).dtype
+                        if prtype == 'region':
+                            per_region = np.array([self._materials.NodalProperty(mat_prop, -1, region)
+                                                   for region in regions.tolist()], dtype=dtype)
+                            values = per_region[inverse]
+                        elif prtype == 'nodal':
+                            values = self.__nodal_values(mat_prop, npt, dtype)
+                        else:
+                            # NodalProperty raises the unknown-type error
+                            values = np.asarray(self._materials.NodalProperty(mat_prop, 0, point_region_ids[0]))
+                        pvals = np.reshape(values, (npt, 1)).astype(dtype, copy=False)
                     self._ionic_model.set_parameter(mat_prop, pvals)
         if uniform_only or (not self._use_renumbering):
             self._materials.remove_all_nodal_properties()
+
+    def __nodal_values(self, mat_prop: str, npt: int, dtype) -> np.ndarray:
+        """ the values of a 'nodal' property at points 0..npt-1. An array or a
+            list is gathered at once (np.take raises, as idmap[pointID] did,
+            when it holds fewer than npt values); a dict is read key by key.
+        """
+        idmap = self._materials.nodal_property_map(mat_prop)
+        if isinstance(idmap, dict):
+            return(np.array([idmap[point] for point in range(npt)], dtype=dtype))
+        flat = np.asarray(idmap, dtype=dtype)
+        flat = np.reshape(flat, (flat.shape[0], -1))[:, 0] if flat.ndim > 1 else flat
+        return(np.take(flat, np.arange(npt), mode='raise'))
 
     # ---- setup overrides ---------------------------------------------------
     def set_initial_condition(self, U0: np.ndarray = None):

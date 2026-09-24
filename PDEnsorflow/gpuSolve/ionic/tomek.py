@@ -28,6 +28,7 @@ from gpuSolve.ionic.ionicmodel import IonicModel
 import numpy as np
 import tensorflow as tf
 from math import exp, log, sqrt
+from gpuSolve.ionic.cell_types import CELL_TYPE_IDS
 
 # The model is integrated in float64. It is stiff and spans many orders of
 # magnitude (Jrel_p starts at 1.2e-20, Cai rests near 8e-5 mM) and its voltage
@@ -39,9 +40,10 @@ _DTYPE = tf.float64
 # Cell types, as integers: this is the only form the parameter file accepts
 # (celltype=1). A name such as celltype=EPI is silently read as ENDO by the
 # single-cell reference tool, so any value other than these three is rejected.
-_ENDO  : int = 0
-_EPI   : int = 1
-_MCELL : int = 2
+# The numbers are shared with every cell model that has cell types.
+_ENDO  : int = CELL_TYPE_IDS['ENDO']
+_EPI   : int = CELL_TYPE_IDS['EPI']
+_MCELL : int = CELL_TYPE_IDS['MCELL']
 
 # Extracellular concentrations: tunable, but one value for the whole tissue.
 _EXTRACELLULAR : tuple = ('Ko', 'Nao', 'Cao')

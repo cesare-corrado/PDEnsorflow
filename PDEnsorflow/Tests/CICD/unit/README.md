@@ -32,6 +32,25 @@ guess must leave X exactly 0 on both paths. That system has a residual of exactl
 step length `r.z / p.Ap` would be 0/0 and write NaN, which is what a
 pure-diffusion run meets on its first step.
 
+### `test_matrices.py` &mdash; `gpuSolve.matrices.assemble_matrices_dict`
+Assembles the mass and stiffness matrices of uniform 1D edge meshes and checks
+them entry by entry against their closed tridiagonal forms, plus symmetry,
+total mass, zero row sums and positive semi-definiteness. The element entries
+are summed on the host, so three more tests pin what that path promises: two
+identical assemblies agree **to the bit** (the device sum it replaced did
+not), the RCM-renumbered matrix is the plain one with rows and columns
+permuted, to the bit, and an element entry missing from the sparsity pattern
+raises instead of being summed into a neighbouring entry.
+
+### `test_mesh_setup.py` &mdash; connectivity, point region IDs, sparsity pattern
+The set-up that precedes the assembly (`Triangulation.mesh_connectivity`,
+`Triangulation.point_region_ids`, `compute_coo_pattern`) used to be Python loops
+over every element or node and is now whole-array operations. The loops are
+kept in the test as the reference, and on the coarse demo square (63001 nodes,
+four regions) the new code must give the **same** result entry by entry and in
+the same dtype. A three-node mesh pins the tie rule of the region IDs: a node
+shared equally by two regions takes the smaller ID.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the
@@ -142,7 +161,14 @@ monodomain conductivity the half harmonic mean of the two domains rather than
 other forms, resolved against the cell model default, and the malformed ones
 that must raise), the `cg_norm_parab` stopping tests, stimulus defaults derived from
 `tend`, and the errors: unknown key, counter that would drop an entry,
-non-transmembrane electrode.
+non-transmembrane electrode. The **legacy `stimulus[]` keys** must give the same
+stimulus as the equivalent `stim[]` keys (box `p0 = x0 - (ctr_def ? xd/2 : 0)`,
+`p1 = p0 + xd`), and mixing the two families is refused. The **`flags=` item of
+`im_param`** selects the tenTusscherPanfilov cell type of each region (regions
+may differ; a combination, an unknown type, or a flag on a model without cell
+types is refused), and `GKr` / `GKs` modifiers scale the default of that cell
+type, also when a per-node value is pushed before the model is initialised. `meshformat`
+and the `lats[]` keys are accepted and reported as not acted upon.
 
 ### `test_carp_compatibility_run.py` &mdash; the front end end to end
 One short run of `main()` on a 5 mm cable written as `.pts` / `.elem` / `.lon`
@@ -158,9 +184,31 @@ names five nodes must depolarise exactly those and leave the far end at rest
 (over 2 ms the diffusion length is ~700 um, so the far end cannot be reached),
 and an index outside the mesh must be refused rather than wrapping round.
 
+Also covers the **mesh export** (`gridout_i = 1`) from both mesh formats: with
+`meshname = cable` or `meshname = cable.pkl` the exported files must be
+`cable.pts` / `.elem` / `.lon`, never `cable.pkl.pts`.
+
 A **pure-diffusion run** (no cell model) must stay finite: it starts from
 `U = 0` with nothing driving it, so its output must stay exactly 0 rather than
 turning into NaN on the first step.
+
+### `test_ttp_per_node.py` &mdash; per-node ten Tusscher-Panfilov parameters
+* **per-node conductances** &mdash; `GNa`, `GKr`, `GKs` set as `(n, 1)` columns
+  reach `differentiate()` as `(n,)` vectors (no `(n, n)` broadcast), and each
+  node's current equals that of a uniform model holding its values. `GNa` is a
+  float32 tensor (the build of a per-region `GNa*0.0` failed on a Python float);
+  a table parameter (`Ko`) refuses non-uniform values.
+* **mixed cell types** &mdash; a model with nodes typed EPI, MCELL, ENDO follows
+  the three uniform single-type models node by node over 15 ms (GKs, Gto and
+  the S-gate time constant switch per node); per-region `flags=` put `celltype`
+  first in the parameter map and `GKs*1.5` scales each region's own default.
+* **scar end to end** &mdash; `main()` on a 4 mm two-region cable (ENDO half with
+  `GNa*1.00,GKr*1.50,GKs*1.50,flags=ENDO`, EPI half with `GNa*0.0`): the build
+  succeeds, the healthy half fires, the far millimetre of the scar stays below
+  -40 mV, and in the control run (`GNa*1.0`) the same nodes fire.
+* **`assign_nodal_properties`** &mdash; the vectorised version gives the same
+  columns, values and dtype as the node-by-node loop it replaced, for
+  `region`, `nodal` (array and dict) and `uniform` properties.
 
 ### `test_savestate.py` &mdash; checkpoints: saving and resuming a run
 A run of the paced cable saves its state half way (`tsav`) and every 2 ms
