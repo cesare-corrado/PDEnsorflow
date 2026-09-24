@@ -361,23 +361,36 @@ class Triangulation:
     def __compute_mesh_connectivity(self) -> dict:
         print('computing mesh connectivity')
         npt = self._Pts.shape[0]
-        connectivity = {}
         t0 = time()
-        for jpt in range(npt):
-            connectivity[jpt] = []
-            #each node is connected with itself
-            connectivity[jpt].append(jpt)
+        # Every (node, neighbour) pair is encoded as the single integer
+        # node * npt + neighbour and the pairs are deduplicated with ONE sort
+        # over all of them, instead of growing a Python list per node: on an
+        # 18 M-tetrahedron mesh the lists took 404 M appends and 3.3 M small
+        # np.unique calls (about 140 s), the sort a few seconds. Each node is
+        # connected with itself, and the sorted keys give every node its
+        # neighbours in ascending order, as the per-node np.unique did.
+        keys = [np.arange(npt, dtype=np.int64) * npt + np.arange(npt, dtype=np.int64)]
         for elemName, Elements in self._Elems.items():
-            for Elem in Elements:
-                nnodes = Elem.shape[-1] -1
-                for ilpt in range(nnodes):
-                    iglobalPt = Elem[ilpt]
-                    for jlpt in range(1+ilpt,nnodes): 
-                        jglobalPt=Elem[jlpt]
-                        connectivity[iglobalPt].append(jglobalPt)
-                        connectivity[jglobalPt].append(iglobalPt)
-        for key,value in connectivity.items():
-            connectivity[key] = np.unique(np.array(value,dtype=np.int32))
+            if Elements is None or Elements.shape[0] == 0:
+                continue
+            nodes = Elements[:, :-1].astype(np.int64)
+            nnodes = nodes.shape[1]
+            for ilpt in range(nnodes):
+                for jlpt in range(1 + ilpt, nnodes):
+                    keys.append(nodes[:, ilpt] * npt + nodes[:, jlpt])
+                    keys.append(nodes[:, jlpt] * npt + nodes[:, ilpt])
+        # sort, then keep the first of each run: np.unique would pick its
+        # hash-based path here, several times slower than a plain sort on
+        # tens of millions of keys
+        keys = np.concatenate(keys)
+        keys.sort()
+        keep = np.ones(keys.shape[0], dtype=bool)
+        keep[1:] = keys[1:] != keys[:-1]
+        keys  = keys[keep]
+        rows  = keys // npt
+        cols  = (keys % npt).astype(np.int32)
+        start = np.searchsorted(rows, np.arange(1, npt, dtype=np.int64))
+        connectivity = dict(enumerate(np.split(cols, start)))
         elapsed = time() - t0
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(connectivity)
@@ -414,19 +427,37 @@ class Triangulation:
         '''
         print('Associating a region ID to points')
         npt = self._Pts.shape[0]
-        regions = {}
         t0 = time()
-        for ipt in range(npt):
-            regions[ipt] = []
+        # The (point, region) pairs of every element vertex are counted with
+        # one sort over all of them rather than a Python list per point (about
+        # 80 s on 3.3 M points). The winner per point is the largest count and,
+        # on a tie, the SMALLEST region ID, which is what argmax(bincount())
+        # returned per point before.
+        points  : list = []
+        regions : list = []
         for elemtype, Elements in self._Elems.items():
-            for iElem,Elem in enumerate(Elements):
-                rID  = Elem[-1]
-                Elem = Elem[:-1]
-                for ID in Elem:
-                    regions[ID].append(rID)
-        pointRegIDs = np.zeros(npt)-1 
-        for ipt in range(npt):    
-            pointRegIDs[ipt] = np.argmax(np.bincount(regions[ipt])).astype(np.int32)
+            if Elements is None or Elements.shape[0] == 0:
+                continue
+            nV = Elements.shape[1] - 1
+            points.append(Elements[:, :-1].astype(np.int64).ravel())
+            regions.append(np.repeat(Elements[:, -1].astype(np.int64), nV))
+        points  = np.concatenate(points)
+        regions = np.concatenate(regions)
+        if np.any(regions < 0):
+            raise ValueError('point_region_ids: region IDs must be non-negative')
+        nreg = int(regions.max()) + 1
+        pairs, counts = np.unique(points * nreg + regions, return_counts=True)
+        pair_pts = pairs // nreg
+        pair_reg = pairs % nreg
+        # sort by point, then by decreasing count, then by increasing region:
+        # the first entry of each point is its winner
+        order = np.lexsort((pair_reg, -counts, pair_pts))
+        first = np.ones(order.shape[0], dtype=bool)
+        first[1:] = pair_pts[order][1:] != pair_pts[order][:-1]
+        winners = order[first]
+        # a point that no element uses keeps -1
+        pointRegIDs = np.zeros(npt)-1
+        pointRegIDs[pair_pts[winners]] = pair_reg[winners]
         elapsed = time() - t0
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(pointRegIDs)

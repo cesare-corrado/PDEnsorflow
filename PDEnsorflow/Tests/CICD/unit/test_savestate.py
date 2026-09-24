@@ -232,7 +232,9 @@ def restart_runs(tmp_path_factory) -> dict:
     folder = str(tmp_path_factory.mktemp('savestate'))
     _write_cable(folder)
     with open(os.path.join(folder, 'full.par'), 'w') as fout:
-        fout.write(_par('OUT_A', 'num_tsav = 1\ntsav[0] = {}\nchkpt_intv = 2.0\n'.format(_TSAV)))
+        # renumbering is on by default: the saving run switches it off, so the
+        # restart (on) checks that a checkpoint is stored in the user's order
+        fout.write(_par('OUT_A', 'num_tsav = 1\ntsav[0] = {}\nchkpt_intv = 2.0\nrenumbering = 0\n'.format(_TSAV)))
     with open(os.path.join(folder, 'restart.par'), 'w') as fout:
         # the extension is left out on purpose: it is accepted either way
         fout.write(_par('OUT_B', 'start_statef = OUT_A/state.3\nrenumbering = 1\n'))

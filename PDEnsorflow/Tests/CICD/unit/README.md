@@ -42,6 +42,15 @@ not), the RCM-renumbered matrix is the plain one with rows and columns
 permuted, to the bit, and an element entry missing from the sparsity pattern
 raises instead of being summed into a neighbouring entry.
 
+### `test_mesh_setup.py` &mdash; connectivity, point region IDs, sparsity pattern
+The set-up that precedes the assembly (`Triangulation.mesh_connectivity`,
+`Triangulation.point_region_ids`, `compute_coo_pattern`) used to be Python loops
+over every element or node and is now whole-array operations. The loops are
+kept in the test as the reference, and on the coarse demo square (63001 nodes,
+four regions) the new code must give the **same** result entry by entry and in
+the same dtype. A three-node mesh pins the tie rule of the region IDs: a node
+shared equally by two regions takes the smaller ID.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the

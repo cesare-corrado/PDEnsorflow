@@ -9,10 +9,12 @@
         of being silently ignored;
       * the defaults, which are the reference simulator's, not gpuSolve's, so a
         file that omits a key means what the same file would mean elsewhere.
-        The ONE exception is the ionic parameters: a cell parameter that no
+        There are two exceptions. The ionic parameters: a cell parameter that no
         `im_param` mentions keeps the gpuSolve class default, because the ionic
         models are gpuSolve's own implementations and a script and a parameter
-        file should agree;
+        file should agree. And `renumbering`, which defaults to 1: it only
+        reorders the unknowns, and the time step is several times faster with
+        it (see the REGISTRY entry);
       * the unit conversions, which are concentrated here so the rest of the
         package works in gpuSolve's units throughout.
 
@@ -150,7 +152,11 @@ REGISTRY = {
     'timedt':                       ('float', 1.0,       True),
     'vofile':                       ('str',   'vm',      True),
     'gridout_i':                    ('int',   0,         True),
-    'renumbering':                  ('int',   0,         True),
+    # the one default that is NOT the reference's (0): node renumbering only
+    # reorders the unknowns, and the time step is several times faster with it
+    # on a mesh in the mesher's own order (see HeatSolver). Output keeps the
+    # mesh numbering. renumbering = 0 restores the previous numerics.
+    'renumbering':                  ('int',   1,         True),
     'num_gregions':                 ('int',   1,         True),
     'num_imp_regions':              ('int',   1,         True),
     'num_stim':                     ('int',   0,         True),
