@@ -30,3 +30,4 @@ from gpuSolve.IO.writers.resultwriter import ResultWriter
 from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
 from gpuSolve.IO.writers.igbwriter import IGBWriter
 from gpuSolve.IO.writers.statewriter import StateWriter
+from gpuSolve.IO.writers.svfilewriter import SvFileWriter
