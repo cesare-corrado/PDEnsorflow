@@ -326,15 +326,16 @@ def test_a_counter_that_would_drop_an_entry_is_refused():
 
 
 def test_notes_are_silent_when_the_request_matches_what_is_done():
-    """mass_lumping = 0 and bidomain = 0 are what gpuSolve does, so neither is
-    reported; parab_solve never matches implicit Euler, so it always is."""
+    """mass_lumping = 0, bidomain = 0 and parab_solve = 1 (the theta method)
+    are what gpuSolve does, so none is reported; the other values are."""
     notes = _mapper(['-mass_lumping', '0', '-bidomain', '0']).notes()
     assert not any('mass_lumping' in note for note in notes)
     assert not any('bidomain' in note for note in notes)
-    assert any('parab_solve' in note for note in notes)
-    noisy = _mapper(['-mass_lumping', '1', '-bidomain', '1']).notes()
+    assert not any('parab_solve' in note for note in notes)
+    noisy = _mapper(['-mass_lumping', '1', '-bidomain', '1', '-parab_solve', '0']).notes()
     assert any('mass_lumping' in note for note in noisy)
     assert any('bidomain' in note for note in noisy)
+    assert any('parab_solve' in note for note in noisy)
 
 
 # ---- legacy stimulus[] keys ------------------------------------------------
@@ -465,3 +466,23 @@ def test_ttp_per_node_conductance_survives_initialisation():
     model.initialize_state_variables(tf.Variable(tf.zeros([3, 1], dtype=tf.float32)))
     np.testing.assert_allclose(model.get_parameter('GKr').numpy(), values)
     np.testing.assert_allclose(model.get_parameter('GKs').numpy(), np.full((3, 1), 0.392))
+
+
+# ---- time scheme of the diffusion step -------------------------------------
+@pytest.mark.parametrize('argv,theta', [
+    ([], 0.5),                                          # parab_solve = 1, theta = 0.5
+    (['-theta', '0.75'], 0.75),
+    (['-theta', '1'], 1.0),                             # implicit Euler, accepted here
+    (['-parab_solve', '0'], 1.0),                       # not implemented: implicit Euler
+    (['-parab_solve', '2', '-theta', '0.5'], 1.0),
+])
+def test_the_diffusion_theta(argv, theta):
+    assert _mapper(argv).solver_config()['theta'] == pytest.approx(theta)
+
+
+def test_a_theta_outside_the_reference_range_is_noted_and_one_outside_0_1_refused():
+    assert any('theta' in note for note in _mapper(['-theta', '1']).notes())
+    assert not any('theta' in note for note in _mapper(['-theta', '0.5']).notes())
+    for bad in ('0', '1.5'):
+        with pytest.raises(ValueError, match='theta'):
+            _mapper(['-theta', bad]).solver_config()

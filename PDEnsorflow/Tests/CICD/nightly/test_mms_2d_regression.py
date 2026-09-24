@@ -28,7 +28,8 @@
         checked column by column.)
       * conduction velocity (quantitative): CV measured from a linear fit of LAT
         vs x over the sheet interior matches the analytic value within 10%
-        (~4.2% at these parameters; the margin absorbs the linear-FEM /
+        (~2.0% at these parameters with the default Crank-Nicolson diffusion
+        step, ~4.2% with implicit Euler; the margin absorbs the linear-FEM /
         forward-Euler discretisation bias).
 
     Runs the traced solver kernels and the XLA-compiled cell model (see the
@@ -50,7 +51,8 @@ from gpuSolve.physics import MonodomainSolver
 
 # Sheet / solver parameters, tuned on the GPU box so the planar front is well
 # resolved (~7.9 elements across it) and the run is a few seconds; the measured
-# CV error is ~4.2% and reproducible bit-for-bit run to run.
+# CV error is ~2.0% (Crank-Nicolson, the default; 4.2% with implicit Euler) and
+# reproducible bit-for-bit run to run.
 _MESH_FILE = 'triangulated_square.pkl'
 _SIGMA  = 0.5                                     # isotropic conductivity == diffusion coefficient D
 _DT     = 0.05
