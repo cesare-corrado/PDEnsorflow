@@ -71,7 +71,15 @@ class HeatSolver:
         self._renumbering : dict             = None
         self._StimulusDict : dict            = None
         self._I0_zero : tf.Tensor            = None
-        self._nt : int                       = int(self._Tend // self._dt)
+        # the number of steps that reach Tend. Floor division of the floats
+        # lost a step whenever dt is not exact in binary (100 // 0.02 is 4999,
+        # 1 // 0.025 is 39), so every such run stopped one step short of Tend.
+        # The nearest whole number is taken instead, and lowered only if it
+        # would step past Tend by more than round-off.
+        nsteps = int(round(self._Tend / self._dt))
+        if nsteps * self._dt > self._Tend * (1.0 + 1.0e-9):
+            nsteps -= 1
+        self._nt : int                       = nsteps
 
         if self._mesh_file_name is not None:
             self._Domain.readMesh('{}'.format(self._mesh_file_name))

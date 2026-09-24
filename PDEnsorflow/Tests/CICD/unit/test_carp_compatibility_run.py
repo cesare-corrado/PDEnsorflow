@@ -109,14 +109,15 @@ def test_the_run_completes_and_writes_its_output(cable_run):
 
 def test_the_output_header_describes_what_was_written(cable_run):
     """nx is the node count and nt the number of frames actually recorded:
-    one before the loop, then one every dt_per_plot steps."""
+    one before the loop, then one at every multiple of dt_per_plot steps
+    (t = 0, spacedt, ..., tend)."""
     reader = IGBReader()
     reader.read(os.path.join(cable_run['folder'], 'OUT', 'vm.igb'))
     header      = reader.header()
-    nsteps      = int(_TEND // (_DT_US * 1.0e-3))
+    nsteps      = int(round(_TEND / (_DT_US * 1.0e-3)))
     dt_per_plot = int(round(_SPACE / (_DT_US * 1.0e-3)))
     assert header['x'] == _NPT
-    assert header['t'] == 1 + (nsteps + dt_per_plot - 1) // dt_per_plot
+    assert header['t'] == 1 + nsteps // dt_per_plot
 
 
 def test_the_potential_stays_physical_and_the_front_travels(cable_run):
@@ -312,3 +313,52 @@ def test_the_mesh_export_is_named_without_the_binary_extension(tmp_path, meshnam
     for suffix in ('.pts', '.elem', '.lon'):
         assert 'cable{}'.format(suffix) in written, written
     assert not any(name.startswith('cable.pkl') for name in written), written
+
+
+def _run_cable_for(folder: str, tend: float, simid: str) -> tuple:
+    """Run the paced cable to tend and return (frames, final state in mesh order)."""
+    from gpuSolve.carp_compatibility.optionreader import OptionReader
+    from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
+    from gpuSolve.carp_compatibility.simulationrunner import SimulationRunner
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        mapper = ParameterMapper()
+        mapper.resolve(OptionReader().read(['+F', 'cable.par', '-tend', str(tend), '-simID', simid]))
+        runner = SimulationRunner({'verbose': False})
+        runner.set_mapper(mapper)
+        runner.build()
+        runner.run()
+        # U() returns the mesh's node order whether or not the run renumbered
+        final = np.reshape(runner.model().U().numpy(), (-1,))
+    finally:
+        os.chdir(cwd)
+    reader = IGBReader()
+    reader.read(os.path.join(folder, simid, 'vm.igb'))
+    frames = np.array(reader.data()).reshape(reader.header()['t'], reader.header()['x'])
+    return((frames, final))
+
+
+def test_frames_fall_on_multiples_of_spacedt(tmp_path):
+    """Frame k holds the solution at t = k*spacedt, as the reference writes
+    it: the last frame is the state at tend, and frame 1 of a longer run is
+    the last frame of a run that stops at spacedt. Recording on the step
+    INDEX instead put every frame one step late and dropped the one at tend."""
+    folder = str(tmp_path)
+    _write_cable(folder)
+    _write_par(folder)
+    short, _ = _run_cable_for(folder, _SPACE, 'OUT_SHORT')
+    full, final = _run_cable_for(folder, 3.0 * _SPACE, 'OUT_FULL')
+    assert short.shape[0] == 2 and full.shape[0] == 4
+    np.testing.assert_array_equal(full[-1, :], final.astype(full.dtype))
+    np.testing.assert_array_equal(full[1, :], short[-1, :])
+
+
+@pytest.mark.parametrize('tend,dt,nsteps', [(100.0, 0.02, 5000), (1.0, 0.025, 40),
+                                            (250.0, 0.1, 2500), (1.01, 0.02, 50)])
+def test_the_run_reaches_tend(tend, dt, nsteps):
+    """The step count reaches tend when dt divides it, although dt is not exact
+    in binary (100 // 0.02 is 4999), and never steps past tend when it does
+    not divide it (1.01 ms at 0.02 ms is 50 steps, to 1.00 ms)."""
+    from gpuSolve.physics import HeatSolver
+    assert HeatSolver({'Tend': tend, 'dt': dt}).nt() == nsteps

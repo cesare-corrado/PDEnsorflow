@@ -188,6 +188,12 @@ Also covers the **mesh export** (`gridout_i = 1`) from both mesh formats: with
 `meshname = cable` or `meshname = cable.pkl` the exported files must be
 `cable.pts` / `.elem` / `.lon`, never `cable.pkl.pts`.
 
+Also pins the **time grid**: frame k of the output holds the solution at
+t = k*spacedt (the last frame is the state at tend, and frame 1 of a longer run
+equals the last frame of a run that stops at spacedt), and the step count
+reaches tend although dt is not exact in binary (100 ms at 0.02 ms is 5000
+steps, not the 4999 that floor division gave).
+
 A **pure-diffusion run** (no cell model) must stay finite: it starts from
 `U = 0` with nothing driving it, so its output must stay exactly 0 rather than
 turning into NaN on the first step.
