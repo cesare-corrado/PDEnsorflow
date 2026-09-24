@@ -131,11 +131,15 @@ class SimulationRunner:
             self.__save_due_states(ctime)
             then     = time.time()
             # the step counter is global, so frames are recorded on the same
-            # steps as in an uninterrupted run
+            # steps as in an uninterrupted run. Step istep advances the solution
+            # from istep*dt to (istep+1)*dt, so the frame test is on istep+1:
+            # frames then fall at t = k*spacedt (0, spacedt, ..., tend), the
+            # times the reference writes. Testing istep put every frame one
+            # step late (dt, spacedt + dt, ...) and dropped the one at tend.
             for istep in range(self._first_step, model.nt()):
                 ctime += model.dt()
                 model.step(ctime)
-                if istep % model.dt_per_plot() == 0:
+                if (istep + 1) % model.dt_per_plot() == 0:
                     self._writer.imshow(model.U())
                     frames += 1
                 self.__save_due_states(ctime)
@@ -413,12 +417,12 @@ class SimulationRunner:
         os.makedirs(self._outdir, exist_ok=True)
         model       = self._model
         dt_per_plot = model.dt_per_plot()
-        # one frame before the loop, then one on every step index in
-        # [first_step, nt) that is a multiple of dt_per_plot
+        # one frame before the loop, then one after every step that reaches a
+        # multiple of dt_per_plot, i.e. one per k in (first_step, nt] with
+        # k % dt_per_plot == 0 (see run())
         nframes = 1
         if model.nt() > self._first_step:
-            nframes += ((model.nt() - 1) // dt_per_plot
-                        - (self._first_step + dt_per_plot - 1) // dt_per_plot + 1)
+            nframes += model.nt() // dt_per_plot - self._first_step // dt_per_plot
         igbname = os.path.join(self._outdir, '{}.igb'.format(settings['vofile']))
         if self._first_step > 0 and os.path.isfile(igbname):
             self._mapper.add_note('restart: {} already exists and is overwritten by the '

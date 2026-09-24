@@ -245,13 +245,14 @@ def restart_runs(tmp_path_factory) -> dict:
 
 def test_the_save_times_write_their_files(restart_runs):
     """tsav writes <write_statef>.<time>.pkl; checkpointing writes one file every
-    chkpt_intv from chkpt_start, and none at tend, which the last step (t = tend - dt)
-    does not reach."""
+    chkpt_intv from chkpt_start up to chkpt_stop INCLUDED, which defaults to
+    tend: the run reaches tend, and the reference's interval timer includes its
+    end step, so there is a checkpoint at tend too."""
     assert restart_runs['status_a'] == 0
     outdir = os.path.join(restart_runs['folder'], 'OUT_A')
-    for name in ('state.3.pkl', 'checkpoint.0.pkl', 'checkpoint.2.pkl', 'checkpoint.4.pkl'):
+    for name in ('state.3.pkl', 'checkpoint.0.pkl', 'checkpoint.2.pkl', 'checkpoint.4.pkl',
+                 'checkpoint.6.pkl'):
         assert os.path.isfile(os.path.join(outdir, name)), name
-    assert not os.path.isfile(os.path.join(outdir, 'checkpoint.6.pkl'))
 
     reader = StateReader()
     reader.read(os.path.join(outdir, 'state.3.pkl'))
@@ -269,20 +270,22 @@ def test_the_restarted_run_matches_the_uninterrupted_one(restart_runs):
     V_full    = _read_igb(os.path.join(folder, 'OUT_A', 'vm.igb'))
     V_restart = _read_igb(os.path.join(folder, 'OUT_B', 'vm.igb'))
 
-    nsteps      = int(_TEND // _DT_MS)
+    nsteps      = int(round(_TEND / _DT_MS))
     dt_per_plot = int(round(_SPACE / _DT_MS))
     first       = int(round(_TSAV / _DT_MS))
-    # frames of the uninterrupted run: the initial one, then step indices 0, 40, ...
-    full_steps    = list(range(0, nsteps, dt_per_plot))
-    restart_steps = [istep for istep in full_steps if istep >= first]
-    assert V_full.shape[0] == 1 + len(full_steps)
+    # frames are recorded at the step counts k = 0, dt_per_plot, 2 dt_per_plot,
+    # ..., nsteps, i.e. at t = k*dt. The restarted run writes the saved state
+    # at k = first, then the same step counts after it.
+    full_steps    = list(range(0, nsteps + 1, dt_per_plot))
+    restart_steps = [kstep for kstep in full_steps if kstep > first]
+    assert V_full.shape[0] == len(full_steps)
     assert V_restart.shape[0] == 1 + len(restart_steps)
 
     saved = StateReader()
     saved.read(os.path.join(folder, 'OUT_A', 'state.3.pkl'))
     np.testing.assert_allclose(V_restart[0, :], saved.Vm(), atol=1.0e-5)
 
-    V_matching = V_full[1 + full_steps.index(restart_steps[0]):, :]
+    V_matching = V_full[full_steps.index(restart_steps[0]):, :]
     diff = np.abs(V_restart[1:, :] - V_matching)
     print('\n  restart vs uninterrupted: max |dV| = {:.3e} mV, mean |dV| = {:.3e} mV'.format(
         diff.max(), diff.mean()))
