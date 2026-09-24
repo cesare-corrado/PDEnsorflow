@@ -284,3 +284,31 @@ def test_help_and_a_bad_key_are_reported_without_running(capsys):
     assert main(['+Help']) == 0
     assert 'PDEnsorflow' in capsys.readouterr().out
     assert main(['-no_such_parameter', '1']) == 1
+
+
+@pytest.mark.parametrize('meshname', ['cable', 'cable.pkl'])
+def test_the_mesh_export_is_named_without_the_binary_extension(tmp_path, meshname):
+    """gridout_i exports the mesh as the three text files under simID. A mesh
+    read from a binary file (meshname = cable.pkl) must be exported as
+    cable.pts/.elem/.lon, the same names as from the text files, not as
+    cable.pkl.pts."""
+    from gpuSolve.entities.triangulation import Triangulation
+    folder = str(tmp_path)
+    _write_cable(folder)
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        domain = Triangulation()
+        domain.readMesh('cable')
+        domain.saveMesh('cable.pkl')
+        with open('grid.par', 'w') as fout:
+            fout.write('meshname = {}\nsimID = OUT_GRID\ntend = 0.5\ndt = {}\n'
+                       'spacedt = 0.25\ntimedt = 100.0\ngridout_i = 1\n'.format(meshname, _DT_US))
+        status = main(['+F', 'grid.par'])
+    finally:
+        os.chdir(cwd)
+    assert status == 0
+    written = sorted(os.listdir(os.path.join(folder, 'OUT_GRID')))
+    for suffix in ('.pts', '.elem', '.lon'):
+        assert 'cable{}'.format(suffix) in written, written
+    assert not any(name.startswith('cable.pkl') for name in written), written

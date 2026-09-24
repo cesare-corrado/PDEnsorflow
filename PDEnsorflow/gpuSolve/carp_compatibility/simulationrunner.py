@@ -32,6 +32,10 @@ from gpuSolve.carp_compatibility.parametermapper import time_label
 # and are not read here, so the extension says which kind a file is.
 STATE_FILE_EXTENSION : str = '.pkl'
 
+# Extension of a mesh stored as one binary file (Triangulation.saveMesh); a
+# mesh without it is read from the three text files <meshname>.pts/.elem/.lon.
+MESH_BINARY_EXTENSION : str = '.pkl'
+
 
 class SimulationRunner:
     """
@@ -157,7 +161,7 @@ class SimulationRunner:
             file nor the parameter it came from, and `meshname` has a default,
             so the commonest first mistake would otherwise be the least legible.
         """
-        if meshname.endswith('.pkl'):
+        if meshname.endswith(MESH_BINARY_EXTENSION):
             expected = [meshname]
         else:
             expected = ['{}{}'.format(meshname, suffix)
@@ -427,4 +431,10 @@ class SimulationRunner:
                                   'nx': model.domain().Pts().shape[0]})
         if settings['gridout_i'] != 0:
             basename = os.path.basename(self._mapper.value('meshname'))
+            # a binary mesh is named with its extension (mesh.pkl), a text mesh
+            # without one (mesh -> mesh.pts/.elem/.lon); the export always
+            # writes the text files, so the extension is dropped or they
+            # would come out as mesh.pkl.pts
+            if basename.endswith(MESH_BINARY_EXTENSION):
+                basename = basename[:-len(MESH_BINARY_EXTENSION)]
             model.domain().exportCarpFormat(os.path.join(self._outdir, basename))
