@@ -122,6 +122,15 @@ IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKr
 # lists in imp_region[].plug_param.
 PLUGIN_LIST_SEPARATOR : str = ':'
 
+# parab_solve value of the theta method (the reference's Crank-Nicolson,
+# its default); the only scheme gpuSolve implements for the diffusion step.
+PARAB_SOLVE_THETA : int = 1
+
+# The range of theta the reference accepts. Values outside it but inside
+# (0, 1] are run, with a note, because theta = 1 (implicit Euler) is useful.
+THETA_REFERENCE_MIN : float = 0.1
+THETA_REFERENCE_MAX : float = 0.99
+
 # Label of a stimulus that the input leaves unnamed; the index is appended.
 # It is the reference simulator's own label, for either stimulus family, so a
 # message about a stimulus names the same one in the logs of both solvers.
@@ -166,7 +175,10 @@ REGISTRY = {
     'bidm_eqv_mono':                ('int',   1,         True),
     'bidomain':                     ('int',   0,         False),
     'mass_lumping':                 ('int',   1,         False),
-    'parab_solve':                  ('int',   1,         False),
+    'parab_solve':                  ('int',   1,         True),
+    # weight of the new time level for parab_solve = 1. The reference accepts
+    # 0.1 to 0.99; 1.0 (implicit Euler) is accepted here as well
+    'theta':                        ('float', 0.5,       True),
     'operator_splitting':           ('int',   1,         False),
     'gregion[].name':               ('str',   '',        True),
     'gregion[].g_il':               ('float', 0.174,     True),
@@ -462,7 +474,23 @@ class ParameterMapper:
                 'dt': dt_ms,
                 'Tend': self.value('tend'),
                 'dt_per_plot': dt_per_plot,
-                'use_renumbering': self.value('renumbering') != 0})
+                'use_renumbering': self.value('renumbering') != 0,
+                'theta': self.diffusion_theta()})
+
+    def diffusion_theta(self) -> float:
+        """ diffusion_theta() returns the theta of the diffusion step.
+            parab_solve = 1 (the default) is the theta method with the `theta`
+            key (0.5, Crank-Nicolson). The explicit (0) and second-order (2)
+            schemes are not implemented; they fall back to implicit Euler
+            (theta = 1), what every value gave before, with a note.
+        """
+        if self.value('parab_solve') != PARAB_SOLVE_THETA:
+            return(1.0)
+        theta = self.value('theta')
+        if not (0.0 < theta <= 1.0):
+            raise ValueError('theta = {}: must lie in (0, 1] (0.5 Crank-Nicolson, '
+                             '1 implicit Euler)'.format(theta))
+        return(theta)
 
     def solver_settings(self) -> dict:
         """ solver_settings() returns the ConjGrad settings. cg_norm_parab
@@ -1016,10 +1044,16 @@ class ParameterMapper:
             self.__notes.append('operator_splitting = 0 {}: gpuSolve always splits the ionic '
                                 'and the diffusion update'.format(
                                     self.__origin_of('operator_splitting')))
-        self.__notes.append('parab_solve = {} {}: gpuSolve advances the diffusion term with '
-                            'implicit Euler, which is none of the three values this key '
-                            'offers'.format(self.value('parab_solve'),
-                                            self.__origin_of('parab_solve')))
+        if self.value('parab_solve') != PARAB_SOLVE_THETA:
+            self.__notes.append('parab_solve = {} {}: only the theta method (1) is implemented; '
+                                'the diffusion term is advanced with implicit Euler '
+                                '(theta = 1)'.format(self.value('parab_solve'),
+                                                     self.__origin_of('parab_solve')))
+        elif not (THETA_REFERENCE_MIN <= self.value('theta') <= THETA_REFERENCE_MAX):
+            self.__notes.append('theta = {} {}: outside the reference range [{}, {}]; accepted '
+                                'here (1 is implicit Euler)'.format(
+                                    self.value('theta'), self.__origin_of('theta'),
+                                    THETA_REFERENCE_MIN, THETA_REFERENCE_MAX))
         for index in range(self.__count_or_zero('tsav')):
             tsav = self.value('tsav[{}]'.format(index))
             if tsav is not None and tsav > self.value('tend'):

@@ -33,15 +33,15 @@ state file : OUT_mMS/state.100.pkl at t = 100.0000 ms, model ModifiedMS2v, 63001
 frames     : uninterrupted 251, restarted 151
 restart frame 0 vs saved Vm: max |dV| = 0.000e+00 mV
 restarted vs uninterrupted over the last 150 frames (150 ms):
-            max |dV| = 1.465e-03 mV, mean |dV| = 3.933e-06 mV, all finite: True
-            max |dV| on the first / last compared frame: 4.578e-05 / 9.918e-05 mV
+            max |dV| = 3.033e-04 mV, mean |dV| = 6.425e-06 mV, all finite: True
+            max |dV| on the first / last compared frame: 6.866e-05 / 1.068e-04 mV
 ```
 
 The resumed run is not identical to round-off: the CG warm-start history
 `U^{n-1}` is not stored in the state file, so the first step after the restart
 starts CG from a different guess, and the two runs then agree to within the CG
 tolerance. Saving the state does not change the uninterrupted run:
-`check_result.py` still gives 45.852 um/ms.
+`check_result.py` still gives 47.199 um/ms.
 
 The mesh is a build artefact, not data: `make_mesh.py` converts
 `Tests/data/triangulated_square.pkl` (a 10 x 10 mm sheet stored in millimetres)
@@ -88,15 +88,24 @@ Measured on this mesh, `check_result.py` reports:
 
 ```
 front end : 251 frames x 63001 nodes
-            V in [-80.371, 28.919] mV, all finite: True
-CV measured:  45.852 um/ms (4.59 cm/s)
+            V in [-81.082, 29.063] mV, all finite: True
+CV measured:  47.199 um/ms (4.72 cm/s)
 CV analytic:  46.188 um/ms (4.62 cm/s)
-rel. error : 0.73%
+rel. error : 2.19%
 vs Python API: max |dV| = 0.000e+00 mV, mean |dV| = 0.000e+00 mV
 ```
 
-Frame k holds the solution at t = k ms (k = 0 ... 250). The 0.73% is the linear-FEM and forward-Euler discretisation bias, in line with
-the 1D and 2D regressions under `Tests/CICD`.
+Frame k holds the solution at t = k ms (k = 0 ... 250). The diffusion step is
+Crank-Nicolson (`parab_solve = 1`, `theta = 0.5`, the defaults). With implicit
+Euler (`-theta 1`) the same file gives 45.852 um/ms, -0.73%. The likely reading
+(not verified by refining this mesh): the first-order time error slows the front
+and cancels most of the space error of the linear elements, which speeds it up;
+Crank-Nicolson removes most of the time error and leaves the space error,
++2.19%. On the 1D cable and the 2D
+sheet under `Tests/CICD`, where the time error dominates, Crank-Nicolson is the
+closer of the two (1D: -1.3% against -3.6%; 2D: -2.0% against -4.2%). The
+potential dips about 1 mV below the model's -80 mV floor at the front: a small
+Crank-Nicolson undershoot, which implicit Euler damps.
 
 The two routes solve the same problem and give the same bits. Before version
 1.7.0 they differed by 2e-2 to 6e-2 mV, as did two runs of the same file: the

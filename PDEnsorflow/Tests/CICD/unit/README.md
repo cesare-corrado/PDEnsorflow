@@ -51,6 +51,21 @@ four regions) the new code must give the **same** result entry by entry and in
 the same dtype. A three-node mesh pins the tie rule of the region IDs: a node
 shared equally by two regions takes the smaller ID.
 
+### `test_theta_scheme.py` &mdash; the theta method of the diffusion step
+`(M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U*`. On a 21-node cable with
+no forcing, the exact space-discrete solution `expm(-t M^-1 K) U0` (computed
+densely) separates the time error from the space error: halving dt must cut the
+error by the order of the scheme, 2 for Crank-Nicolson (`theta = 0.5`, the
+default) and 1 for implicit Euler (`theta = 1`); Crank-Nicolson must be at least
+ten times closer at dt = 0.1; and a theta outside (0, 1] is refused. With a
+constant source on half the cable (a uniform one would be in the null space of
+K), the exact solution comes from the exponential of the augmented matrix: the
+unsplit form (`split_source = False`) keeps order 2, the split form (the
+default, the reference's operator splitting) drops to order 1, and for
+implicit Euler the two are the same scheme to the bit.
+`test_mms_1d.py` keeps its physical-band check but allows the short start-up
+overshoot Crank-Nicolson shows at the edge of its initial +20 mV block.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the
@@ -160,7 +175,9 @@ which keep the gpuSolve class default); the **unit conversion**
 `sigma = 1e5 g g_mult / (beta volFrac)` from S/m and micrometres to um^2/ms; and
 the **conductivity rule**, since `bidm_eqv_mono` defaults to 1 and makes the
 monodomain conductivity the half harmonic mean of the two domains rather than
-`g_il`. Also covers which region governs which tag, cell-model selection by
+`g_il`. The diffusion scheme: `parab_solve = 1` with `theta` (0.5 by default,
+1.0 accepted with a note), and implicit Euler with a note for the schemes that
+are not implemented (0 and 2). Also covers which region governs which tag, cell-model selection by
 `a_crit`, the cell-parameter modifiers (`tau_in*0.3`, `tau_in-10%` and the
 other forms, resolved against the cell model default, and the malformed ones
 that must raise), the `cg_norm_parab` stopping tests, stimulus defaults derived from
