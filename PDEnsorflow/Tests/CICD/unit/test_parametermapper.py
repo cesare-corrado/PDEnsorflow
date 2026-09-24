@@ -81,7 +81,8 @@ def test_defaults_are_the_reference_ones():
     assert config['dt'] == pytest.approx(0.005)          # 5 us
     assert config['Tend'] == pytest.approx(100.0)        # ms
     assert config['dt_per_plot'] == 600                  # spacedt 3 ms / dt
-    assert config['use_renumbering'] is False
+    # the one solver default that is not the reference's: renumbering is on
+    assert config['use_renumbering'] is True
 
 
 def test_conductivity_conversion_with_the_default_rule():

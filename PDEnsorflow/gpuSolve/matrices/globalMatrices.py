@@ -29,23 +29,15 @@ def compute_coo_pattern(connectivity: dict) -> dict:
           the starting/ending indices of each row
     """
     npt     = len(connectivity)
-    nzero   = 0
     print('Computing sparsity pattern for coo type matrices',flush=True)
     t0 = time()
-    for vertices,loc_conn in connectivity.items():
-        nzero += (loc_conn.shape[0])
-    I             = np.zeros(shape=(nzero),dtype=int)
-    J             = np.zeros(shape=(nzero),dtype=int)
-    StartIndex    = np.zeros(shape=(npt+1),dtype=int)
-    StartIndex[0] = 0
-    k             = -1
-    for jpt in range(npt):
-        loc_con = connectivity[jpt]
-        StartIndex[jpt+1] = StartIndex[jpt]+loc_con.shape[0]
-        for jloc in range(loc_con.shape[0]):
-            k = k+1
-            I[k] = jpt
-            J[k] = loc_con[jloc]
+    # the rows are laid end to end with whole-array operations; the per-entry
+    # Python loop this replaces took about 12 s on 3.3 M nodes
+    lengths       = np.array([connectivity[jpt].shape[0] for jpt in range(npt)], dtype=np.int64)
+    StartIndex    = np.zeros(shape=(npt+1),dtype=np.int64)
+    StartIndex[1:] = np.cumsum(lengths)
+    I             = np.repeat(np.arange(npt, dtype=np.int64), lengths)
+    J             = np.concatenate([connectivity[jpt] for jpt in range(npt)]) if npt > 0 else np.zeros(shape=(0,), dtype=np.int64)
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)
 
@@ -674,22 +666,29 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
     # bits between two identical runs), so the previous assembly was not
     # reproducible to the bit and this one is, on any card.
     # The global entries are the sparsity pattern that is already computed
-    # (matrix_pattern), so they are not searched again: each element entry is
-    # located in the sorted pattern keys by a binary search, which needs no sort
-    # of the element entries at all. The keys are sorted here rather than
-    # assumed sorted, because the column order within a row is the order of
-    # the connectivity lists.
+    # (matrix_pattern). The element entries are first deduplicated with ONE
+    # sort (np.unique with its inverse), and only the resulting unique keys,
+    # which are sorted, are located in the pattern by a binary search. Searching
+    # every element entry directly is far slower: they come in element order,
+    # so each lookup lands at a random place of a pattern much larger than the
+    # cache (304 s against about 40 s for the sort on 292 M entries). The
+    # pattern keys are sorted here rather than assumed sorted, because the
+    # column order within a row is the order of the connectivity lists.
     keys = (np.concatenate(all_rows).astype(np.int64) * npt
             + np.concatenate(all_cols).astype(np.int64))
     del all_rows, all_cols
+    element_keys, inverse = np.unique(keys, return_inverse=True)
+    del keys
     pattern_keys = np.sort(matrix_pattern['I'].astype(np.int64) * npt
                            + matrix_pattern['J'].astype(np.int64))
-    idx = np.searchsorted(pattern_keys, keys)
+    slot = np.searchsorted(pattern_keys, element_keys)
     # an entry outside the pattern would otherwise be summed into a neighbour
     # without a word
-    if np.any(idx >= pattern_keys.shape[0]) or np.any(pattern_keys[np.minimum(idx, pattern_keys.shape[0] - 1)] != keys):
+    if np.any(slot >= pattern_keys.shape[0]) or np.any(pattern_keys[np.minimum(slot, pattern_keys.shape[0] - 1)] != element_keys):
         raise ValueError('assemble_matrices_dict: an element entry is not in the sparsity pattern')
-    del keys
+    # the pattern slot of every element entry, in element order
+    idx = slot[inverse]
+    del inverse, slot, element_keys
     unique_rows = pattern_keys // npt
     unique_cols = pattern_keys % npt
     if renumbering is not None:

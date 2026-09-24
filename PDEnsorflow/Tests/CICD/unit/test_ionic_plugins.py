@@ -385,8 +385,12 @@ def test_a_parameter_file_run_attaches_the_plugin_to_its_region(tmp_path, monkey
     runner = _build(_cable_argv())
     ionic  = runner.model().ionic_model()
     assert isinstance(ionic, IonicModelWithPlugins)
-    active = np.reshape(ionic.get_parameter('{}.active'.format(EP_NAME)).numpy(), (-1,))
-    sigma  = np.reshape(ionic.get_parameter('{}.sigma'.format(EP_NAME)).numpy(), (-1,))
+    # the solver holds per-node values in its renumbered order (renumbering is
+    # on by default); iperm maps them back to the mesh order, so this also
+    # checks that the plugin parameters were permuted with the nodes
+    iperm  = runner.model().renumbering()['iperm']
+    active = np.take(np.reshape(ionic.get_parameter('{}.active'.format(EP_NAME)).numpy(), (-1,)), iperm)
+    sigma  = np.take(np.reshape(ionic.get_parameter('{}.sigma'.format(EP_NAME)).numpy(), (-1,)), iperm)
     # node i sits at x = i*dx: nodes of the first half carry the plugin
     assert np.all(active[:_NELEM // 2] == 1.0) and np.all(active[_NELEM // 2 + 1:] == 0.0)
     assert np.all(sigma[:_NELEM // 2] == 26.0) and np.all(sigma[_NELEM // 2 + 1:] == 13.0)

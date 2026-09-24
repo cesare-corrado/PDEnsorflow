@@ -228,7 +228,10 @@ def test_a_parameter_file_run_and_its_checkpoint(tmp_path, monkeypatch):
     monkeypatch.chdir(str(tmp_path))
     runner = _build()
     ionic  = runner.model().ionic_model()
-    VtakeOff = np.reshape(ionic.get_parameter('{}.VtakeOff'.format(IA_NAME)).numpy(), (-1,))
+    # per-node values are held in the solver's renumbered order (renumbering
+    # is on by default); iperm maps them back to the mesh order
+    iperm    = runner.model().renumbering()['iperm']
+    VtakeOff = np.take(np.reshape(ionic.get_parameter('{}.VtakeOff'.format(IA_NAME)).numpy(), (-1,)), iperm)
     assert np.all(VtakeOff[:_NELEM // 2] == 150.0) and np.all(VtakeOff[_NELEM // 2 + 1:] == 160.0)
     # the checkpoint names the plugin but holds only the model's state
     written = runner.model().checkpoint()

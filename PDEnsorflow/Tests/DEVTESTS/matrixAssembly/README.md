@@ -60,3 +60,13 @@ not reproducible to the bit (the device sum adds with atomics). The host sum
 is deterministic and agrees with the device one to about 2 float32 ulps.
 Measured on the coarse mesh: 1.0 s (host) vs 2.4 s (device); fine mesh:
 15.2 s vs 8.6 s, with the per-element callback of the benchmark script.
+
+**Change Log**: 24 September 2026: the element entries are deduplicated with one
+sort (`np.unique` with its inverse) and only the unique, sorted keys are looked
+up in the pattern. Looking up every element entry directly lands at a random
+place of a pattern much larger than the cache: on an 18.2 M-tetrahedron mesh
+that search alone took 304 s. The connectivity, the sparsity pattern and the
+region ID of each node are whole-array operations instead of Python loops. On
+that mesh the set-up before the time loop went from about 10 min to about 3 min
+(connectivity 112 -> 8 s, point region IDs 69 -> 2.6 s, pattern 9.7 -> 1.1 s,
+assembly 358 -> 116 s); the matrices and the solution are bit-identical.
