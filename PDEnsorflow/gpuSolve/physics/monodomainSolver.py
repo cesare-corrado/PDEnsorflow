@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 """
-    MonodomainSolver: one-step implicit FEM monodomain solver (TensorFlow).
+    MonodomainSolver: FEM monodomain solver (TensorFlow), operator splitting.
 
-    Inherits HeatSolver and adds an ionic-model term to the RHS:
-        (MASS + dt * STIFFNESS) U^{n+1} = MASS (U^n + dt (differentiate(U) + I0))
+    Inherits HeatSolver and adds an ionic-model term: the source of the theta
+    step of HeatSolver is S = differentiate(U^n) + I0 (forward Euler for the
+    cell model), so by default
+        (MASS + theta dt STIFFNESS) U^{n+1} = (MASS - (1 - theta) dt STIFFNESS) (U^n + dt S)
+    theta = 0.5 (the default) is Crank-Nicolson, theta = 1 implicit Euler;
+    split_source = False takes the source unsplit, (...) U^n + dt MASS S.
 
     The ionic model is held by composition. Permutation of nodal properties
     and ionic-state variables (when reverse Cuthill-McKee renumbering is on)
@@ -128,14 +132,14 @@ class MonodomainSolver(HeatSolver):
 
     # ---- per-step kernel ----------------------------------------------------
     def solve_step(self, U: tf.Variable, I0: tf.constant) -> tf.Variable:
-        """ Forward Euler for the ionic ODEs + implicit step for diffusion.
+        """ Forward Euler for the ionic ODEs + theta-method step for diffusion;
+            the ionic and forcing current is the source of HeatSolver's step.
             Not a tf.function, for the reason given in HeatSolver.solve_step;
             the ionic step (differentiate) is compiled with XLA.
         """
         dU   = self._ionic_model.differentiate(U)
         dU   = tf.add(dU, I0)
-        RHS0 = tf.add(U, tf.math.scalar_mul(self._dt, dU))
-        RHS  = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=RHS0)
+        RHS  = self._diffusion_rhs(U, dU)
         self._Solver.set_X0(self._warm_start_X0(U))
         self._Solver.set_RHS(RHS)
         self._Solver.solve()

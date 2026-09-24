@@ -1,4 +1,4 @@
-# PDEnsorflow 1.7.0
+# PDEnsorflow 1.8.0
 
 **PDEnsorflow**  is a library developed under `TensorFlow 2.X` to solve Partial dfferential equations.
 Since version 1.2, it implements finite differences and finite element solvers.
@@ -112,3 +112,53 @@ out, which is the quickest way to see what a command line actually asked for.
 A worked example, with the same simulation expressed both as a parameter file
 and as a Python script so the two can be compared, is in
 `PDEnsorflow/Tests/FEM/mMS_carp_compatibility`.
+
+## Single-cell interface
+
+Installing the package also installs a `singlecell` command. It runs one cell
+of a gpuSolve ionic model with the options of openCARP's single-cell tool,
+`bench`, spelled and parsed the same way:
+
+```
+singlecell --imp Courtemanche --imp-par "GKr*1.6" --stim-curr 20 --numstim 4 --bcl 1000
+singlecell --imp Tomek --numstim 50 --bcl 1000 -F paced.sv -S 49000
+singlecell --imp Tomek --read-ini-file paced.sv --duration 1000 -v
+```
+
+It implements regular and irregular pacing (`--numstim`, `--bcl`,
+`--stim-start`, `--stim-times`, `--DIA`, `--stim-curr`, `--stim-dur`), the
+run control (`--duration`, `--past-stim`, `--dt`), the models and plugins
+(`--imp`, `--imp-par`, `--plug-in`, `--plug-par`, with the same names and
+modifiers as the parameter file), the information modes (`--list-imps`,
+`--imp-info`, `--plugin-outputs`), the output (`--dt-out`, `--start-out`,
+`--fout`, `-B`, `-u`, `-v`) and the single-cell state files
+(`--save-ini-file`, `--save-ini-time`, `--read-ini-file`). The output files and
+the state files have bench's formats and names, so the tools that read bench
+output read these too, and a state file written by either program can be read
+by the other. `singlecell --help` lists the options.
+
+Points that differ from `bench`, on purpose:
+
+* **A bench option that is not implemented yet stops the run** (restitution,
+  voltage clamp, light, strain, several cells, ...), rather than running a
+  different experiment. So does a word that is not an option, which `bench`
+  drops silently.
+* **The default model is `Courtemanche`** (bench's `DrouhardRoberge` is not a
+  gpuSolve model), and the models use gpuSolve's defaults and integration
+  scheme, so a single cell and a tissue run of the same model agree.
+  `--reference-scheme` selects the reference's scheme where gpuSolve differs
+  (Tomek's gates and IKr chain, `Defib_AshiharaTrayanova`'s current).
+  gpuSolve's `MitchellSchaeffer` works in mV with `tau_out = 6`;
+  `--imp-par "V_min=0,V_max=1,tau_out=5"` gives bench's.
+* **A state file sets states, not parameters.** bench also takes the
+  parameters stored in the file (for example `GKr` of tenTusscherPanfilov),
+  over `--imp-par`; `singlecell` keeps the defaults and `--imp-par`, and prints
+  a warning at the start and at the end of the run for each file parameter
+  that differs. The files it writes hold the parameters the run used, at full
+  precision (bench writes 6 digits).
+* **One cell runs on the CPU, on one thread**, which is faster than a GPU for
+  so little work. `--target mlir-cuda` selects the GPU.
+* The ionic model trace (`Trace_0.dat`) is not written yet.
+
+`PDEnsorflow/Tests/DEVTESTS/ionic/singlecell_vs_bench.py` runs both programs on
+every shared model and compares them.

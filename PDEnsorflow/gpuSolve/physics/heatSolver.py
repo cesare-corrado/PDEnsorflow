@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 """
-    HeatSolver: one-step implicit FEM heat-equation solver (TensorFlow backend).
+    HeatSolver: one-step FEM heat-equation solver (TensorFlow backend), with the
+    theta method in time and the source S taken explicitly, split from the
+    diffusion as the reference does it:
+        (M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) (U^n + dt S)
+    theta = 0.5 (default) Crank-Nicolson, theta = 1 implicit Euler. With
+    split_source = False the source is taken unsplit instead:
+        (M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U^n + dt M S
 
     Organised as load/setup -> assemble -> per-step kernel, so the expensive
     assembly runs once and the time loop only calls a small kernel, around the
@@ -52,6 +58,32 @@ class HeatSolver:
         # previous solutions, which typically
         # saves CG iterations per step; when False the guess is U^n.
         self._linear_guess : bool    = True
+        # weight of the new time level in the diffusion step (theta method):
+        #   (M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U*
+        # with U* the potential after the forcing (and, in the monodomain
+        # solver, the ionic) update of the splitting. 0.5 is Crank-Nicolson,
+        # second order in time and the reference simulator's default
+        # (parab_solve = 1, theta = 0.5); 1.0 is implicit Euler, the scheme
+        # used before this parameter existed. The default was changed from
+        # implicit Euler to 0.5 with the maintainer's approval; theta = 1.0
+        # restores the previous numerics bit for bit.
+        self._theta : float          = 0.5
+        # how the source S (forcing, and in the monodomain solver the ionic
+        # current) enters the theta step, for theta < 1:
+        #   True  (default, split): (M + theta dt K) U^{n+1} = (M - (1-theta) dt K) (U^n + dt S)
+        #   False (unsplit):        (M + theta dt K) U^{n+1} = (M - (1-theta) dt K) U^n + dt M S
+        # The split form is the reference simulator's operator splitting: the
+        # explicit diffusion also acts on the dt S of the reaction update, a
+        # -(1-theta) dt^2 K S splitting error the unsplit form does not have.
+        # Which is better depends on the source. One independent of U keeps
+        # Crank-Nicolson second order only unsplit (split: first order, 44x
+        # the error at dt = 0.2 on a 1D test). A stiff cell model advanced with
+        # forward Euler does better split: on the 1D mMS cable, CV -1.30%
+        # split against -3.37% unsplit, and the unsplit front overshoots vmax
+        # by 11 mV for 6 ms. Split is the default (the maintainer's choice
+        # after these measurements, and the reference's scheme); for theta = 1
+        # the two coincide.
+        self._split_source : bool    = True
 
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
@@ -62,7 +94,10 @@ class HeatSolver:
         self._materials : MaterialProperties = MaterialProperties()
         self._Solver : ConjGrad              = ConjGrad()
         self._Precond : JacobiPrecond        = JacobiPrecond()
+        # the mass matrix M, and the matrix M - (1 - theta) dt K that multiplies
+        # U on the right-hand side (M itself for implicit Euler)
         self._MASS                           = None
+        self._RHS_MATRIX                     = None
         self._U : tf.Variable                = None
         self._U_prev : tf.Variable           = None
         self._ready_for_run : bool           = False
@@ -71,7 +106,21 @@ class HeatSolver:
         self._renumbering : dict             = None
         self._StimulusDict : dict            = None
         self._I0_zero : tf.Tensor            = None
-        self._nt : int                       = int(self._Tend // self._dt)
+        # the number of steps that reach Tend. Floor division of the floats
+        # lost a step whenever dt is not exact in binary (100 // 0.02 is 4999,
+        # 1 // 0.025 is 39), so every such run stopped one step short of Tend.
+        # The nearest whole number is taken instead, and lowered only if it
+        # would step past Tend by more than round-off.
+        nsteps = int(round(self._Tend / self._dt))
+        if nsteps * self._dt > self._Tend * (1.0 + 1.0e-9):
+            nsteps -= 1
+        self._nt : int                       = nsteps
+        # theta = 0 would be explicit Euler, which this solver does not
+        # implement (it always solves a linear system), and theta > 1 weights
+        # beyond the new level; both are refused rather than run
+        if not (0.0 < self._theta <= 1.0):
+            raise ValueError('theta = {}: the theta method needs 0 < theta <= 1 '
+                             '(0.5 Crank-Nicolson, 1 implicit Euler)'.format(self._theta))
 
         if self._mesh_file_name is not None:
             self._Domain.readMesh('{}'.format(self._mesh_file_name))
@@ -96,9 +145,19 @@ class HeatSolver:
         MATRICES     = assemble_matrices_dict(lmatr, pattern, self._Domain,
                                               self._materials, connectivity,
                                               renumbering=self._renumbering)
-        self._MASS  = MATRICES['mass']
+        MASS        = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
-        A           = csr_axpby(self._MASS, 1.0, STIFFNESS, self._dt)
+        A           = csr_axpby(MASS, 1.0, STIFFNESS, self._theta * self._dt)
+        if self._theta == 1.0:
+            # implicit Euler: the right-hand side is M itself, not M - 0 K,
+            # so the previous scheme is reproduced to the bit
+            self._RHS_MATRIX = MASS
+        else:
+            # built once; the split form needs only this matrix, the unsplit
+            # one also M, for the source
+            self._RHS_MATRIX = csr_axpby(MASS, 1.0, STIFFNESS, -(1.0 - self._theta) * self._dt)
+        if self._theta != 1.0 and not self._split_source:
+            self._MASS = MASS
         self._Domain.release_connectivity()
         self._materials.remove_all_element_properties()
         self._Solver.set_matrix(A)
@@ -158,19 +217,33 @@ class HeatSolver:
         return(X0)
 
     def solve_step(self, U: tf.Variable, I0: tf.constant) -> tf.Variable:
-        """ Implicit Euler solve for the heat equation.
+        """ theta-method solve for the heat equation (implicit Euler for
+            theta = 1): the forcing is applied first, then the diffusion step.
             Not a tf.function: it drives the CG loop, whose convergence test
             reads the residual on the host, and keeps the warm-start history
             in a Python attribute. Its kernels (CG iterations, preconditioner,
             cell model) are traced functions of their own.
         """
         X0   = self._warm_start_X0(U)
-        RHS0 = tf.add(U, self._dt * I0)
-        RHS  = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=RHS0)
+        RHS  = self._diffusion_rhs(U, I0)
         self._Solver.set_X0(X0)
         self._Solver.set_RHS(RHS)
         self._Solver.solve()
         return self._Solver.X()
+
+    def _diffusion_rhs(self, U: tf.Variable, S: tf.Tensor) -> tf.Tensor:
+        """ _diffusion_rhs(U, S) returns the right-hand side of the theta step
+            for the potential U and the source S (see _split_source):
+            (M - (1-theta) dt K) U + dt M S unsplit, or
+            (M - (1-theta) dt K) (U + dt S) split and for implicit Euler,
+            where the two coincide and one sparse product suffices.
+        """
+        if self._MASS is None:
+            RHS0 = tf.add(U, tf.math.scalar_mul(self._dt, S))
+            return(tf.raw_ops.SparseMatrixMatMul(a=self._RHS_MATRIX._matrix, b=RHS0))
+        RHS_U = tf.raw_ops.SparseMatrixMatMul(a=self._RHS_MATRIX._matrix, b=U)
+        RHS_S = tf.raw_ops.SparseMatrixMatMul(a=self._MASS._matrix, b=tf.math.scalar_mul(self._dt, S))
+        return(tf.add(RHS_U, RHS_S))
 
     def _compute_forcing(self, ctime: float) -> tf.constant:
         """ Aggregate active stimuli at simulation time ctime. """
@@ -321,6 +394,16 @@ class HeatSolver:
 
     def nt(self) -> int:
         return self._nt
+
+    def split_source(self) -> bool:
+        """ split_source() tells whether the source is split from the
+            diffusion step (the reference's scheme) rather than taken unsplit """
+        return(self._split_source)
+
+    def theta(self) -> float:
+        """ theta() returns the weight of the new time level in the diffusion
+            step: 0.5 Crank-Nicolson, 1 implicit Euler """
+        return(self._theta)
 
     def dt(self) -> float:
         return self._dt

@@ -51,6 +51,21 @@ four regions) the new code must give the **same** result entry by entry and in
 the same dtype. A three-node mesh pins the tie rule of the region IDs: a node
 shared equally by two regions takes the smaller ID.
 
+### `test_theta_scheme.py` &mdash; the theta method of the diffusion step
+`(M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U*`. On a 21-node cable with
+no forcing, the exact space-discrete solution `expm(-t M^-1 K) U0` (computed
+densely) separates the time error from the space error: halving dt must cut the
+error by the order of the scheme, 2 for Crank-Nicolson (`theta = 0.5`, the
+default) and 1 for implicit Euler (`theta = 1`); Crank-Nicolson must be at least
+ten times closer at dt = 0.1; and a theta outside (0, 1] is refused. With a
+constant source on half the cable (a uniform one would be in the null space of
+K), the exact solution comes from the exponential of the augmented matrix: the
+unsplit form (`split_source = False`) keeps order 2, the split form (the
+default, the reference's operator splitting) drops to order 1, and for
+implicit Euler the two are the same scheme to the bit.
+`test_mms_1d.py` keeps its physical-band check but allows the short start-up
+overshoot Crank-Nicolson shows at the edge of its initial +20 mV block.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the
@@ -63,6 +78,10 @@ dimensionless family (`MitchellSchaeffer2v`, `ModifiedMS2v`, `Fenton4v`):
   Guards the defect where a cached span mapped +40 mV to 1.25.
 * **per-node range** &mdash; `vmin`/`vmax` may be `(npt, 1)` columns, as pushed
   by `assign_nodal_properties()`, and the span broadcasts.
+
+Every model also declares its tunable parameters (`tunable_parameter_names()`,
+what `singlecell --imp-info` lists): each name must be a parameter
+`get_parameter()` knows, listed once, and not a state variable.
 
 ### `test_tomek.py` &mdash; the ToR-ORd cell model (`gpuSolve.ionic.tomek.Tomek`)
 What is specific to this model beyond the generic contract of `test_ionic.py`.
@@ -156,7 +175,9 @@ which keep the gpuSolve class default); the **unit conversion**
 `sigma = 1e5 g g_mult / (beta volFrac)` from S/m and micrometres to um^2/ms; and
 the **conductivity rule**, since `bidm_eqv_mono` defaults to 1 and makes the
 monodomain conductivity the half harmonic mean of the two domains rather than
-`g_il`. Also covers which region governs which tag, cell-model selection by
+`g_il`. The diffusion scheme: `parab_solve = 1` with `theta` (0.5 by default,
+1.0 accepted with a note), and implicit Euler with a note for the schemes that
+are not implemented (0 and 2). Also covers which region governs which tag, cell-model selection by
 `a_crit`, the cell-parameter modifiers (`tau_in*0.3`, `tau_in-10%` and the
 other forms, resolved against the cell model default, and the malformed ones
 that must raise), the `cg_norm_parab` stopping tests, stimulus defaults derived from
@@ -187,6 +208,12 @@ and an index outside the mesh must be refused rather than wrapping round.
 Also covers the **mesh export** (`gridout_i = 1`) from both mesh formats: with
 `meshname = cable` or `meshname = cable.pkl` the exported files must be
 `cable.pts` / `.elem` / `.lon`, never `cable.pkl.pts`.
+
+Also pins the **time grid**: frame k of the output holds the solution at
+t = k*spacedt (the last frame is the state at tend, and frame 1 of a longer run
+equals the last frame of a run that stops at spacedt), and the step count
+reaches tend although dt is not exact in binary (100 ms at 0.02 ms is 5000
+steps, not the 4999 that floor division gave).
 
 A **pure-diffusion run** (no cell model) must stay finite: it starts from
 `U = 0` with nothing driving it, so its output must stay exactly 0 rather than
@@ -242,6 +269,45 @@ tolerances that make such a file portable (the keyword is neither counted nor
 required; reading stops at the declared count so trailing content is ignored)
 and the three refusals: a file shorter than it declares, one carrying a second
 per-node column, and one with no count.
+
+### `test_singlecell_options.py` &mdash; the `singlecell` command line
+`SingleCellOptionReader` against the rules of the reference single-cell tool
+(`bench`), checked on the installed binary: `--name value` and `--name=value`,
+unique prefixes (`--bc`), an exact name winning over a longer one (`--dt`, not
+`--dt-out`), grouped short flags and glued values (`-vB -a2`), an optional
+argument taken only when glued (`--fout=run1`), and bench's own messages for an
+option given twice, two modes (`--numstim` with `--stim-times`), two stimulus
+types, a missing or non-numeric value, and an ambiguous prefix (with its
+candidates in bench's order). Every bench option is recognised, and each one
+not implemented yet is reported as such, not as unknown. Pins the deliberate
+difference (a stray word is an error; bench drops it) and that reading the
+options does not start TensorFlow, which must see the device and thread
+settings first.
+
+### `test_svfile.py` &mdash; single-cell state files (`.sv`)
+`SvFileReader` on a file written by `bench --save-ini-file`, and
+`SvFileWriter` + `SvFileReader` round-tripping values that a 6-digit `%g`
+would round (the writer keeps full precision). The reference reads a file by
+position, so each layout of `carp_compatibility.svlayouts` must list the
+entries of the reference's state structure in its order, with its
+single-precision gates; the expected orders are copied from its generated
+headers. Every state variable of every model and plugin appears in its layout
+exactly once, and every parameter entry exists. Malformed files are refused.
+
+### `test_singlecell_run.py` &mdash; the `singlecell` executable end to end
+Short runs of `main()` on `MitchellSchaeffer` with the reference's parameters
+(`V_min=0, V_max=1, tau_out=5`), compared with numbers from `bench`: a regular
+train (2 stimuli, BCL 400 ms), and irregular stimuli given as diastolic
+intervals with a delayed output start and the duration derived from the last
+stimulus; the output times must be identical and the potential within 1e-5
+(the model is float32, bench float64). A state file saved at 150 ms matches
+bench's file and restarts the run exactly. Also: the `-v` binaries and header,
+the `-u` list (comma separated; an unknown name stops the run), the stdout
+table and modifier banner, the parameter warning of a state file (printed at
+the start and at the end, and only when a value differs), the refusal of a file
+for another model, of bench options not implemented yet, of `--num` other than
+1, of an unknown target, model or parameter, and of a negative duration, and
+the `--list-imps` / `--imp-info` listings.
 
 ## Adding tests
 Drop a `test_*.py` file here. Keep it **fast and CPU-only** (no GPU assumption,

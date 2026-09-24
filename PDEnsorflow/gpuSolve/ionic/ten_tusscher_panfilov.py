@@ -550,6 +550,19 @@ class TenTusscherPanfilov(IonicModel):
                 'D_state', 'F_state', 'F2_state', 'FCaSS_state', 'H_state', 'J_state',
                 'M_state', 'R_state', 'S_state', 'Xr1_state', 'Xr2_state', 'Xs_state'))
 
+    def tunable_parameter_names(self) -> tuple:
+        """ tunable_parameter_names() returns the names set_parameter() accepts:
+            celltype, then the parameter list of the reference model in its
+            order. The reference's own cell_type entry is left out: it numbers
+            the types differently (EPI 0), and celltype (CELL_TYPE_IDS) is the
+            one this library uses.
+        """
+        return(('celltype', 'Bufc', 'Bufsr', 'Bufss', 'CAPACITANCE', 'Cao', 'D_CaL_off',
+                'Fconst', 'GCaL', 'GK1', 'GKr', 'GKs', 'GNa', 'GbCa', 'GbNa', 'GpCa', 'GpK',
+                'Gto', 'Kbufc', 'Kbufsr', 'Kbufss', 'KmCa', 'KmK', 'KmNa', 'KmNai', 'Ko',
+                'KpCa', 'Kup', 'Nao', 'Rconst', 'T', 'Vc', 'Vleak', 'Vmaxup', 'Vrel', 'Vsr',
+                'Vss', 'knaca', 'knak', 'ksat', 'n', 'pKNa', 'scl_tau_f', 'vHalfXs', 'xr2_off'))
+
 
     # Compiled with XLA: one step is many small per-node kernels, and fusing
     # them removes most of the kernel-launch cost (ten Tusscher-Panfilov on

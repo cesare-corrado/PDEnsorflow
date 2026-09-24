@@ -90,7 +90,9 @@ if __name__ == '__main__':
 
     os.makedirs(OUTDIR, exist_ok=True)
     dt_per_plot = model.dt_per_plot()
-    nframes = 1 + (model.nt() + dt_per_plot - 1) // dt_per_plot
+    # the initial frame, then one at every multiple of dt_per_plot steps, so
+    # frames fall at t = 0, 1, ..., Tend ms, as in the parameter-file run
+    nframes = 1 + model.nt() // dt_per_plot
     im = IGBWriter({'fname': os.path.join(OUTDIR, 'vm.igb'),
                     'Tend': model.Tend(),
                     'nt': nframes,
@@ -103,7 +105,7 @@ if __name__ == '__main__':
     for i in range(model.nt()):
         ctime += model.dt()
         model.step(ctime)
-        if i % dt_per_plot == 0:
+        if (i + 1) % dt_per_plot == 0:          # step i ends at (i+1)*dt
             im.imshow(model.U())
     print('solution, elapsed: %f sec' % (time.time() - then))
     im.wait()

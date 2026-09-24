@@ -33,16 +33,15 @@ state file : OUT_mMS/state.100.pkl at t = 100.0000 ms, model ModifiedMS2v, 63001
 frames     : uninterrupted 251, restarted 151
 restart frame 0 vs saved Vm: max |dV| = 0.000e+00 mV
 restarted vs uninterrupted over the last 150 frames (150 ms):
-            max |dV| = 3.836e-02 mV, mean |dV| = 4.592e-06 mV, all finite: True
-            max |dV| on the first / last compared frame: 3.815e-05 / 1.740e-02 mV
+            max |dV| = 3.033e-04 mV, mean |dV| = 6.425e-06 mV, all finite: True
+            max |dV| on the first / last compared frame: 6.866e-05 / 1.068e-04 mV
 ```
 
-The resumed run is not identical to round-off, for two reasons. The CG
-warm-start history `U^{n-1}` is not stored in the state file, so the first step
-after the restart starts CG from a different guess. Also, two GPU runs of the
-same file already differ by `2e-2` to `6e-2` mV, depending on the pair of runs
-(see below). The restart difference is of the same order as that floor. Saving the state does not change the
-uninterrupted run: `check_result.py` still gives 45.839 um/ms.
+The resumed run is not identical to round-off: the CG warm-start history
+`U^{n-1}` is not stored in the state file, so the first step after the restart
+starts CG from a different guess, and the two runs then agree to within the CG
+tolerance. Saving the state does not change the uninterrupted run:
+`check_result.py` still gives 47.199 um/ms.
 
 The mesh is a build artefact, not data: `make_mesh.py` converts
 `Tests/data/triangulated_square.pkl` (a 10 x 10 mm sheet stored in millimetres)
@@ -89,36 +88,34 @@ Measured on this mesh, `check_result.py` reports:
 
 ```
 front end : 251 frames x 63001 nodes
-            V in [-80.386, 23.138] mV, all finite: True
-CV measured:  45.839 um/ms (4.58 cm/s)
+            V in [-81.082, 29.063] mV, all finite: True
+CV measured:  47.199 um/ms (4.72 cm/s)
 CV analytic:  46.188 um/ms (4.62 cm/s)
-rel. error : 0.76%
-vs Python API: max |dV| = 5.581e-02 mV, mean |dV| = 7.024e-06 mV
+rel. error : 2.19%
+vs Python API: max |dV| = 0.000e+00 mV, mean |dV| = 0.000e+00 mV
 ```
 
-The 0.76% is the linear-FEM and forward-Euler discretisation bias, in line with
-the 1D and 2D regressions under `Tests/CICD`.
+Frame k holds the solution at t = k ms (k = 0 ... 250). The diffusion step is
+Crank-Nicolson (`parab_solve = 1`, `theta = 0.5`, the defaults). With implicit
+Euler (`-theta 1`) the same file gives 45.852 um/ms, -0.73%. The likely reading
+(not verified by refining this mesh): the first-order time error slows the front
+and cancels most of the space error of the linear elements, which speeds it up;
+Crank-Nicolson removes most of the time error and leaves the space error,
++2.19%. On the 1D cable and the 2D
+sheet under `Tests/CICD`, where the time error dominates, Crank-Nicolson is the
+closer of the two (1D: -1.3% against -3.6%; 2D: -2.0% against -4.2%). The
+potential dips about 1 mV below the model's -80 mV floor at the front: a small
+Crank-Nicolson undershoot, which implicit Euler damps.
 
-The difference between the two routes is round-off, not a difference in what was
-solved. Re-running the *same* parameter file a second time gives a difference of
-the same order, which settles where it comes from:
-
-```
-front end vs itself (same .par, rerun): max |dV| = 5.634e-02 mV   mean = 7.827e-06 mV
-front end vs Python API               : max |dV| = 5.581e-02 mV   mean = 7.024e-06 mV
-```
-
-The sparse kernels do not reduce in a fixed order on the GPU, so two identical
-runs already differ by that much. The maximum sits on the upstroke, where the
-steepest gradient turns the smallest timing difference into the largest voltage
-difference; the mean over 251 frames and 63001 nodes is 8e-6 mV. The size of the
-maximum varies from one pair of runs to the next (2.0e-2 to 5.6e-2 mV measured
-for the front end against itself).
+The two routes solve the same problem and give the same bits. Before version
+1.7.0 they differed by 2e-2 to 6e-2 mV, as did two runs of the same file: the
+matrices were assembled on the GPU with atomic additions, whose order changed
+from run to run. The assembly is now on the host and deterministic.
 
 Both runs take about 36 s in the time loop on an RTX A2000. Before the cell
 model was compiled with XLA and the zero forcing was kept on the device, the
 same file took 43 s; the fields of the two versions differ by at most 5.6e-2 mV,
-the size of the run-to-run floor above. On a mesh of this size the CG loop is
+which was the run-to-run difference of the GPU assembly at the time. On a mesh of this size the CG loop is
 faster still as one GPU graph (24 s for this file): call
 `model.solver().set_use_graph_loop(True)`. It is off by default because it is
 slower on meshes of 1M nodes and more.

@@ -29,8 +29,9 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   single module-scoped run and check (a) the front is unidirectional (per-x-column
   activation times increase monotonically, potential stays in `[-80, 20]` mV) and
   (b) the measured conduction velocity matches the analytic Nagumo speed
-  `CV = 0.5 (1 - 2 u_crit) sqrt(2 sigma / tau_in)` within 10% (~4.2% at the tuned
-  parameters). Marked `nightly` + `gpu`.
+  `CV = 0.5 (1 - 2 u_crit) sqrt(2 sigma / tau_in)` within 10% (~2.0% at the tuned
+  parameters with the default Crank-Nicolson step, ~4.2% with implicit Euler).
+  Marked `nightly` + `gpu`.
 - `test_carp_compatibility_2d_regression.py` &mdash; the same physics on the same
   sheet, driven through a **`.par` parameter file** and
   `gpuSolve.carp_compatibility.main` instead of the Python API. The fixture

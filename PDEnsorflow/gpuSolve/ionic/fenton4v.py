@@ -98,6 +98,15 @@ class Fenton4v(IonicModel):
         """state_variable_names() returns the state advanced by differentiate(): the V, W and S gates"""
         return(('V_state', 'W_state', 'S_state'))
 
+    def tunable_parameter_names(self) -> tuple:
+        """ tunable_parameter_names() returns the names set_parameter() accepts:
+            the time constants, thresholds and shape factors of the model and
+            the potential range
+        """
+        return(('tau_vp', 'tau_vn', 'tau_wp', 'tau_wn1', 'tau_wn2', 'tau_d', 'tau_si',
+                'tau_so', 'tau_a', 'u_c', 'u_w', 'u_0', 'u_m', 'u_csi', 'u_so', 'r_sp',
+                'r_sn', 'k_', 'a_so', 'b_so', 'c_so', 'vmin', 'vmax'))
+
     def tau_vp(self)  -> tf.constant:
         return(self._tau_vp)
 
