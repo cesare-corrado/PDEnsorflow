@@ -91,6 +91,7 @@ setup(
     entry_points={
         'console_scripts': [
             'PDEnsorflow = gpuSolve.carp_compatibility.main:main',
+            'singlecell = gpuSolve.carp_compatibility.singlecell:main',
         ],
     },
     platforms='any',
