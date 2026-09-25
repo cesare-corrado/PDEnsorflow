@@ -1,4 +1,4 @@
-# PDEnsorflow 1.9.2
+# PDEnsorflow 1.9.3
 
 **PDEnsorflow**  is a library developed under `TensorFlow 2.X` to solve Partial dfferential equations.
 Since version 1.2, it implements finite differences and finite element solvers.
@@ -29,7 +29,11 @@ The CUDA library paths are configured automatically, so you do **not** need to s
 `LD_LIBRARY_PATH` by hand either: when installed into a conda environment the install also
 writes a conda activation hook, so after `conda activate` **any** program (even a bare
 `import tensorflow`) finds the GPU; importing `gpuSolve` sets the same paths at import time
-as a fallback.
+as a fallback. Both the hook and `import gpuSolve` also point XLA at the PTX assembler
+(`ptxas`) shipped with the CUDA wheels, so a CUDA toolkit installed system-wide cannot be
+picked up instead and make GPU kernel compilation fail. Scripts that call the environment's
+interpreter by absolute path, without `conda activate`, are covered by the import-time
+pin.
 
 If you want to just install *TensorFlow* manually, follow [this link](https://www.tensorflow.org/install/pip).
 
