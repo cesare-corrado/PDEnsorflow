@@ -74,6 +74,7 @@ class Tomek(IonicModel):
 
         Parameters (set_parameter / im_param):
           * celltype: 0 ENDO (default), 1 EPI, 2 MCELL. May differ node by node.
+            The constructor argument cell_type sets the uniform default by name.
           * GNa, GNaL_b, PCa_b, Gto_b, GKr_b, GKs_b, GK1_b: base conductances
             (permeability for PCa_b), before the cell-type factor. May differ
             node by node, e.g. to remodel a border zone or a scar.
@@ -108,8 +109,17 @@ class Tomek(IonicModel):
         compilation is skipped and the step runs eagerly.
     """
 
-    def __init__(self, dt: float = 0.0, n_nodes: int = 0):
+    def __init__(self, dt: float = 0.0, n_nodes: int = 0, cell_type: str = "ENDO"):
         super().__init__(dt, n_nodes)
+
+        # Uniform cell type of the whole tissue, the reference's flag item. It
+        # is kept as a name as well as a number because the parameter-file
+        # front end resolves each region's parameter modifiers against the
+        # defaults of a named type.
+        self._cell_type : str = cell_type if cell_type is not None else "ENDO"
+        if self._cell_type not in CELL_TYPE_IDS:
+            raise ValueError('Tomek: cell_type must be one of {}, got {}'.format(
+                ', '.join(CELL_TYPE_IDS.keys()), self._cell_type))
 
         # ---- integration ----------------------------------------------------
         # Exponential schemes by default: Rush-Larsen for the gates, the matrix
@@ -132,7 +142,7 @@ class Tomek(IonicModel):
         self._use_rush_larsen : bool = True
 
         # ---- tunable parameters (tf.constant, float64) ------------------------
-        self._celltype : tf.Tensor = tf.constant(float(_ENDO), dtype=_DTYPE)
+        self._celltype : tf.Tensor = tf.constant(float(CELL_TYPE_IDS[self._cell_type]), dtype=_DTYPE)
         self._GNa      : tf.Tensor = tf.constant(11.7802, dtype=_DTYPE)       # mS/uF
         self._GNaL_b   : tf.Tensor = tf.constant(0.0279, dtype=_DTYPE)        # mS/uF
         self._PCa_b    : tf.Tensor = tf.constant(8.3757e-05, dtype=_DTYPE)    # unitless
@@ -429,6 +439,24 @@ class Tomek(IonicModel):
         available after initialize_state_variables().
         """
         return(getattr(self, '_cell_{}'.format(pname), None))
+
+    def cell_type(self) -> str:
+        """ cell_type() returns the uniform default cell type given to the constructor """
+        return(self._cell_type)
+
+    def cell_type_default(self, pname: str, cell_type: str) -> float:
+        """ cell_type_default(pname, cell_type) returns the default of parameter
+            pname for a node of the given cell type ('ENDO', 'EPI', 'MCELL'):
+            the value a flag re-initialises it to, which im_param modifiers then
+            scale. Every tunable conductance of this model is a base value, and
+            the cell-type factors are applied to it afterwards (see
+            __build_cell_columns), so no tunable parameter but celltype itself
+            depends on the type; for any other name it is the value the model
+            holds now (reduced to a float).
+        """
+        if pname == 'celltype':
+            return(float(CELL_TYPE_IDS[cell_type]))
+        return(float(np.reshape(np.asarray(self.get_parameter(pname)), (-1,))[0]))
 
     def use_rush_larsen(self) -> bool:
         """ use_rush_larsen() returns True if the gates use the Rush-Larsen update and the IKr chain the matrix exponential """

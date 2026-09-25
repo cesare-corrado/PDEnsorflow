@@ -486,3 +486,50 @@ def test_a_theta_outside_the_reference_range_is_noted_and_one_outside_0_1_refuse
     for bad in ('0', '1.5'):
         with pytest.raises(ValueError, match='theta'):
             _mapper(['-theta', bad]).solver_config()
+
+
+def _tomek_regions(flags: list) -> list:
+    argv = ['-num_imp_regions', str(len(flags))]
+    for index, flag in enumerate(flags):
+        text = 'GKs_b*1.5' + (',flags={}'.format(flag) if flag else '')
+        argv += ['-imp_region[{}].im'.format(index), 'Tomek',
+                 '-imp_region[{}].im_param'.format(index), text,
+                 '-imp_region[{}].ID'.format(index), str(1 + index)]
+    return(argv)
+
+
+def test_tomek_flags_select_cell_type():
+    """Tomek accepts flags=; with no flags item it is ENDO, the type the
+    reference model file declares as its default."""
+    assert _mapper(_tomek_regions(['EPI', 'EPI'])).ionic_model_options() == {'cell_type': 'EPI'}
+    assert _mapper(_tomek_regions([None])).ionic_model_options() == {'cell_type': 'ENDO'}
+    with pytest.raises(ValueError, match='not a cell type'):
+        _mapper(_tomek_regions(['MID'])).ionic_model_options()
+
+
+def test_tomek_conductance_modifiers_are_base_values():
+    """Tomek stores base conductances and applies the cell-type factors itself,
+    so a modifier scales the same base value whatever the flag asks for. The
+    numbers are the border zone of the benchmark parameter file."""
+    for cell_type in ('ENDO', 'EPI', 'MCELL'):
+        argv = ['-imp_region[0].im', 'Tomek', '-imp_region[0].im_param',
+                'GNa*0.38,GKr_b*0.3,GKs_b*0.2,flags={}'.format(cell_type),
+                '-imp_region[0].ID', '1']
+        mapper = _mapper(argv)
+        model  = mapper.ionic_model_class()(dt=0.01, **mapper.ionic_model_options())
+        maps   = mapper.ionic_parameter_maps(model, {1, 2})
+        assert maps['GNa'][1]    == pytest.approx(0.38 * 11.7802)
+        assert maps['GKr_b'][1]  == pytest.approx(0.3 * 0.0321)
+        assert maps['GKs_b'][1]  == pytest.approx(0.2 * 0.0011)
+        # tag 2 has no region, so it keeps the model default
+        assert maps['GKs_b'][2]  == pytest.approx(0.0011)
+
+
+def test_tomek_mixed_cell_types_travel_as_a_map():
+    """Different flags per region: the constructor gets the model default and
+    each tag's numeric type is in the celltype map."""
+    mapper = _mapper(_tomek_regions(['ENDO', 'EPI']))
+    assert mapper.ionic_model_options() == {'cell_type': 'ENDO'}
+    model = mapper.ionic_model_class()(dt=0.01, **mapper.ionic_model_options())
+    maps  = mapper.ionic_parameter_maps(model, {1, 2})
+    assert maps['celltype'] == {1: 0.0, 2: 1.0}
