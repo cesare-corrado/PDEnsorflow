@@ -378,6 +378,18 @@ for another model, of bench options not implemented yet, of `--num` other than
 1, of an unknown target, model or parameter, and of a negative duration, and
 the `--list-imps` / `--imp-info` listings.
 
+### `test_ptxas_pin.py` &mdash; which `ptxas` XLA uses
+`gpuSolve/__init__.py` points `--xla_gpu_cuda_data_dir` at the `cuda_nvcc` wheel
+of the environment. Every cell model compiles `differentiate()` with XLA, and XLA
+shells out to `ptxas`; it probes candidate CUDA roots and takes the first it
+accepts, so a CUDA toolkit installed system-wide can win over the wheel and stop
+the run (12.0 to 12.6.2 are rejected outright for a clamping miscompile). The
+directory named by the flag is the first candidate probed. The selection logic is
+pinned on a fake wheel layout under `tmp_path`, so it needs no GPU: the wheel is
+found, a half-installed one (`bin/ptxas` without `nvvm/libdevice`) is skipped,
+other `XLA_FLAGS` of the caller survive, and the pin is inert both when the caller
+already named a data dir and when no wheel is installed.
+
 ## Adding tests
 Drop a `test_*.py` file here. Keep it **fast and CPU-only** (no GPU assumption,
 small problem sizes) so it fits the per-push budget. Heavier or GPU-dependent
