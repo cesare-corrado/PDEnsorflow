@@ -210,6 +210,57 @@ def test_prepacing_moves_the_state_away_from_rest(cable):
     assert np.max(np.abs(np.reshape(solver.checkpoint()['Vm'], (-1,)) - resting)) > 1.0e-3
 
 
+def test_the_train_starts_from_the_state_the_solver_holds(cable):
+    """The reference paces its cell models in place, so a state set before
+    prepacing (imp_region[].im_sv_init) is what the train departs from. The
+    reference implementation for this test is again a single cell integrated
+    here, from the same seeded state."""
+    solver     = _build_solver(cable)
+    checkpoint = solver.checkpoint()
+    resting    = float(np.reshape(checkpoint['Vm'], (-1,))[0])
+    seeded     = 0.42
+    checkpoint['state_variables']['H_state'] = np.full(_NPT, seeded)
+    solver.restore_checkpoint(checkpoint)
+
+    lats     = np.full(_NPT, 1.0)
+    prepacer = _prepacer()
+    prepacer.set_lats(lats)
+    prepacer.prepace(solver)
+    nsteps   = int(np.rint(prepacer.save_times()[0] / _DT))
+
+    cell = ModifiedMS2v(dt=_DT)
+    U    = tf.Variable(np.full((1, 1), resting, dtype=np.float32))
+    cell.initialize_state_variables(U)
+    cell.set_state_variables({'H_state': np.array([seeded])})
+    for step in range(nsteps):
+        time = step * _DT
+        if np.mod(time, _BCL) < _STIMDUR and time < _BCL * _BEATS - 1.0:
+            U.assign_add(tf.fill(tf.shape(U), tf.constant(_STIMSTR * _DT, dtype=U.dtype)))
+        U.assign_add(_DT * cell.differentiate(U))
+
+    result = solver.checkpoint()
+    assert np.reshape(result['Vm'], (-1,))[0] == pytest.approx(float(U.numpy()[0, 0]), abs=1.0e-6)
+    assert result['state_variables']['H_state'][0] == pytest.approx(
+        float(np.reshape(cell.state_variable('H_state').numpy(), (-1,))[0]), abs=1.0e-6)
+
+
+def test_a_seeded_state_changes_what_prepacing_produces(cable):
+    """A guard against a seeding that is read and then thrown away: the same
+    protocol from two different initial states must not end at the same one."""
+    results : list = []
+    for seeded in (None, 0.42):
+        solver = _build_solver(cable)
+        if seeded is not None:
+            checkpoint = solver.checkpoint()
+            checkpoint['state_variables']['H_state'] = np.full(_NPT, seeded)
+            solver.restore_checkpoint(checkpoint)
+        prepacer = _prepacer()
+        prepacer.set_lats(np.full(_NPT, 1.0))
+        prepacer.prepace(solver)
+        results.append(np.reshape(solver.checkpoint()['Vm'], (-1,))[0])
+    assert abs(results[0] - results[1]) > 1.0e-6
+
+
 # ---- the two strategies ------------------------------------------------------
 def test_one_cell_per_region_and_one_per_node_agree(cable):
     """A and B integrate the same ODEs; on a mesh whose cell parameters are

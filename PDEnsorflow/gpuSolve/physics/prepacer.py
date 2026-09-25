@@ -30,6 +30,12 @@
     wavefront is about to reach it, instead of all cells sitting at the same
     point of the same beat.
 
+    The paced cell starts from the state the solver holds when prepace() is
+    called, which for a plain run is the model's rest state and after
+    `imp_region[].im_sv_init` is the state of that file. The reference paces its
+    cell models in place, so its train starts from whatever state its setup left
+    them in, and this reproduces that.
+
     The protocol of the paced cell is the reference's, including its two
     peculiarities, which are kept deliberately:
 
@@ -260,7 +266,7 @@ class Prepacer:
     def prepace(self, solver):
         """ prepace(solver) paces the cells and writes the resulting state into
             solver. It must be called after the initial condition is set (the
-            cell model needs its state variables) and before finalize_for_run()
+            cells start from the state the solver holds) and before finalize_for_run()
             (it works in the user's node order, which the renumbering then
             permutes together with everything else).
         """
@@ -277,11 +283,13 @@ class Prepacer:
             snap  = np.rint(np.maximum(self._save_times, 0.0) / self._dt).astype(np.int64)
             self._nsteps = int(snap.max())
             reg_ids, reps = self.__cell_map(solver, npt)
-            # the potential the paced cells start from is read through the
-            # checkpoint rather than through U(): a checkpoint is in the user's
-            # node order whether or not the solver has been finalized, which is
-            # the order the activation times and the region ids are in
-            Vm0 = np.reshape(np.asarray(solver.checkpoint()['Vm']), (-1,))
+            # the state the paced cells start from is read through the
+            # checkpoint rather than through U() and the model: a checkpoint is
+            # in the user's node order whether or not the solver has been
+            # finalized, which is the order the activation times and the region
+            # ids are in
+            state0 = solver.checkpoint()
+            Vm0    = np.reshape(np.asarray(state0['Vm']), (-1,))
             self._ncells  = reps.shape[0]
             self._per_node = (self._ncells == npt)
             if self._verbose:
@@ -291,9 +299,11 @@ class Prepacer:
                       flush=True)
             then = time.time()
             if self._per_node:
-                Vm, states = self.__pace_per_node(solver, snap, Vm0)
+                Vm, states = self.__pace_per_node(solver, snap, Vm0,
+                                                  state0['state_variables'])
             else:
-                Vm, states = self.__pace_by_region(solver, snap, reg_ids, reps, Vm0)
+                Vm, states = self.__pace_by_region(solver, snap, reg_ids, reps, Vm0,
+                                                   state0['state_variables'])
             self._elapsed = time.time() - then
             solver.restore_checkpoint({'ionic_model': solver.checkpoint_model_name(),
                                        'time': 0.0,
@@ -382,10 +392,10 @@ class Prepacer:
             return(not self._group_by_region)
         return(bool(solver.has_nodal_cell_parameters()))
 
-    def __paced_cells(self, solver, reps: np.ndarray, Vm0: np.ndarray):
+    def __paced_cells(self, solver, reps: np.ndarray, Vm0: np.ndarray, state0: dict):
         """ builds the cell model that is paced: a fresh instance sized to the
             number of cells, holding the parameters of the representative nodes
-            and started from their potential
+            and started from their potential and their state
         """
         model = self._model_factory()
         model.set_dt(self._dt)
@@ -402,6 +412,21 @@ class Prepacer:
                 model.set_parameter(pname, np.reshape(np.reshape(values, (-1,))[reps], (-1, 1)))
         U = tf.Variable(np.reshape(Vm0[reps], (-1, 1)).astype(np.float32), name='prepace_U')
         model.initialize_state_variables(U)
+        # the train departs from the state the solver already holds at the
+        # representative nodes, not from the model's rest state. The reference
+        # paces its cell models in place, so a state set before prepacing (today
+        # imp_region[].im_sv_init) is what its train starts from. When nothing
+        # set one, the solver holds exactly the rest state just built here, so
+        # this writes those same values back and changes no number.
+        seeded : dict = {}
+        for name, values in state0.items():
+            values = np.reshape(np.asarray(values), (-1,))
+            if values.size != npt:
+                raise ValueError('prepacing: the state variable {} holds {} value(s) for {} '
+                                 'nodes'.format(name, values.size, npt))
+            seeded[name] = values[reps]
+        if len(seeded) > 0:
+            model.set_state_variables(seeded)
         return((model, U))
 
     def __stimulus_flags(self) -> np.ndarray:
@@ -418,7 +443,7 @@ class Prepacer:
         return(np.logical_and(during, before))
 
     def __pace_by_region(self, solver, snap: np.ndarray, reg_ids: np.ndarray,
-                         reps: np.ndarray, Vm0: np.ndarray) -> tuple:
+                         reps: np.ndarray, Vm0: np.ndarray, state0: dict) -> tuple:
         """ strategy A: pace one cell per region, and read every node's state out
             of its region's cell at the node's own save step.
 
@@ -429,7 +454,7 @@ class Prepacer:
             steps, of which there are at most as many as there are distinct
             activation times.
         """
-        model, U = self.__paced_cells(solver, reps, Vm0)
+        model, U = self.__paced_cells(solver, reps, Vm0, state0)
         names    = tuple(model.state_variable_names())
         npt      = snap.shape[0]
         flags    = tf.constant(self.__stimulus_flags(), dtype=tf.bool)
@@ -451,7 +476,8 @@ class Prepacer:
                 states[name][due] = values[cells]
         return((Vm, states))
 
-    def __pace_per_node(self, solver, snap: np.ndarray, Vm0: np.ndarray) -> tuple:
+    def __pace_per_node(self, solver, snap: np.ndarray, Vm0: np.ndarray,
+                        state0: dict) -> tuple:
         """ strategy B: pace one cell per node, freezing each cell once the step
             it is handed over at is reached.
 
@@ -463,7 +489,7 @@ class Prepacer:
             frozen node must keep are already gone by the time the step returns.
         """
         reps     = np.arange(snap.shape[0], dtype=np.int64)
-        model, U = self.__paced_cells(solver, reps, Vm0)
+        model, U = self.__paced_cells(solver, reps, Vm0, state0)
         names    = tuple(model.state_variable_names())
         svs      = [model.state_variable(name) for name in names]
         flags    = tf.constant(self.__stimulus_flags(), dtype=tf.bool)
