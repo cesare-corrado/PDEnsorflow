@@ -237,6 +237,11 @@ REGISTRY = {
     'chkpt_start':                  ('float', 0.0,       True),
     'chkpt_intv':                   ('float', 0.0,       True),
     'chkpt_stop':                   ('float', None,      True),
+    'prepacing_lats':               ('str',   '',        True),
+    'prepacing_beats':              ('int',   0,         True),
+    'prepacing_bcl':                ('float', -1.0,      True),
+    'prepacing_stimdur':            ('float', 1.0,       True),
+    'prepacing_stimstr':            ('float', 60.0,      True),
     # accepted so that files which set them run, but not acted upon: the mesh
     # reader takes no format switch, and local activation times are not
     # computed by this front end (see the notes in __collect_notes)
@@ -511,6 +516,27 @@ class ParameterMapper:
                 'vofile': self.value('vofile'),
                 'gridout_i': self.value('gridout_i'),
                 'timedt': self.value('timedt')})
+
+    def prepacing_settings(self) -> dict:
+        """ prepacing_settings() returns the single-cell prepacing parameters,
+            with every time in ms:
+              'lats_file': the activation-time file that guides the distribution
+              'beats':   how many beats to pace
+              'bcl':     the basic cycle length of the prepacing train
+              'stimdur': the duration of a prepacing stimulus
+              'stimstr': its strength, in uA/uF
+              'dt':      the integration step, the solver's own
+            Prepacing is off unless bcl is positive, which is the reference's
+            switch, and unless a file of activation times names where each cell
+            sits in the activation sequence.
+        """
+        return({'lats_file': self.value('prepacing_lats'),
+                'beats': self.value('prepacing_beats'),
+                'bcl': self.value('prepacing_bcl'),
+                'stimdur': self.value('prepacing_stimdur'),
+                'stimstr': self.value('prepacing_stimstr'),
+                'dt': self.value('dt') * DT_MICROSECONDS_TO_MS,
+                'tend': self.value('tend')})
 
     def savestate_settings(self) -> dict:
         """ savestate_settings() returns when to save the state and what to resume
@@ -1066,6 +1092,25 @@ class ParameterMapper:
         if self.value('num_LATs') > 0 or any(key.startswith('lats[') for key in self.__store):
             self.__notes.append('num_LATs / lats[] are set: local activation times are not '
                                 'computed, so no LAT file is written')
+        if self.value('prepacing_bcl') > 0.0:
+            # every one of these leaves prepacing switched on but unable to do
+            # anything, and the run then starts from the resting state without
+            # a word unless it is said here
+            if self.value('prepacing_beats') <= 0:
+                self.__notes.append('prepacing_bcl = {} is set but prepacing_beats = {}: there '
+                                    'is nothing to pace, so no prepacing is done'.format(
+                                        self.value('prepacing_bcl'),
+                                        self.value('prepacing_beats')))
+            if len(self.value('prepacing_lats')) == 0:
+                self.__notes.append('prepacing_bcl = {} is set but prepacing_lats names no '
+                                    'file: the activation times say where each cell sits in '
+                                    'the activation sequence, so no prepacing is done'.format(
+                                        self.value('prepacing_bcl')))
+        elif self.value('prepacing_beats') > 0:
+            self.__notes.append('prepacing_beats = {} is set but prepacing_bcl = {}: prepacing '
+                                'is switched on by a positive cycle length, so no prepacing is '
+                                'done'.format(self.value('prepacing_beats'),
+                                              self.value('prepacing_bcl')))
         if 'meshformat' in self.__store:
             self.__notes.append('meshformat = {} is accepted but not used: the mesh reader '
                                 'does not take a format switch'.format(self.value('meshformat')))

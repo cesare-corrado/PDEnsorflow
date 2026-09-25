@@ -28,6 +28,15 @@ class MonodomainSolver(HeatSolver):
     def __init__(self, ionic_model: IonicModel, cfgdict=None):
         super().__init__(cfgdict)
         self._ionic_model = ionic_model
+        # Which cell parameters ended up varying from node to node, and whether
+        # any of them does so *within* a region ('nodal' rather than 'region').
+        # Both are recorded by assign_nodal_properties() while it still knows,
+        # because it clears the property registry on its way out: a later caller
+        # that needs to know how the parameters vary, such as the prepacer
+        # choosing how many cells to pace, would otherwise read an empty dict
+        # and quietly conclude the model is uniform.
+        self._nodal_cell_parameters : list       = []
+        self._has_nodal_cell_parameters : bool   = False
         # Keep the ionic model's dt aligned with the solver's dt.
         if hasattr(self._ionic_model, '_dt'):
             self._ionic_model._dt = self._dt
@@ -63,6 +72,9 @@ class MonodomainSolver(HeatSolver):
                         pvals = self._materials.NodalProperty(mat_prop, -1, -1)
                     else:
                         uniform_only = False
+                        self._nodal_cell_parameters.append(mat_prop)
+                        if prtype == 'nodal':
+                            self._has_nodal_cell_parameters = True
                         # the dtype of the model's value, as the loop that
                         # filled np.full(..., refval) had
                         dtype = np.asarray(refval).dtype
@@ -149,6 +161,21 @@ class MonodomainSolver(HeatSolver):
     def ionic_model(self) -> IonicModel:
         return self._ionic_model
 
+    def nodal_cell_parameters(self) -> list:
+        """ nodal_cell_parameters() returns the names of the cell parameters
+            assign_nodal_properties() pushed as one value per node; empty before
+            that call, and for a model whose parameters are all uniform
+        """
+        return(self._nodal_cell_parameters)
+
+    def has_nodal_cell_parameters(self) -> bool:
+        """ has_nodal_cell_parameters() returns True when a cell parameter was
+            registered as a per-node ('nodal') property, i.e. when it may vary
+            between two nodes of the same region. False when every parameter is
+            uniform or constant per region.
+        """
+        return(self._has_nodal_cell_parameters)
+
     def ionic_state(self, attr: str) -> tf.Variable:
         """ Return an ionic state variable (e.g. '_H_state') in user-space
             (undoing the renumbering permutation if it is active).
@@ -156,7 +183,9 @@ class MonodomainSolver(HeatSolver):
         sv = getattr(self._ionic_model, attr, None)
         if sv is None:
             return None
-        if self._use_renumbering:
+        # the same test U() makes: the state variables are permuted by
+        # finalize_for_run(), so before it they are already in the user's order
+        if self._use_renumbering and self._ready_for_run:
             return tf.gather(sv, self._renumbering['iperm'])
         return sv
 

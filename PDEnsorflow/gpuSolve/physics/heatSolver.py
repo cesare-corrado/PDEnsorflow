@@ -385,12 +385,28 @@ class HeatSolver:
         return self._StimulusDict
 
     def U(self) -> tf.Variable:
-        if self._use_renumbering:
+        """ U() returns the nodal potential in the user's node order.
+            The permutation is applied to _U by finalize_for_run(), so it is
+            undone here only once that has happened: before it the two orders
+            coincide, and gathering anyway would return a scrambled array (and,
+            before assemble_matrices(), fail on a renumbering that is still
+            None). This is the test _to_user_order() makes, and the two must
+            agree or U() and checkpoint() disagree during the setup.
+        """
+        if self._use_renumbering and self._ready_for_run:
             return tf.gather(self._U, self._renumbering['iperm'])
         return self._U
 
     def renumbering(self) -> dict:
         return self._renumbering
+
+    def ready_for_run(self) -> bool:
+        """ ready_for_run() returns True once finalize_for_run() has been called,
+            i.e. once the nodal quantities are in the solver's own node order.
+            A setup step that works in the user's node order tests it to refuse
+            to run too late rather than to renumber twice.
+        """
+        return(self._ready_for_run)
 
     def nt(self) -> int:
         return self._nt
