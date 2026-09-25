@@ -102,6 +102,16 @@ Three points are worth knowing before writing a parameter file:
   twice in one region is refused: the reference implementation accepts it but
   tunes only the first copy.
 
+* **A region can start from a single-cell state file.**
+  `imp_region[].im_sv_init` names a `.sv` file, written by
+  `singlecell --save-ini-file` or by the reference's own single-cell tool, and
+  its state is copied onto every node of that region before the run starts, as
+  the reference does. The file sets the state variables and the potential, not
+  the parameters: a parameter stored in it is reported and ignored, so
+  `im_param` stays in charge (the same rule as `singlecell --read-ini-file`). A
+  file written for another cell model stops the run. When prepacing is switched
+  on as well, the prepacing train departs from this state.
+
 `PDEnsorflow --help` lists every key that is understood, with its type and
 default, and the cell models and plugins available for `imp_region[].im` and
 `imp_region[].plugins`.
@@ -111,7 +121,9 @@ out, which is the quickest way to see what a command line actually asked for.
 
 A worked example, with the same simulation expressed both as a parameter file
 and as a Python script so the two can be compared, is in
-`PDEnsorflow/Tests/FEM/mMS_carp_compatibility`.
+`PDEnsorflow/Tests/FEM/mMS_carp_compatibility`. `PDEnsorflow/Tests/FEM/StateInit`
+shows `imp_region[].im_sv_init` against the single-cell trajectory it comes
+from.
 
 ## Single-cell interface
 

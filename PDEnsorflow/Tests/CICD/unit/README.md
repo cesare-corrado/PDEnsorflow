@@ -104,10 +104,29 @@ are uniform, since they integrate the same ODEs; and the automatic choice
 between them must follow how the cell parameters were registered &mdash; A
 unless some parameter is a per-node (`'nodal'`) property, which is the only case
 where a representative cell does not stand for its neighbours. Also: prepacing
-after `finalize_for_run()` is refused (it works in the user's node order), the
+that the train starts from the state the solver already holds rather than from
+the model's rest state, which is what lets `imp_region[].im_sv_init` and
+prepacing compose as they do in the reference (checked against a single cell
+integrated from the same seeded state, and against a run seeded differently);
+prepacing after `finalize_for_run()` is refused (it works in the user's node
+order); the
 `LatReader` layout and its refusal of a file written for another mesh, and the
 five parameter-file keys with the notes that fire when prepacing is switched on
 but cannot run.
+
+### `test_im_sv_init.py` &mdash; `imp_region[].im_sv_init`
+The parameter-file key that starts an ionic region from a single-cell state
+file, and the class both front ends read such a file with
+(`carp_compatibility.SvStateFile`). A two-region cable is built (not run: the
+key acts while the run is built) with a file on the second region only, and the
+checks are that the file's state variables and its potential reach every node of
+that region and no node of the first, which stays at rest &mdash; a key that
+conditioned the whole mesh, or nothing at all, would still produce a plausible
+run. Also: a file written for another cell model stops the run, as it does in
+the reference, whose reader refuses it ("IMPs do not match region"); a parameter
+stored in the file is reported and **not** applied, because the parameters come
+from the defaults and from `im_param`; and the mapper reads the key, with the
+note that fires when the region governs no tag of the mesh.
 
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,

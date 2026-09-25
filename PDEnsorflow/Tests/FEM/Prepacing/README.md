@@ -90,6 +90,9 @@ prepacing_stimstr = 60.0
 activation-time file is the one `LatDetector.write()` produces with `all = 0`
 (one value per node, in mesh order, `-1` where a node did not activate).
 Prepacing is skipped when `start_statef` names a checkpoint, since that already
-carries a conditioned state.
+carries a conditioned state. It is **not** skipped when
+`imp_region[].im_sv_init` names a single-cell state file (`../StateInit`): the
+train then starts from that state instead of from the model's rest state, which
+is what the reference does, since it paces its cell models in place.
 
 The `.dat` output is a run artefact: do not commit it.
