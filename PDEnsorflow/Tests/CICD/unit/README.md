@@ -66,6 +66,16 @@ implicit Euler the two are the same scheme to the bit.
 `test_mms_1d.py` keeps its physical-band check but allows the short start-up
 overshoot Crank-Nicolson shows at the edge of its initial +20 mV block.
 
+### `test_lat_detector.py` &mdash; `gpuSolve.physics.LatDetector`
+Local activation time monitoring, the equivalent of the reference simulator's
+LAT detection (user guide 22.2/22.8). Synthetic single- and few-node signals
+with closed-form activation instants pin the sub-step interpolation to a number:
+threshold crossing (method 1) on both slopes, maximum derivative (method 2) with
+its two-step history warm-up, the start-time filter, the first-only (`all = 0`)
+nodal vector, and the CARP-format `.dat` output. The downstroke case checks that
+the crossing time stays inside the step, dropping the reference's sign factor
+that would place it before the step.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the
