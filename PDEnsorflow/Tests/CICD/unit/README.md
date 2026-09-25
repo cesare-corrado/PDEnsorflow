@@ -179,6 +179,10 @@ default in `test_ionic.py`, `test_savestate.py` and the parameter-file tests.
   in the reference. Written as `A + B x`, the update cancelled to 0 at +330 mV.
 * **front end** &mdash; `imp_region[].im = Tomek` selects the class, and
   `im_param = "celltype=1,GNa=0"` maps per region.
+* **the cell type by name** &mdash; the constructor argument `cell_type` sets
+  the uniform type (ENDO by default, as the reference model file declares), and
+  `cell_type_default` returns the base value of every conductance, because this
+  model applies the cell-type factors to the base values itself.
 
 ### `test_ionic_plugins.py` &mdash; ionic plugins (`gpuSolve.ionic.plugins`, `IonicModelWithPlugins`)
 * **the plugin against the reference step** &mdash; the electroporation current
@@ -247,10 +251,13 @@ that must raise), the `cg_norm_parab` stopping tests, stimulus defaults derived 
 non-transmembrane electrode. The **legacy `stimulus[]` keys** must give the same
 stimulus as the equivalent `stim[]` keys (box `p0 = x0 - (ctr_def ? xd/2 : 0)`,
 `p1 = p0 + xd`), and mixing the two families is refused. The **`flags=` item of
-`im_param`** selects the tenTusscherPanfilov cell type of each region (regions
-may differ; a combination, an unknown type, or a flag on a model without cell
-types is refused), and `GKr` / `GKs` modifiers scale the default of that cell
-type, also when a per-node value is pushed before the model is initialised. `meshformat`
+`im_param`** selects the tenTusscherPanfilov or Tomek cell type of each region
+(regions may differ; a combination, an unknown type, or a flag on a model
+without cell types is refused), and `GKr` / `GKs` modifiers scale the default of
+that cell type, also when a per-node value is pushed before the model is
+initialised. Tomek is the counter-case that keeps the two model families apart:
+its default is ENDO rather than EPI, and its modifiers scale base conductances
+that do not depend on the cell type at all. `meshformat`
 and the `lats[]` keys are accepted and reported as not acted upon.
 
 ### `test_carp_compatibility_run.py` &mdash; the front end end to end
