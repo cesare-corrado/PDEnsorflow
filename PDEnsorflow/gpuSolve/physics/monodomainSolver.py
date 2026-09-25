@@ -183,7 +183,9 @@ class MonodomainSolver(HeatSolver):
         sv = getattr(self._ionic_model, attr, None)
         if sv is None:
             return None
-        if self._use_renumbering:
+        # the same test U() makes: the state variables are permuted by
+        # finalize_for_run(), so before it they are already in the user's order
+        if self._use_renumbering and self._ready_for_run:
             return tf.gather(sv, self._renumbering['iperm'])
         return sv
 
