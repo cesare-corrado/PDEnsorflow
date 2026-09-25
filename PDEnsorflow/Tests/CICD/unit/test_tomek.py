@@ -285,3 +285,23 @@ def test_parameter_file_selects_the_model_and_maps_region_parameters():
     maps = mapper.ionic_parameter_maps(Tomek(dt=_DT), {1, 2})
     assert maps['celltype'] == {1: 0.0, 2: 1.0}
     assert maps['GNa'] == {1: pytest.approx(_GNA), 2: 0.0}
+
+
+def test_cell_type_constructor_argument_sets_the_uniform_type():
+    """cell_type names the type the whole tissue starts from; the reference
+    model file declares ENDO as the default."""
+    assert Tomek(dt=_DT).cell_type() == 'ENDO'
+    assert float(Tomek(dt=_DT).get_parameter('celltype').numpy()) == 0.0
+    assert float(Tomek(dt=_DT, cell_type='MCELL').get_parameter('celltype').numpy()) == 2.0
+    with pytest.raises(ValueError, match='cell_type'):
+        Tomek(dt=_DT, cell_type='MID')
+
+
+def test_cell_type_default_returns_base_values():
+    """Only celltype depends on the cell type: every tunable conductance is a
+    base value, and the type factors are applied on top of it."""
+    model = Tomek(dt=_DT)
+    for cell_type, type_id in (('ENDO', 0.0), ('EPI', 1.0), ('MCELL', 2.0)):
+        assert model.cell_type_default('celltype', cell_type) == type_id
+        assert model.cell_type_default('GKs_b', cell_type) == pytest.approx(0.0011)
+        assert model.cell_type_default('GNa', cell_type) == pytest.approx(11.7802)

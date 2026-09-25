@@ -100,11 +100,18 @@ IONIC_MODELS = {'mMS': ModifiedMS2v,
 # ParameterMapper.ionic_parameter_maps), which gives the same order. A model that is
 # not listed here has no cell types, and a flags item on it is an error, as it
 # is in the reference.
-IONIC_CELL_TYPES = {'tenTusscherPanfilov': ('EPI', 'MCELL', 'ENDO')}
+# How much a type actually changes depends on the model: tenTusscherPanfilov
+# stores the effective GKs and Gto, so its defaults differ by type, while Tomek
+# stores base conductances and applies the type factors itself, so for it only
+# CELL_TYPE_PARAMETER depends on the type. Both are expressed through
+# cell_type_default(), which is why this table needs no per-model exception.
+IONIC_CELL_TYPES = {'tenTusscherPanfilov': ('EPI', 'MCELL', 'ENDO'),
+                    'Tomek':               ('EPI', 'MCELL', 'ENDO')}
 
 # Cell type of a model listed in IONIC_CELL_TYPES when im_param has no flags
 # item: the model's own default.
-DEFAULT_CELL_TYPE = {'tenTusscherPanfilov': 'EPI'}
+DEFAULT_CELL_TYPE = {'tenTusscherPanfilov': 'EPI',
+                     'Tomek':               'ENDO'}
 
 # The per-node parameter that carries the cell type of a model listed in
 # IONIC_CELL_TYPES. The model provides cell_type_default(pname, type), which
