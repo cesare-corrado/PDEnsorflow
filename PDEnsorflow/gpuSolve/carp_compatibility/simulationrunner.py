@@ -26,6 +26,8 @@ from gpuSolve.IO.readers import StateReader
 from gpuSolve.IO.writers import IGBWriter
 from gpuSolve.IO.writers import StateWriter
 from gpuSolve.carp_compatibility.parametermapper import CHECKPOINT_BASENAME
+from gpuSolve.carp_compatibility.parametermapper import IONIC_PLUGINS
+from gpuSolve.carp_compatibility.svstatefile import SvStateFile
 from gpuSolve.carp_compatibility.parametermapper import time_label
 
 
@@ -66,6 +68,10 @@ class SimulationRunner:
                     setattr(self, attribute, config[attribute[1:]])
 
     # ---- accessors ----------------------------------------------------------
+    def mapper(self):
+        """ mapper() returns the ParameterMapper the run is built from """
+        return(self._mapper)
+
     def set_mapper(self, mapper):
         """ set_mapper(mapper) assigns the resolved ParameterMapper to build from """
         self._mapper = mapper
@@ -102,6 +108,7 @@ class SimulationRunner:
             self._model.assemble_matrices()
             self.__configure_linear_solver()
             self.__set_initial_condition()
+            self.__init_region_states()
             self.__add_stimuli()
             # prepacing before the checkpoint is restored, and skipped when one
             # is: a checkpoint already carries a conditioned state, and pacing
@@ -220,6 +227,73 @@ class SimulationRunner:
                 wrapper.add_plugin(pluginclass(dt=dt))
             model = wrapper
         return(model)
+
+    def __init_region_states(self):
+        """ imp_region[].im_sv_init: the state held in a single-cell state file,
+            copied onto every node of the ionic region that names the file. It
+            is what the reference does when it sets its cell models up
+            ("read in single cell state vector and spread it out over the entire
+            region", physics/ionics.cc), and in the same place in the sequence:
+            after the models are tuned, before prepacing (which then paces the
+            cells from this state) and before a checkpoint is restored (which
+            replaces the whole state anyway).
+        """
+        if self._ionic is None:
+            return
+        entries = self._mapper.state_init_files(self.__mesh_tags())
+        if len(entries) == 0:
+            return
+        # the nodal arrays are read and written through the checkpoint, as the
+        # prepacer does: a checkpoint is in the user's node order whether or not
+        # the solver has been finalized, which is the order the region ids are in
+        checkpoint = self._model.checkpoint()
+        npt    = int(checkpoint['num_nodes'])
+        Vm     = np.reshape(np.array(checkpoint['Vm'], dtype=np.float64), (-1,))
+        states = {name: np.reshape(np.array(values, dtype=np.float64), (-1,))
+                  for name, values in checkpoint['state_variables'].items()}
+        region_of_node = np.reshape(np.asarray(self._model.domain().point_region_ids()), (-1,))
+        for entry in entries:
+            nodes = np.where(np.isin(region_of_node, entry['tags']))[0]
+            if nodes.size == 0:
+                # the tags exist in the element list, but every node they touch
+                # was won by another region (point_region_ids gives a node the
+                # most frequent tag of the elements it belongs to)
+                self._mapper.add_note('imp_region[{}].im_sv_init = "{}" is ignored: no node '
+                                      'belongs to the region'.format(entry['index'], entry['file']))
+                continue
+            svfile = SvStateFile({'model': self._ionic,
+                                  'imp_name': self._mapper.ionic_model_name(),
+                                  'plugins': self.__region_plugins(entry['plugins']),
+                                  'nodes': nodes})
+            svfile.read(entry['file'])
+            Vm[nodes] = svfile.Vm()
+            for name, value in svfile.states().items():
+                if states[name].size != npt:
+                    raise ValueError('imp_region[{}].im_sv_init: the state variable {} holds {} '
+                                     'value(s) for {} nodes, so it cannot be set region by '
+                                     'region'.format(entry['index'], name, states[name].size, npt))
+                states[name][nodes] = value
+            for message in svfile.mismatches():
+                self._mapper.add_note('imp_region[{}]: {}'.format(entry['index'], message))
+            if self._verbose:
+                print('imp_region[{}]: initial state of {} node(s) read from {}'.format(
+                    entry['index'], nodes.size, entry['file']), flush=True)
+        self._model.restore_checkpoint({'ionic_model': self._model.checkpoint_model_name(),
+                                        'time': checkpoint['time'],
+                                        'num_nodes': npt,
+                                        'Vm': Vm,
+                                        'state_variables': states})
+
+    def __region_plugins(self, names: list) -> list:
+        """ __region_plugins(names) returns [(plugin object, name)] for the
+            plugins one region lists, in that order. The run's model holds every
+            region's plugins together, while a region's state file holds only
+            the sections of its own.
+        """
+        if not isinstance(self._ionic, IonicModelWithPlugins):
+            return([])
+        attached = {type(plugin).__name__: plugin for plugin in self._ionic.plugins()}
+        return([(attached[IONIC_PLUGINS[name].__name__], name) for name in names])
 
     def __prepace(self):
         """ paces single cells and distributes their state over the mesh, when

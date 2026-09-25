@@ -65,7 +65,6 @@ from gpuSolve.ionic.ionicmodelwithplugins import IonicModelWithPlugins
 from gpuSolve.ionic.ionicmodelwithplugins import PLUGIN_SEPARATOR
 from gpuSolve.ionic.tomek import Tomek
 from gpuSolve.ionic.plugins.defib_ashihara_trayanova import DefibAshiharaTrayanova
-from gpuSolve.IO.readers.svfilereader import SvFileReader
 from gpuSolve.IO.writers.svfilewriter import SvFileWriter
 from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
 from gpuSolve.carp_compatibility.parametermapper import IONIC_MODELS
@@ -78,6 +77,7 @@ from gpuSolve.carp_compatibility.parametermapper import PARAM_MOD_OPERATORS
 from gpuSolve.carp_compatibility.singlecellwriter import SingleCellWriter
 from gpuSolve.carp_compatibility.svlayouts import IMP_DATA_NAMES
 from gpuSolve.carp_compatibility.svlayouts import sv_layout
+from gpuSolve.carp_compatibility.svstatefile import SvStateFile
 
 
 # Upper bound of the steps one compiled call advances. Large enough that the
@@ -89,12 +89,6 @@ CHUNK_STEPS : int = 100000
 # float64 model is not rounded to float32 at every step through V. Models not
 # listed work in float32.
 POTENTIAL_DTYPE = {Tomek: tf.float64}
-
-# Relative difference above which a parameter stored in a state file is
-# reported as different from the one the run uses: the reference writes 6
-# significant digits, so its own values agree to about 5e-6.
-SV_PARAMETER_RTOL : float = 1.0e-5
-
 
 def lround(value: float) -> int:
     """ lround(value) rounds half away from zero, as C's lround (Python's round
@@ -115,6 +109,7 @@ class SingleCellRunner:
         self._cell                     = None
         self._plugins : list           = []
         self._imp_name : str           = ''
+        self._svfile : SvStateFile     = None
         self._dtype                    = tf.float32
         self._dt : float               = 0.01
         self._last_step : int          = 0
@@ -300,6 +295,13 @@ class SingleCellRunner:
             maps.update(self._mapper.plugin_parameter_maps(self._model, {0}))
         for pname, pmap in maps.items():
             self._model.set_parameter(pname, self.__typed(pname, pmap[0]))
+        # the state files of this run: the model, and each plugin under the name
+        # --plug-in selected it by, which is the section name of a plugin the
+        # reference does not have
+        names = [name.strip() for name in options.value('plug-in').split(PLUGIN_LIST_SEPARATOR)
+                 if len(name.strip()) > 0]
+        self._svfile = SvStateFile({'model': self._model, 'imp_name': self._imp_name,
+                                    'plugins': list(zip(self._plugins, names))})
         self.__print_model(maps)
 
     def __use_reference_scheme(self):
@@ -380,57 +382,20 @@ class SingleCellRunner:
         """ [(section name, entries, prefix)] for the model, then each plugin;
             prefix is how the run names that object's states and parameters
         """
-        sections = [sv_layout(self._cell, self._imp_name) + ('',)]
-        names = [name.strip() for name in self._options.value('plug-in').split(PLUGIN_LIST_SEPARATOR)
-                 if len(name.strip()) > 0]
-        for plugin, name in zip(self._plugins, names):
-            prefix = '{}{}'.format(type(plugin).__name__, PLUGIN_SEPARATOR)
-            sections.append(sv_layout(plugin, name) + (prefix,))
-        return(sections)
+        return(self._svfile.sections())
 
     def __read_state_file(self, fname: str):
         """ loads the states of a state file; its parameter entries are not
             applied (the run's parameters come from the defaults and the
             modifiers), and each one that differs is reported
         """
-        reader = SvFileReader()
-        reader.read(fname)
-        found = dict(reader.global_values())
-        if found.get('Vm') is None:
-            raise ValueError('{}: the state file has no Vm'.format(fname))
-        expected = self.__sections()
-        given = reader.sections()
-        if [section[0] for section in given] != [section[0] for section in expected]:
-            raise ValueError('{}: the state file holds {}, but this run has {}. The reference '
-                             'would skip such a file and start from rest without an error; '
-                             'singlecell stops instead'.format(
-                                 fname, ' + '.join(section[0] for section in given),
-                                 ' + '.join(section[0] for section in expected)))
-        states : dict = {}
-        for (section, entries, prefix), (_name, values) in zip(expected, given):
-            names = [entry[0] for entry in entries]
-            if [value[0] for value in values] != names:
-                raise ValueError('{}: section {} lists {}, but the model expects {} (in this '
-                                 'order)'.format(fname, section, ', '.join(v[0] for v in values),
-                                                 ', '.join(names)))
-            for (fname_entry, kind, source, scale, _gate), (_n, value) in zip(entries, values):
-                if kind == 'state':
-                    states[prefix + source] = np.array([value / scale])
-                    continue
-                used = self.__entry_value(kind, prefix, source) * scale
-                if abs(value - used) > SV_PARAMETER_RTOL * max(abs(value), abs(used)):
-                    self._warnings.append('state file {} sets {} = {:g} ({}); ignored, this run uses '
-                                          '{:g}'.format(fname, fname_entry, value, section, used))
-        self._model.set_state_variables(states)
-        self._U.assign(np.full((1, 1), found['Vm']))
+        svfile = self._svfile
+        svfile.read(fname)
+        self._warnings.extend(svfile.mismatches())
+        self._model.set_state_variables({name: np.array([value])
+                                         for name, value in svfile.states().items()})
+        self._U.assign(np.full((1, 1), svfile.Vm()))
         self._notes.append('initial state read from {}'.format(fname))
-
-    def __entry_value(self, kind: str, prefix: str, source) -> float:
-        """ the value the run uses for a parameter or constant entry """
-        if kind == 'constant':
-            return(float(source))
-        value = self._model.get_parameter(prefix + source)
-        return(float(np.reshape(np.asarray(value, dtype=np.float64), (-1,))[0]))
 
     def __build_dumps(self):
         """ the state entries written at every output: all of them with -v,
@@ -522,7 +487,7 @@ class SingleCellRunner:
                 variable = self._model.state_variable(prefix + source)
                 columns.append(lambda v=variable, s=scale: tf.cast(tf.reshape(v, [-1])[0], tf.float64) * s)
             else:
-                value = self.__entry_value(kind, prefix, source) * scale
+                value = self._svfile.entry_value(kind, prefix, source) * scale
                 columns.append(lambda c=value: tf.constant(c, dtype=tf.float64))
         return(columns)
 
@@ -625,7 +590,7 @@ class SingleCellRunner:
                 if kind == 'state':
                     values.append((name, float(states[prefix + source][0]) * scale))
                 else:
-                    values.append((name, self.__entry_value(kind, prefix, source) * scale))
+                    values.append((name, self._svfile.entry_value(kind, prefix, source) * scale))
             sections.append((section, values))
         known = {'Vm': float(np.reshape(self._U.numpy(), (-1,))[0]), 'Iion': float(self._Iion.numpy())}
         writer = SvFileWriter({'fname': self._options.value('save-ini-file')})

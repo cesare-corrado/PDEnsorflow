@@ -195,6 +195,7 @@ REGISTRY = {
     'imp_region[].im':              ('str',   '',        True),
     'imp_region[].im_param':        ('str',   '',        True),
     'imp_region[].plugins':         ('str',   '',        True),
+    'imp_region[].im_sv_init':      ('str',   '',        True),
     'imp_region[].plug_param':      ('str',   '',        True),
     'imp_region[].cellSurfVolRatio': ('float', 0.14,     True),
     'imp_region[].volFrac':         ('float', 1.0,       True),
@@ -837,6 +838,36 @@ class ParameterMapper:
                              'cannot be tuned apart; list each plugin once and scale its '
                              'parameters instead'.format(index, ', '.join(repeated)))
         return(names)
+
+    def state_init_files(self, tags: set) -> list:
+        """ state_init_files(tags) returns the single-cell state files that
+            imp_region[].im_sv_init names, one entry per region that names one:
+              'index':   the index of the imp_region
+              'name':    the name of the region, for the messages
+              'file':    the state file
+              'tags':    the element tags the region governs, sorted
+              'plugins': the plugin names the region lists, in order
+            A region whose file is empty, and one that governs no tag of the
+            mesh, are left out; the second is noted, because a file that reaches
+            no node is almost always a mistake in the tag list.
+        """
+        assignment = self.tag_to_entry('imp_region', tags)
+        entries : list = []
+        for index in range(self.count('imp_region')):
+            fname = self.value('imp_region[{}].im_sv_init'.format(index)).strip()
+            if len(fname) == 0:
+                continue
+            claimed = sorted(tag for tag, owner in assignment.items() if owner == index)
+            if len(claimed) == 0:
+                self.add_note('imp_region[{}].im_sv_init = "{}" is ignored: the region governs no '
+                              'element tag of this mesh'.format(index, fname))
+                continue
+            entries.append({'index':   index,
+                            'name':    self.value('imp_region[{}].name'.format(index)),
+                            'file':    fname,
+                            'tags':    claimed,
+                            'plugins': self.region_plugins(index)})
+        return(entries)
 
     def ionic_plugin_classes(self) -> list:
         """ ionic_plugin_classes() returns the plugin classes of the run: every
