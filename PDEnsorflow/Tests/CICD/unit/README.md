@@ -76,6 +76,18 @@ nodal vector, and the CARP-format `.dat` output. The downstroke case checks that
 the crossing time stays inside the step, dropping the reference's sign factor
 that would place it before the step.
 
+### `test_user_node_order.py` &mdash; the node order the accessors report in
+Regression tests for `U()` and `MonodomainSolver.ionic_state()` during the
+set-up. Both undid the RCM permutation whenever renumbering was switched on,
+without asking whether `finalize_for_run()` had applied it yet, so between
+`assemble_matrices()` and `finalize_for_run()` they returned a scrambled array
+&mdash; `U()` disagreeing with the initial condition just set and with
+`checkpoint()['Vm']`, which was right &mdash; and before `assemble_matrices()`
+they indexed a `None` permutation and raised. Pinned at all three moments on a
+cable whose permutation is not the identity, with values that differ at every
+node (a uniform array hides any permutation). All three checks fail without the
+guard.
+
 ### `test_prepacing.py` &mdash; `gpuSolve.physics.Prepacer`
 Single-cell prepacing, the equivalent of the reference simulator's `prepacing_*`
 parameters (user guide 22.3&ndash;22.7). The save-time arithmetic is pinned on
