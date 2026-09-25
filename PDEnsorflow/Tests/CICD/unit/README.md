@@ -76,6 +76,27 @@ nodal vector, and the CARP-format `.dat` output. The downstroke case checks that
 the crossing time stays inside the step, dropping the reference's sign factor
 that would place it before the step.
 
+### `test_prepacing.py` &mdash; `gpuSolve.physics.Prepacer`
+Single-cell prepacing, the equivalent of the reference simulator's `prepacing_*`
+parameters (user guide 22.3&ndash;22.7). The save-time arithmetic is pinned on
+numbers, because a sign error in it still produces a plausible looking state:
+an early-activating node must take a *later* state of the paced cell than a late
+one, shifting every activation time by one cycle length must leave the save
+times unchanged, and a node that never activates must take the least prepaced
+state of all. The distribution is then checked against a single cell integrated
+independently inside the test with the same protocol, node by node.
+
+Both strategies are covered: pacing one cell per mesh region (A, the default)
+and one per node (B) must agree **to the bit** on a mesh whose cell parameters
+are uniform, since they integrate the same ODEs; and the automatic choice
+between them must follow how the cell parameters were registered &mdash; A
+unless some parameter is a per-node (`'nodal'`) property, which is the only case
+where a representative cell does not stand for its neighbours. Also: prepacing
+after `finalize_for_run()` is refused (it works in the user's node order), the
+`LatReader` layout and its refusal of a file written for another mesh, and the
+five parameter-file keys with the notes that fire when prepacing is switched on
+but cannot run.
+
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
 deterministic `differentiate()`; a quasi-stable resting state), plus, for the

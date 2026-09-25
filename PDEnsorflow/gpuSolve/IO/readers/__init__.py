@@ -6,6 +6,7 @@ Contains:
     * CarpMeshReader: a class to read carp meshes
     * IGBReader:      a class to read igb files
     * VtxReader:      a class to read .vtx vertex specification files
+    * LatReader:      a class to read nodal activation time files
     * StateReader:    a class to read checkpoint (saved state) files
 """
 
@@ -25,5 +26,6 @@ from gpuSolve.IO.readers.imagedata import ImageData
 from gpuSolve.IO.readers.carpmeshreader import CarpMeshReader
 from gpuSolve.IO.readers.igbreader import IGBReader
 from gpuSolve.IO.readers.vtxreader import VtxReader
+from gpuSolve.IO.readers.latreader import LatReader
 from gpuSolve.IO.readers.statereader import StateReader
 from gpuSolve.IO.readers.svfilereader import SvFileReader

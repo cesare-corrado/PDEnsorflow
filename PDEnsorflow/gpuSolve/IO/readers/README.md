@@ -6,6 +6,22 @@ This is the sub-directory of I/O contains functions for reading data from files 
 * `CarpMeshReader`: a class to read carp meshes
 * `IGBReader`:      a class to read igb files
 * `StateReader`:    a class to read checkpoint (saved state) files
+* `LatReader`:      a class to read per-node activation time files
+
+## LatReader
+Reads a nodal vector of local activation times: the values in mesh order,
+whitespace separated, with no header and no node indices. This is what
+`LatDetector.write()` emits with `all = 0` (`init_acts_<ID>.dat`) and what
+`prepacing_lats` names. A negative value marks a node that never activated and
+is passed through unchanged, because what it means is the caller's decision.
+
+Members:
+
+* `read(fname, npt=0)`: reads `fname` and returns the times as a numpy array of
+  float64. With `npt > 0` the file must hold exactly `npt` values: a short file
+  is almost always one written for another mesh, and the nodes it does not reach
+  would otherwise be used with an uninitialised activation time.
+* `times()`, `fname()`: the result and the name of the last read.
 
 ## StateReader
 Reads a checkpoint written by `StateWriter`: a pickled dict with `ionic_model`

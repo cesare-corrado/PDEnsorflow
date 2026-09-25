@@ -19,6 +19,7 @@ from gpuSolve.physics import HeatSolver
 from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
 from gpuSolve.physics import no_mass_property
+from gpuSolve.physics import Prepacer
 from gpuSolve.ionic.ionicmodelwithplugins import IonicModelWithPlugins
 from gpuSolve.IO.readers import VtxReader
 from gpuSolve.IO.readers import StateReader
@@ -102,6 +103,10 @@ class SimulationRunner:
             self.__configure_linear_solver()
             self.__set_initial_condition()
             self.__add_stimuli()
+            # prepacing before the checkpoint is restored, and skipped when one
+            # is: a checkpoint already carries a conditioned state, and pacing
+            # into it and then overwriting it would only cost time
+            self.__prepace()
             self.__restore_state()
             self.__open_output()
             self.__schedule_saves()
@@ -189,20 +194,57 @@ class SimulationRunner:
             self._ionic = None
             self._model = HeatSolver(config)
         else:
-            # the options (a cell type selected by im_param flags) are
-            # constructor arguments: the type fixes the parameter defaults the
-            # im_param modifiers are then resolved against
-            self._ionic = modelclass(dt=config['dt'], **self._mapper.ionic_model_options())
-            plugins     = self._mapper.ionic_plugin_classes()
-            if len(plugins) > 0:
-                # the plugins wrap the model; a run without plugins keeps the
-                # bare model, so its numerics and checkpoints are unchanged
-                wrapper = IonicModelWithPlugins(dt=config['dt'])
-                wrapper.set_model(self._ionic)
-                for pluginclass in plugins:
-                    wrapper.add_plugin(pluginclass(dt=config['dt']))
-                self._ionic = wrapper
+            self._ionic = self.__new_ionic_model(config['dt'])
             self._model = MonodomainSolver(self._ionic, config)
+
+    def __new_ionic_model(self, dt: float):
+        """ builds a cell model of the run's class, with its plugins, at time
+            step dt. It is a method rather than three lines inside
+            __build_solver() because the prepacer needs a second, independent
+            instance of exactly the same model: it gives its cells their
+            parameters before initialising them, which a model that folds the
+            parameters into a lookup table cannot be asked to do twice.
+        """
+        modelclass = self._mapper.ionic_model_class()
+        # the options (a cell type selected by im_param flags) are constructor
+        # arguments: the type fixes the parameter defaults the im_param
+        # modifiers are then resolved against
+        model   = modelclass(dt=dt, **self._mapper.ionic_model_options())
+        plugins = self._mapper.ionic_plugin_classes()
+        if len(plugins) > 0:
+            # the plugins wrap the model; a run without plugins keeps the
+            # bare model, so its numerics and checkpoints are unchanged
+            wrapper = IonicModelWithPlugins(dt=dt)
+            wrapper.set_model(model)
+            for pluginclass in plugins:
+                wrapper.add_plugin(pluginclass(dt=dt))
+            model = wrapper
+        return(model)
+
+    def __prepace(self):
+        """ paces single cells and distributes their state over the mesh, when
+            the prepacing parameters ask for it. It runs after the initial
+            condition (the cell model must hold its state variables) and before
+            finalize_for_run() (it works in the user's node order).
+        """
+        settings = self._mapper.prepacing_settings()
+        prepacer = Prepacer({key: value for key, value in settings.items()
+                             if key != 'lats_file'})
+        if self._ionic is None or not prepacer.enabled():
+            return
+        if len(settings['lats_file']) == 0:
+            # the mapper has already noted why; prepacing without activation
+            # times has no meaning, so it is simply not done
+            return
+        if len(self._mapper.savestate_settings()['start_statef']) > 0:
+            self._mapper.add_note('prepacing_bcl = {} is set and so is start_statef: the '
+                                  'checkpoint already carries a conditioned state, so no '
+                                  'prepacing is done'.format(settings['bcl']))
+            return
+        npt = self._model.domain().Pts().shape[0]
+        prepacer.read_lats(settings['lats_file'], npt)
+        prepacer.set_model_factory(lambda: self.__new_ionic_model(settings['dt']))
+        prepacer.prepace(self._model)
 
     def __mesh_tags(self) -> set:
         """ the set of element tags that actually occur in the mesh """

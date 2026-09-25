@@ -392,6 +392,14 @@ class HeatSolver:
     def renumbering(self) -> dict:
         return self._renumbering
 
+    def ready_for_run(self) -> bool:
+        """ ready_for_run() returns True once finalize_for_run() has been called,
+            i.e. once the nodal quantities are in the solver's own node order.
+            A setup step that works in the user's node order tests it to refuse
+            to run too late rather than to renumber twice.
+        """
+        return(self._ready_for_run)
+
     def nt(self) -> int:
         return self._nt
 

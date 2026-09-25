@@ -266,6 +266,10 @@ def test_vectorised_assign_nodal_properties_matches_the_loop():
     solver._Domain = _Domain(ids)
     solver._ionic_model = _Recorder()
     solver._use_renumbering = True
+    # the solver is built without __init__ to isolate assign_nodal_properties,
+    # so the two fields that method records what it saw in are set up by hand
+    solver._nodal_cell_parameters = []
+    solver._has_nodal_cell_parameters = False
     solver.assign_nodal_properties()
     got = solver._ionic_model._set
     assert set(got.keys()) == set(expected.keys())
