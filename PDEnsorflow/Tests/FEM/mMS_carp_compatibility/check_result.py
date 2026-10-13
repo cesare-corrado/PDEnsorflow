@@ -30,6 +30,7 @@ import numpy as np
 from gpuSolve.IO.readers import IGBReader
 
 FRONTEND_IGB : str = os.path.join('OUT_mMS', 'vm.igb')
+FRONTEND_LAT : str = os.path.join('OUT_mMS', 'init_acts_vm_act.dat')
 API_IGB : str      = os.path.join('OUT_mMS_api', 'vm.igb')
 MESH_PTS : str     = 'square.pts'
 
@@ -55,6 +56,27 @@ def read_x(path: str) -> np.ndarray:
         return(np.array([float(fpts.readline().split()[0]) for _ipt in range(npt)]))
 
 
+def read_lat(path: str) -> np.ndarray:
+    """ read_lat(path) returns the first-activation time of every node (ms) as
+        written by the LAT detector of the parameter file, with -1 replaced by
+        NaN so a node that never activated is left out of the fit
+    """
+    lat = np.loadtxt(path)
+    return(np.where(lat < 0.0, np.nan, lat))
+
+
+def fit_velocity(lat: np.ndarray, xcoord: np.ndarray) -> float:
+    """ fit_velocity(lat, xcoord) returns the planar front speed in um/ms from
+        a straight-line fit of the activation time against x over the interior
+        of the sheet: the paced strip and the far edge are not on the front
+    """
+    xmin, xmax = xcoord.min(), xcoord.max()
+    lo, hi     = xmin + 0.25 * (xmax - xmin), xmin + 0.85 * (xmax - xmin)
+    inside     = np.logical_and(np.logical_and(xcoord >= lo, xcoord <= hi), np.isfinite(lat))
+    slope      = np.polyfit(xcoord[inside], lat[inside], 1)[0]
+    return(1.0 / slope)
+
+
 def conduction_velocity(V: np.ndarray, xcoord: np.ndarray) -> float:
     """ conduction_velocity(V, xcoord) measures the planar front speed in um/ms
         from the local activation times of the sheet interior
@@ -64,13 +86,7 @@ def conduction_velocity(V: np.ndarray, xcoord: np.ndarray) -> float:
         above = np.where(V[:, jnode] >= V_THRESHOLD)[0]
         if above.size > 0:
             lat[jnode] = above[0] * FRAME_DT
-    # average the activation time over each column of nodes sharing an x, then
-    # fit the interior: the paced strip and the far edge are not on the front
-    xmin, xmax = xcoord.min(), xcoord.max()
-    lo, hi     = xmin + 0.25 * (xmax - xmin), xmin + 0.85 * (xmax - xmin)
-    inside     = np.logical_and(np.logical_and(xcoord >= lo, xcoord <= hi), np.isfinite(lat))
-    slope      = np.polyfit(xcoord[inside], lat[inside], 1)[0]
-    return(1.0 / slope)
+    return(fit_velocity(lat, xcoord))
 
 
 if __name__ == '__main__':
@@ -85,6 +101,24 @@ if __name__ == '__main__':
     print('CV measured: {:7.3f} um/ms ({:.2f} cm/s)'.format(measured, measured / 10.0))
     print('CV analytic: {:7.3f} um/ms ({:.2f} cm/s)'.format(analytic, analytic / 10.0))
     print('rel. error : {:.2%}'.format(abs(measured - analytic) / analytic))
+
+    if os.path.isfile(FRONTEND_LAT):
+        lat = read_lat(FRONTEND_LAT)
+        if lat.size != V.shape[1]:
+            print('LAT file holds {} nodes, the mesh has {}: not comparable'.format(
+                lat.size, V.shape[1]))
+        else:
+            activated = np.isfinite(lat)
+            from_lat  = fit_velocity(lat, xcoord)
+            # the frames are 1 ms apart, so a frame-based activation time is
+            # late by up to one frame; the detector interpolates inside the
+            # step, which is why the two differ by about that much
+            print('LAT file  : {} of {} nodes activated, t in [{:.3f}, {:.3f}] ms'.format(
+                int(activated.sum()), lat.size, np.nanmin(lat), np.nanmax(lat)))
+            print('CV from LAT: {:7.3f} um/ms ({:.2f} cm/s), rel. error {:.2%}'.format(
+                from_lat, from_lat / 10.0, abs(from_lat - analytic) / analytic))
+    else:
+        print('({} not found: the parameter file asks for no LAT detector)'.format(FRONTEND_LAT))
 
     if os.path.isfile(API_IGB):
         W = read_igb(API_IGB)

@@ -73,7 +73,8 @@ ARRAY_COUNTERS = {'gregion': 'num_gregions',
                   'stim': 'num_stim',
                   'stimulus': 'num_stim',
                   'tsav': 'num_tsav',
-                  'tsav_ext': 'num_tsav'}
+                  'tsav_ext': 'num_tsav',
+                  'lats': 'num_LATs'}
 
 # The format accepts at most this many save times.
 MAX_SAVE_TIMES : int = 50
@@ -137,6 +138,11 @@ PARAB_SOLVE_THETA : int = 1
 # (0, 1] are run, with a note, because theta = 1 (implicit Euler) is useful.
 THETA_REFERENCE_MIN : float = 0.1
 THETA_REFERENCE_MAX : float = 0.99
+
+# Output basename of a LAT detector whose entry names none. The format builds
+# that default from LAT_ID[measurand], so LAT_ID[0] (the transmembrane name)
+# overrides it; this is the value of LAT_ID[0] in the format being matched.
+DEFAULT_LAT_ID : str = 'vm_act'
 
 # Label of a stimulus that the input leaves unnamed; the index is appended.
 # It is the reference simulator's own label, for either stimulus family, so a
@@ -250,16 +256,24 @@ REGISTRY = {
     'prepacing_bcl':                ('float', -1.0,      True),
     'prepacing_stimdur':            ('float', 1.0,       True),
     'prepacing_stimstr':            ('float', 60.0,      True),
-    # accepted so that files which set them run, but not acted upon: the mesh
-    # reader takes no format switch, and local activation times are not
-    # computed by this front end (see the notes in __collect_notes)
-    'meshformat':                   ('int',   0,         False),
-    'num_LATs':                     ('int',   0,         False),
-    'lats[].ID':                    ('str',   '',        False),
-    'lats[].all':                   ('int',   1,         False),
+    'num_LATs':                     ('int',   0,         True),
+    # the array of detector names the ID default is taken from. Only index 0,
+    # the transmembrane name, can take effect here: index 1 names the Phie
+    # detector, which needs an extracellular solve this front end does not do.
+    'LAT_ID[]':                     ('str',   None,      True),
+    'lats[].ID':                    ('str',   '',        True),
+    'lats[].method':                ('int',   1,         True),
+    'lats[].threshold':             ('float', -10.0,     True),
+    'lats[].mode':                  ('int',   0,         True),
+    'lats[].all':                   ('int',   1,         True),
+    'lats[].start':                 ('float', 0.0,       True),
+    # read and reported, but it cannot change the measured signal: Vm (0) is
+    # the only quantity available, and an entry asking for Phie (1) is dropped
+    # as the reference drops it without a bidomain run (see lat_detectors)
     'lats[].measurand':             ('int',   0,         False),
-    'lats[].threshold':             ('float', -10.0,     False),
-    'lats[].mode':                  ('int',   0,         False),
+    # accepted so that files which set it run, but not acted upon: the mesh
+    # reader takes no format switch
+    'meshformat':                   ('int',   0,         False),
 }
 
 # Keys of the legacy stimulus family that openCARP reads with the same meaning
@@ -456,7 +470,7 @@ class ParameterMapper:
 
     def count(self, prefix: str) -> int:
         """ count(prefix) returns the number of entries of an indexed family
-            ('gregion', 'imp_region' or 'stim')
+            ('gregion', 'imp_region', 'stim', 'tsav' or 'lats')
         """
         return(self.__counts[prefix])
 
@@ -1003,6 +1017,69 @@ class ParameterMapper:
                 stims.append((props, {'p0': p0, 'p1': p1}))
         return(stims)
 
+    def lat_detectors(self) -> list:
+        """ lat_detectors() returns one config dict per local activation time
+            detector asked for by num_LATs / lats[], ready to build a
+            LatDetector from: 'method', 'threshold', 'mode', 'all', 'start'
+            and 'ID'. The caller adds 'dt', the solver step, which the
+            sub-step interpolation of an activation time needs.
+
+            Two kinds of entry are dropped rather than run, each with a note,
+            which is what the reference does with them as well:
+              * measurand = 1 (Phie). The extracellular potential needs the
+                elliptic (bidomain) solve this monodomain front end does not
+                perform, and the reference likewise ignores a Phie detector
+                when bidomain is off. Measuring Vm instead would silently
+                write a file holding a different quantity than the input asked
+                for, so the detector is skipped and no file is written.
+              * method <= 0, the reference's own switch for a disabled entry.
+            A method above 2 is an error: it names no detection rule, and
+            running it as one of the two would be a guess.
+        """
+        detectors : list = []
+        for index in range(self.count('lats')):
+            measurand = self.value('lats[{}].measurand'.format(index))
+            method    = self.value('lats[{}].method'.format(index))
+            if measurand != 0:
+                self.__notes.append('lats[{}].measurand = {} asks for Phie: this front end '
+                                    'solves the monodomain equation and has no extracellular '
+                                    'potential, so lats[{}] is ignored and no activation file '
+                                    'is written'.format(index, measurand, index))
+                continue
+            if method <= 0:
+                self.__notes.append('lats[{}].method = {}: the entry is disabled, so no '
+                                    'activation file is written'.format(index, method))
+                continue
+            if method > 2:
+                raise ValueError('lats[{}].method = {}: the methods are 1 (instant of '
+                                 'threshold crossing) and 2 (instant of maximum '
+                                 'derivative)'.format(index, method))
+            all_flag = self.value('lats[{}].all'.format(index))
+            if all_flag not in (0, 1):
+                raise ValueError('lats[{}].all = {}: 1 records every activation, 0 only the '
+                                 'first of each node'.format(index, all_flag))
+            start = self.value('lats[{}].start'.format(index))
+            if start < 0.0:
+                raise ValueError('lats[{}].start = {}: a recording start cannot be '
+                                 'negative'.format(index, start))
+            mode = self.value('lats[{}].mode'.format(index))
+            if mode not in (0, 1):
+                raise ValueError('lats[{}].mode = {}: 0 selects the upstroke (+slope crossing '
+                                 'or maximum derivative), 1 the downstroke'.format(index, mode))
+            name = self.value('lats[{}].ID'.format(index)).strip()
+            if len(name) == 0:
+                # the format derives the default name from LAT_ID[measurand];
+                # measurand is Vm here, so index 0 of that array
+                lat_id = self.value('LAT_ID[0]')
+                name   = DEFAULT_LAT_ID if lat_id is None else lat_id.strip()
+            detectors.append({'method': method,
+                              'threshold': self.value('lats[{}].threshold'.format(index)),
+                              'mode': mode,
+                              'all': all_flag,
+                              'start': start,
+                              'ID': name})
+        return(detectors)
+
     # ---- internals ----------------------------------------------------------
     def __uses_legacy_stimuli(self) -> bool:
         """ whether the stimuli are written with the legacy stimulus[] keys.
@@ -1127,9 +1204,15 @@ class ParameterMapper:
             self.__notes.append('legacy stimulus[] keys: the reference shapes every legacy pulse '
                                 'as a truncated exponential (tau_edge, tau_plateau); gpuSolve '
                                 'applies a square pulse of the same strength and duration')
-        if self.value('num_LATs') > 0 or any(key.startswith('lats[') for key in self.__store):
-            self.__notes.append('num_LATs / lats[] are set: local activation times are not '
-                                'computed, so no LAT file is written')
+        if self.__count_or_zero('lats') > 0 and len(self.value('start_statef').strip()) > 0:
+            # the reference carries the activation files of the previous run
+            # directory over and appends to them; here each segment writes its
+            # own file, so a restart must be told that its file covers the
+            # segment only
+            self.__notes.append('restart with num_LATs = {}: the activation files hold the '
+                                'activations of this segment only, not those already written '
+                                'by the run that was checkpointed'.format(
+                                    self.__count_or_zero('lats')))
         if self.value('prepacing_bcl') > 0.0:
             # every one of these leaves prepacing switched on but unable to do
             # anything, and the run then starts from the resting state without

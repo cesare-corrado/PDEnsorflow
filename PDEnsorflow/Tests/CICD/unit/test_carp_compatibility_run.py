@@ -36,6 +36,7 @@ _DT_US  = 25.0                                    # microseconds
 _SPACE  = 1.0                                     # ms between recorded frames
 _VMIN   = -80.0
 _VMAX   = 20.0
+_LAT_THRESHOLD = -30.0                            # mid-upstroke of the band
 
 
 def _write_cable(folder: str):
@@ -81,7 +82,18 @@ def _write_par(folder: str):
                    'stim[0].ptcl.duration  = 2.0\n'
                    'stim[0].ptcl.npls      = 1\n'
                    'stim[0].elec.p0[0]     = 0.0\n'
-                   'stim[0].elec.p1[0]     = 250.0\n'.format(_TEND, _DT_US, _SPACE))
+                   'stim[0].elec.p1[0]     = 250.0\n'
+                   # two detectors on Vm and one on Phie, which has to be
+                   # dropped: there is no extracellular solve here
+                   'num_LATs = 3\n'
+                   'lats[0].all       = 0\n'
+                   'lats[0].threshold = {}\n'
+                   'lats[1].ID        = "every_act"\n'
+                   'lats[1].all       = 1\n'
+                   'lats[1].threshold = {}\n'
+                   'lats[2].ID        = "phie_act"\n'
+                   'lats[2].measurand = 1\n'.format(_TEND, _DT_US, _SPACE,
+                                                     _LAT_THRESHOLD, _LAT_THRESHOLD))
 
 
 @pytest.fixture(scope='module')
@@ -141,6 +153,51 @@ def test_the_potential_stays_physical_and_the_front_travels(cable_run):
     activated = np.where(np.isfinite(lat))[0]
     assert activated.size > V.shape[1] // 3            # the front covered a good part of the cable
     assert np.all(np.diff(lat[activated]) >= 0.0)      # and it travelled in one direction
+
+
+def test_the_lat_detectors_write_the_activation_times_they_were_asked_for(cable_run):
+    """num_LATs / lats[] produce the reference's two file layouts, and only for
+    the entries that can be measured: `all = 0` writes one first-activation
+    time per node as init_acts_<ID>.dat (-1 where a node never activated),
+    `all = 1` writes a node/time table as <ID>.dat, and the Phie entry writes
+    nothing at all, because this front end has no extracellular potential.
+
+    The activation times are checked against the recorded frames: the detector
+    sees every step, so its time for a node must fall inside the frame interval
+    in which that node crossed the threshold.
+    """
+    outdir = os.path.join(cable_run['folder'], 'OUT')
+    first  = os.path.join(outdir, 'init_acts_vm_act.dat')      # the LAT_ID[0] default
+    every  = os.path.join(outdir, 'every_act.dat')
+    assert os.path.isfile(first)
+    assert os.path.isfile(every)
+    assert not os.path.isfile(os.path.join(outdir, 'phie_act.dat'))
+    assert not os.path.isfile(os.path.join(outdir, 'init_acts_phie_act.dat'))
+
+    lat = np.loadtxt(first)
+    assert lat.size == _NPT                                    # one line per node
+    activated = np.where(lat >= 0.0)[0]
+    assert activated.size > 0
+    assert np.all(np.diff(lat[activated]) > 0.0)               # the front travels one way
+    assert np.all(lat[activated] <= _TEND)
+    # the nodes that never activated are the ones beyond the front, and they
+    # are marked, not omitted
+    assert np.all(lat[activated.max() + 1:] == -1.0)
+
+    # the table of every activation holds the same nodes: on this cable each
+    # one crosses the threshold once
+    table = np.loadtxt(every)
+    assert np.array_equal(np.sort(table[:, 0].astype(int)), activated)
+    assert np.allclose(np.sort(table[:, 1]), lat[activated])
+
+    # against the frames: node j crossed between frame k-1 and frame k
+    reader = IGBReader()
+    reader.read(os.path.join(outdir, 'vm.igb'))
+    V = np.array(reader.data()).reshape(reader.header()['t'], reader.header()['x'])
+    for jnode in activated:
+        above = np.where(V[:, jnode] >= _LAT_THRESHOLD)[0]
+        assert above.size > 0
+        assert (above[0] - 1) * _SPACE <= lat[jnode] <= above[0] * _SPACE
 
 
 def test_a_vertex_file_electrode_stimulates_exactly_those_nodes(tmp_path):

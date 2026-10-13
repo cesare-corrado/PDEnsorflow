@@ -69,6 +69,13 @@ Two things differ from that script, both because of the format:
   conversion: it is added to `dV/dt` in mV/ms, which is what the strength of a
   `crct.type = 0` electrode already means.
 
+One **LAT detector** is asked for as well (`num_LATs = 1`): the first crossing
+of -30 mV on the upstroke of every node, written as
+`OUT_mMS/init_acts_vm_act.dat`. It is a passive monitor, so the solution is
+unchanged; it sees every time step, so its activation times are finer than the
+1 ms `spacedt` of the IGB frames, and `check_result.py` fits the front speed
+from them as well.
+
 `bidm_eqv_mono = 0` is set on purpose. Left at its default of 1 the conductivity
 would be the half harmonic mean of the intracellular and extracellular values
 rather than `g_il` alone, and would not reproduce the script.
@@ -92,8 +99,45 @@ front end : 251 frames x 63001 nodes
 CV measured:  47.199 um/ms (4.72 cm/s)
 CV analytic:  46.188 um/ms (4.62 cm/s)
 rel. error : 2.19%
+LAT file  : 63001 of 63001 nodes activated, t in [0.669, 202.115] ms
+CV from LAT:  47.197 um/ms (4.72 cm/s), rel. error 2.18%
 vs Python API: max |dV| = 0.000e+00 mV, mean |dV| = 0.000e+00 mV
 ```
+
+The two front speeds agree to 2e-3 um/ms although they are measured from
+different data: the detector interpolates each activation inside the step it
+happens in, the frame-based fit can only place it on a 1 ms grid. The bias of
+that grid is almost the same at every x, so it cancels in the slope. `CV
+measured` is also unchanged from the run without a detector, which is the check
+that the monitoring does not perturb the solution.
+
+The detector costs time, measured on this example (2500 steps, 63001 nodes,
+RTX A2000): 51.1 and 51.9 s in the time loop against 41.1 s with the same file
+and `-lats[0].method 0`, about 4 ms per step.
+
+Where that time goes was measured, and the first answer was wrong. The guess
+that the per-step read-back of the activation count is the cost is false:
+deferring it (`set_use_deferred_count(True)`) made this run **slower**, 55.8 and
+56.0 s, and it was slower at every mesh size tried later. Running the step as
+one compiled graph (`set_use_graph_check(True)`) writes a **byte-identical**
+activation file and roughly halves what the detector costs per step, but that
+was not visible here: on the shared RTX A2000 of this workstation the same
+comparison gave 51.3 and 51.1 s against 50.8 and 50.3 s, i.e. nothing, because
+another process was holding the card at 99% while it ran.
+
+Repeated on an **idle** RTX 5090, the detector cost per step (loop time minus
+the signal-generation baseline) is:
+
+| nodes | `all = 0` eager | `all = 0` graph | `all = 1` eager | `all = 1` graph |
+|------:|----------------:|----------------:|----------------:|----------------:|
+| 63 001 | 955 us | 456 us | 1138 us | 632 us |
+| 1 000 000 | 1418 us | 625 us | 1619 us | 800 us |
+| 4 000 000 | 2235 us | 1085 us | 2480 us | 1290 us |
+
+So the compiled step is worth about a factor two at every size, and the figures
+quoted from this workstation were contention, not physics.
+`Tests/DEVTESTS/LAT/lat_detector_scaling.py` reproduces the table; it needs an
+idle GPU.
 
 Frame k holds the solution at t = k ms (k = 0 ... 250). The diffusion step is
 Crank-Nicolson (`parab_solve = 1`, `theta = 0.5`, the defaults). With implicit
@@ -127,4 +171,4 @@ slower on meshes of 1M nodes and more.
 | `make_mesh.py` | writes and removes the micrometre mesh (`--remove` to clean up) |
 | `parameters.par` | the simulation, as a parameter file |
 | `equivalent_script.py` | the same simulation through the Python API |
-| `check_result.py` | conduction velocity vs the analytic value, and the two runs compared |
+| `check_result.py` | conduction velocity vs the analytic value, from the frames and from the LAT file, and the two runs compared |

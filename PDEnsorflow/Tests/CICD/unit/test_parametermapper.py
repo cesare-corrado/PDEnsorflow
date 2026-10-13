@@ -389,12 +389,72 @@ def test_legacy_stimulus_rejects_other_types_and_mixing():
                  '-stim[1].pulse.strength', '5']).stimuli()
 
 
-def test_lats_and_meshformat_accepted_not_actuated():
-    """LAT and mesh-format keys are accepted and reported as not acted upon."""
-    mapper = _mapper(['-meshformat', '0', '-num_LATs', '1', '-lats[0].ID', 'LATs',
-                      '-lats[0].all', '0', '-lats[0].measurand', '0',
-                      '-lats[0].threshold', '-10', '-lats[0].mode', '0'])
-    assert any('activation times are not computed' in note for note in mapper.notes())
+def test_meshformat_accepted_not_actuated():
+    """The mesh-format key is accepted: the reader takes no format switch."""
+    assert _mapper(['-meshformat', '0']).value('meshformat') == 0
+
+
+# ---- local activation times (num_LATs / lats[]) ----------------------------
+def test_lat_defaults_are_the_reference_ones():
+    """An entry that says nothing is a threshold crossing of Vm at -10 mV on
+    the upstroke, recording every activation, named by LAT_ID[0]."""
+    config = _mapper(['-num_LATs', '1']).lat_detectors()
+    assert len(config) == 1
+    assert config[0] == {'method': 1, 'threshold': -10.0, 'mode': 0, 'all': 1,
+                         'start': 0.0, 'ID': 'vm_act'}
+
+
+def test_lat_entries_are_read_and_LAT_ID_names_the_default():
+    """Every lats[] member reaches the detector config, and an entry with no ID
+    of its own takes LAT_ID[0], the transmembrane name of that array."""
+    config = _mapper(['-num_LATs', '2', '-LAT_ID[0]', 'act',
+                      '-lats[0].method', '2', '-lats[0].threshold', '15.0',
+                      '-lats[0].mode', '1', '-lats[0].all', '0',
+                      '-lats[0].start', '20.0',
+                      '-lats[1].ID', 'crossings']).lat_detectors()
+    assert config[0] == {'method': 2, 'threshold': 15.0, 'mode': 1, 'all': 0,
+                         'start': 20.0, 'ID': 'act'}
+    assert config[1]['ID'] == 'crossings'
+
+
+def test_a_phie_lat_is_dropped_with_a_note():
+    """measurand = 1 asks for the extracellular potential, which needs the
+    elliptic solve this front end does not do. The entry is dropped, as the
+    reference drops it without a bidomain run, rather than silently measuring
+    Vm and writing a file holding a different quantity."""
+    mapper = _mapper(['-num_LATs', '2', '-lats[0].measurand', '1',
+                      '-lats[1].ID', 'on_vm'])
+    config = mapper.lat_detectors()
+    assert [entry['ID'] for entry in config] == ['on_vm']
+    assert any('lats[0].measurand = 1' in note and 'ignored' in note
+               for note in mapper.notes())
+
+
+def test_a_disabled_lat_is_dropped_with_a_note():
+    """method <= 0 is the reference's own switch for an inert entry."""
+    mapper = _mapper(['-num_LATs', '1', '-lats[0].method', '0'])
+    assert mapper.lat_detectors() == []
+    assert any('lats[0].method = 0' in note for note in mapper.notes())
+
+
+@pytest.mark.parametrize('argv,message', [
+    (['-lats[0].method', '3'], 'maximum'),
+    (['-lats[0].all', '2'], 'records every activation'),
+    (['-lats[0].start', '-1.0'], 'cannot be negative'),
+    (['-lats[0].mode', '2'], 'upstroke'),
+])
+def test_an_out_of_range_lat_member_is_refused(argv, message):
+    """A member outside the values the format defines names no detection rule,
+    so running it as one of the defined ones would be a guess."""
+    with pytest.raises(ValueError, match=message):
+        _mapper(['-num_LATs', '1'] + argv).lat_detectors()
+
+
+def test_num_LATs_cannot_drop_an_assigned_entry():
+    """The counter wins, as it does for every other indexed family, so an
+    entry beyond it is an error rather than a silent omission."""
+    with pytest.raises(ValueError, match='num_LATs'):
+        _mapper(['-num_LATs', '1', '-lats[1].ID', 'second'])
 
 
 # ---- im_param flags (cell type) --------------------------------------------

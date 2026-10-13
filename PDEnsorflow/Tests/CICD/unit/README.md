@@ -74,7 +74,15 @@ threshold crossing (method 1) on both slopes, maximum derivative (method 2) with
 its two-step history warm-up, the start-time filter, the first-only (`all = 0`)
 nodal vector, and the CARP-format `.dat` output. The downstroke case checks that
 the crossing time stays inside the step, dropping the reference's sign factor
-that would place it before the step.
+that would place it before the step. The two execution knobs are off by
+default and must detect, count and record exactly what the default path does:
+the **deferred per-step count** (`set_use_deferred_count`) in both recording
+modes, and the **compiled step** (`set_use_graph_check`) in all eight
+combinations of method, recording mode and slope, since each takes a different
+branch through the step. The compiled step is also asserted to be traced
+**once** over a run: passing the time or the warm-up flag as a Python value
+instead of a tensor would retrace on every step, which would be far slower than
+the eager path and would otherwise pass unnoticed.
 
 ### `test_user_node_order.py` &mdash; the node order the accessors report in
 Regression tests for `U()` and `MonodomainSolver.ionic_state()` during the
@@ -257,8 +265,16 @@ without cell types is refused), and `GKr` / `GKs` modifiers scale the default of
 that cell type, also when a per-node value is pushed before the model is
 initialised. Tomek is the counter-case that keeps the two model families apart:
 its default is ENDO rather than EPI, and its modifiers scale base conductances
-that do not depend on the cell type at all. `meshformat`
-and the `lats[]` keys are accepted and reported as not acted upon.
+that do not depend on the cell type at all. `meshformat` is accepted and
+reported as not acted upon.
+
+The **`num_LATs` / `lats[]` family** turns into one `LatDetector` config per
+entry: the defaults are the reference's (method 1, threshold -10 mV, upstroke,
+every activation), `LAT_ID[0]` names an entry that carries no `ID` of its own,
+and a member outside the values the format defines is refused. Two kinds of
+entry are dropped with a note instead of being run, as the reference drops
+them: `measurand = 1` (Phie needs the extracellular solve this front end does
+not do) and `method <= 0` (the format's own switch for an inert entry).
 
 ### `test_carp_compatibility_run.py` &mdash; the front end end to end
 One short run of `main()` on a 5 mm cable written as `.pts` / `.elem` / `.lon`
@@ -268,6 +284,15 @@ IGB header matches the frames actually recorded, that the potential stays finite
 and inside the model's band, and that the activation front travels in one
 direction. The quantitative conduction-velocity check lives with the example in
 `Tests/FEM/mMS_carp_compatibility`, where the mesh resolves the front.
+
+The same run asks for **three LAT detectors**, which covers the file layouts of
+`num_LATs` / `lats[]` end to end: `all = 0` writes one first-activation time per
+node as `init_acts_<ID>.dat` (`-1` where a node never activated), `all = 1`
+writes the node/time table `<ID>.dat`, and the `measurand = 1` entry writes
+nothing. The times are checked against the recorded frames: a detector sees
+every step, so its time for a node must fall inside the frame interval in which
+that node crossed the threshold. The front end builds its detectors with the
+compiled step switched on, so this test covers that path as well.
 
 Also covers the **vertex-file electrode**: a short run whose `elec.vtx_file`
 names five nodes must depolarise exactly those and leave the far end at rest
