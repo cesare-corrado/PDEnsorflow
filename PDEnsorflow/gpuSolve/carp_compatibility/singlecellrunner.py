@@ -68,6 +68,7 @@ from gpuSolve.ionic.plugins.defib_ashihara_trayanova import DefibAshiharaTrayano
 from gpuSolve.IO.writers.svfilewriter import SvFileWriter
 from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
 from gpuSolve.carp_compatibility.parametermapper import IONIC_MODELS
+from gpuSolve.carp_compatibility.parametermapper import IONIC_MODEL_ALIASES
 from gpuSolve.carp_compatibility.parametermapper import IONIC_PLUGINS
 from gpuSolve.carp_compatibility.parametermapper import IONIC_CELL_TYPES as CELL_TYPE_FLAGS
 from gpuSolve.carp_compatibility.parametermapper import PLUGIN_LIST_SEPARATOR
@@ -602,7 +603,15 @@ class SingleCellRunner:
 def list_models() -> str:
     """ list_models() returns the --list-imps text, laid out as bench's """
     lines = ['Ionic models: ']
-    lines += ['\t{}'.format(name) for name in sorted(IONIC_MODELS.keys(), key=str.lower)]
+    # an alias is listed under the model it selects, so that --imp <alias> is
+    # discoverable without implying a second model
+    aliases : dict = {}
+    for alias, target in IONIC_MODEL_ALIASES.items():
+        aliases.setdefault(target, []).append(alias)
+    for name in sorted(IONIC_MODELS.keys(), key=str.lower):
+        also = aliases.get(name)
+        lines.append('\t{}{}'.format(name, '' if also is None else ' (also {})'.format(
+            ', '.join(sorted(also)))))
     lines.append('Plug-ins: ')
     lines += ['\t{}'.format(name) for name in sorted(IONIC_PLUGINS.keys(), key=str.lower)]
     return('\n'.join(lines))

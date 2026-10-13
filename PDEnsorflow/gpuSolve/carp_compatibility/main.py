@@ -26,6 +26,7 @@ from gpuSolve.carp_compatibility.optionreader import OptionReader
 from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
 from gpuSolve.carp_compatibility.parametermapper import REGISTRY
 from gpuSolve.carp_compatibility.parametermapper import IONIC_MODELS
+from gpuSolve.carp_compatibility.parametermapper import IONIC_MODEL_ALIASES
 from gpuSolve.carp_compatibility.parametermapper import IONIC_PLUGINS
 from gpuSolve.carp_compatibility.simulationrunner import SimulationRunner
 
@@ -53,6 +54,12 @@ def print_usage():
         print('  {:34s} {:6s} default {:<12} {}'.format(
             pattern, vtype, str(shown), '' if actuated else '(accepted, not actuated)'))
     print('\nCell models for imp_region[].im: {}'.format(', '.join(sorted(IONIC_MODELS.keys()))))
+    if len(IONIC_MODEL_ALIASES) > 0:
+        # the names of forks of the other simulator's model files that this
+        # library provides under their own name (see IONIC_MODEL_ALIASES)
+        print('Also accepted, as the model they name: {}'.format(
+            ', '.join('{} = {}'.format(alias, target)
+                      for alias, target in sorted(IONIC_MODEL_ALIASES.items()))))
     print('Plugins for imp_region[].plugins: {}'.format(', '.join(sorted(IONIC_PLUGINS.keys()))))
 
 
