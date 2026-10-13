@@ -295,9 +295,13 @@ def test_the_pacing_protocol_timing_is_preserved():
     stimulus = Stimulus(props)
     stimulus.set_stimregion(np.ones(shape=(4,), dtype=bool))
     # a point inside each pulse, and points that must be quiet: before the
-    # first, between two, and after the last one the protocol defines
+    # first, between two, and after the last one the protocol defines. The
+    # strength is scaled by the pulse waveform, which this far into the pulse
+    # is the slow decay of the plateau only (see test_stimulus_waveform.py)
     for on_time in (50.5, 150.5, 250.5):
-        assert float(np.max(stimulus.stimApp(on_time).numpy())) == pytest.approx(60.0)
+        expected = 60.0 * stimulus.waveform(on_time)
+        assert expected == pytest.approx(60.0, rel=1.0e-3)
+        assert float(np.max(stimulus.stimApp(on_time).numpy())) == pytest.approx(expected, rel=1.0e-5)
     for off_time in (49.0, 100.0, 200.0, 260.0, 350.5):
         assert float(np.max(stimulus.stimApp(off_time).numpy())) == pytest.approx(0.0)
 
@@ -357,8 +361,10 @@ def test_legacy_stimulus_maps_onto_stim():
                       '-stim[0].elec.p0[1]', '36000', '-stim[0].elec.p1[1]', '36200',
                       '-stim[0].elec.p0[2]', '-21000', '-stim[0].elec.p1[2]', '-20000'])
     assert legacy.stimuli() == modern.stimuli()
-    # the square-pulse approximation is reported, not hidden
-    assert any('truncated exponential' in note for note in legacy.notes())
+    # the reference shapes every legacy pulse as a truncated exponential, and
+    # defaults the current family to it, so both ask for the same waveform
+    assert legacy.stimuli()[0][0]['shape'] == 'truncexp'
+    assert modern.stimuli()[0][0]['shape'] == 'truncexp'
 
 
 def test_unnamed_stimulus_takes_the_reference_label():

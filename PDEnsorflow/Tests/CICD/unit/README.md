@@ -283,6 +283,21 @@ entry are dropped with a note instead of being run, as the reference drops
 them: `measurand = 1` (Phie needs the extracellular solve this front end does
 not do) and `method <= 0` (the format's own switch for an inert entry).
 
+### `test_stimulus_waveform.py` &mdash; the shape of a stimulus pulse
+The pulse **waveform**, checked sample by sample against a trace the reference
+simulator wrote itself (`-stim[].pulse.dumpTrace 1`): the monophasic truncated
+exponential rises with `tau_edge`, creeps down with `tau_plateau` over its
+plateau, and falls back over the last `5 tau_edge` of its duration, so it
+delivers about 2.6% less charge than a square pulse of the same strength and
+duration. Also: the shape is continuous where its two branches meet, every
+pulse of a train carries it, `stimApp` and the call operator both scale by it,
+and the **square pulse stays the class default**, so a script written before
+the shape existed keeps its numerics. The `.par` front end is the caller that
+selects the truncated exponential, because that is the reference's default in
+both of its stimulus families; `stim[].pulse.shape = 0` selects the square one,
+a sine or a pulse read from a file is refused, and so is the biphasic pulse
+(`d1 < 1`), which reverses the current through an extracellular electrode.
+
 ### `test_carp_compatibility_run.py` &mdash; the front end end to end
 One short run of `main()` on a 5 mm cable written as `.pts` / `.elem` / `.lon`
 with `Ln` line elements, driving the whole chain from the parameter file to the

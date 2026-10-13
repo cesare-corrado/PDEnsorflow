@@ -61,8 +61,14 @@ if __name__ == '__main__':
               'dt_per_plot': int(round(1.0 / dt)),
               'Tend': Tend}
 
+    # 'shape' is what keeps this script equivalent to the parameter file: the
+    # format defaults the pulse to a truncated exponential, so the front end
+    # asks Stimulus for that shape, while the class itself defaults to a square
+    # pulse. A square pulse here would deliver about 2.6% more charge than the
+    # parameter file asks for, and the two runs would no longer be comparable.
     cfgstim = {'tstart': 0.0, 'nstim': 1, 'period': Tend,
-               'duration': 2.0, 'intensity': 60.0, 'name': 'S1'}
+               'duration': 2.0, 'intensity': 60.0, 'name': 'S1',
+               'shape': 'truncexp'}
 
     ionic = ModifiedMS2v(dt=dt)
     model = MonodomainSolver(ionic, config)
