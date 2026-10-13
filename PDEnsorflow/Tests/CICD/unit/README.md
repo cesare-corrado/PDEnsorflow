@@ -42,6 +42,24 @@ not), the RCM-renumbered matrix is the plain one with rows and columns
 permuted, to the bit, and an element entry missing from the sparsity pattern
 raises instead of being summed into a neighbouring entry.
 
+### `test_matrix_cache.py` &mdash; `gpuSolve.matrices.MatrixCache`
+The cache that lets several runs on the same mesh assemble the matrices once.
+Two things have to hold at the same time. What comes back must be what was
+assembled **to the bit**, and the matrices rebuilt from a file must have the
+same indices and the same values as `assemble_matrices_dict` gives, which also
+pins the host sort the cache needs: with the renumbering on, the pattern is
+sorted in the original numbering and then permuted, so the stored order has to
+reproduce what `tf.sparse.reorder` does on the device. And a file that does not
+describe the problem at hand must **never** be used, so each field of the key
+is perturbed on its own, along with the format version, a mesh file edited in
+place at the same size, and a file that is not an archive at all; every one of
+them must fall back to the assembly. A file the key accepted but whose arrays
+do not fit the shape it states is the opposite case and must raise, because it
+is a damaged cache rather than a stale one. Two `HeatSolver` runs, the first
+writing the file and the second reading it, close the loop: they must take the
+same step from the same initial condition, and the second must report neither a
+connectivity nor an assembly.
+
 ### `test_mesh_setup.py` &mdash; connectivity, point region IDs, sparsity pattern
 The set-up that precedes the assembly (`Triangulation.mesh_connectivity`,
 `Triangulation.point_region_ids`, `compute_coo_pattern`) used to be Python loops

@@ -63,6 +63,7 @@ class SimulationRunner:
         self._chkpt_index : int      = 0
         self._next_chkpt : float     = None
         self._lats : list            = None
+        self._element_maps : dict    = None
 
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -114,6 +115,9 @@ class SimulationRunner:
             self.__build_solver()
             self.__assign_materials()
             self.__assign_cell_parameters()
+            # after the materials, because their values are what the cache key
+            # has to agree on, and before the assembly, which consumes it
+            self.__configure_matrix_cache()
             self._model.assemble_matrices()
             self.__configure_linear_solver()
             self.__set_initial_condition()
@@ -197,11 +201,7 @@ class SimulationRunner:
             file nor the parameter it came from, and `meshname` has a default,
             so the commonest first mistake would otherwise be the least legible.
         """
-        if meshname.endswith(MESH_BINARY_EXTENSION):
-            expected = [meshname]
-        else:
-            expected = ['{}{}'.format(meshname, suffix)
-                        for suffix in ('.pts', '.elem', '.lon')]
+        expected = self.__mesh_files(meshname)
         missing = [path for path in expected if not os.path.isfile(path)]
         if len(missing) > 0:
             raise ValueError('meshname = "{}": cannot find {}. The mesh is read from '
@@ -353,10 +353,48 @@ class SimulationRunner:
             functions the assembler calls
         """
         maps = self._mapper.element_property_maps(self.__mesh_tags())
+        # kept, because they are also the part of the matrix cache key that
+        # describes the physics, and recomputing them there could drift
+        self._element_maps = maps
         for pname in ('sigma_l', 'sigma_t', 'beta'):
             self._model.add_element_material_property(pname, 'region', maps[pname])
         self._model.add_material_function('mass', no_mass_property)
         self._model.add_material_function('stiffness', conductivity_tensor)
+
+    def __configure_matrix_cache(self):
+        """ names the matrix cache file and builds the key that a cached file
+            must carry to be used for this run.
+            The key holds everything the mass and stiffness matrices depend on,
+            and nothing else. It is built from the conductivity maps that the
+            mapper produced rather than from the parameter keys they came from,
+            so that no contributor to them can be left out of the key and so
+            that the key survives a change in how those parameters are spelled.
+            dt, theta, the stimuli, the cell model and the duration are
+            deliberately absent: they do not enter the two matrices, and a key
+            that held dt would reject the cache in exactly the study, a
+            convergence study, that varies it.
+        """
+        fname = self._mapper.matrix_cache_file()
+        if len(fname) == 0:
+            return
+        cache = self._model.matrix_cache()
+        mesh  = {path: cache.file_fingerprint(path)
+                 for path in self.__mesh_files(self._mapper.value('meshname'))}
+        key   = {'mesh': mesh,
+                 'sigma_l': self._element_maps['sigma_l'],
+                 'sigma_t': self._element_maps['sigma_t'],
+                 'beta': self._element_maps['beta'],
+                 'renumbering': int(self._mapper.value('renumbering') != 0),
+                 'gpuSolve_version': cache.version_string()}
+        self._model.set_matrix_cache(fname, key)
+
+    def __mesh_files(self, meshname: str) -> list:
+        """ the files the mesh is read from: the single binary file, or the
+            three text files of the other format
+        """
+        if meshname.endswith(MESH_BINARY_EXTENSION):
+            return([meshname])
+        return(['{}{}'.format(meshname, suffix) for suffix in ('.pts', '.elem', '.lon')])
 
     def __assign_cell_parameters(self):
         """ pushes the cell parameters named by im_param into the cell model,

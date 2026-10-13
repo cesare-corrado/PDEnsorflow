@@ -1,4 +1,4 @@
-# PDEnsorflow 1.11.1
+# PDEnsorflow 1.12.0
 
 **PDEnsorflow**  is a library developed under `TensorFlow 2.X` to solve Partial dfferential equations.
 Since version 1.2, it implements finite differences and finite element solvers.
@@ -115,6 +115,22 @@ Three points are worth knowing before writing a parameter file:
   `im_param` stays in charge (the same rule as `singlecell --read-ini-file`). A
   file written for another cell model stops the run. When prepacing is switched
   on as well, the prepacing train departs from this state.
+
+* **The assembled matrices can be cached between runs.** `matrix_cache` names
+  a file holding the assembled mass and stiffness matrices. It is a gpuSolve
+  key, like `renumbering`, and it is empty by default, so a run that does not
+  ask for one behaves exactly as before. When a study calls the solver many
+  times on the same mesh with the same conductivities, varying only the
+  stimulus, the duration or the cell parameters, every invocation is given the
+  same file name: the first writes it and the others read it, which skips the
+  mesh connectivity and the assembly (160 s of the 185 s of setup on a 4.0
+  M-node, 23 M-tetrahedron mesh). The file carries a key describing the mesh
+  content, the per-region conductivities and `beta`, and the renumbering: any
+  difference and the matrices are reassembled, so a changed conductivity or a
+  mesh rewritten in place can never be read back as the old one. `dt` and
+  `theta` are deliberately not part of it, since the system matrix is rebuilt
+  from the two stored matrices on every run and a convergence study must be
+  able to vary them.
 
 `PDEnsorflow --help` lists every key that is understood, with its type and
 default, and the cell models and plugins available for `imp_region[].im` and
