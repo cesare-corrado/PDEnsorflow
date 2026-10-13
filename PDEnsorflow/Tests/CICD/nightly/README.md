@@ -40,7 +40,12 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   and the parameter file expresses everything in that format's units: `g_il` in
   S/m, `cellSurfVolRatio` in um^-1, `dt` in microseconds. The two tests check the
   front is unidirectional and that the conduction velocity matches the same
-  analytic Nagumo speed within 10%.
+  analytic Nagumo speed within 10%. The unidirectionality is checked from
+  `0.1 Lx` on: that run is paced by a stimulus, and the format's pulse shape
+  (a truncated exponential) lets the paced strip reach the threshold after the
+  pulse has ended, so the two columns either side of the strip edge activate
+  0.03 ms out of order. There the activation time is set by the pulse and by
+  the current sink next to it, not by propagation.
 
   It earns its GPU minutes because it covers layers a small cable cannot reach:
   the **vectorised assembly path**, which builds the diffusion tensor from the

@@ -247,6 +247,18 @@ REGISTRY = {
     'stim[].name':                  ('str',   '',        True),
     'stim[].crct.type':             ('int',   0,         True),
     'stim[].pulse.strength':        ('float', 0.0,       True),
+    # the pulse waveform. The reference defaults to the truncated exponential
+    # (1) in both stimulus families, so a parameter file that says nothing
+    # about the shape still asks for it; 0 is the square pulse.
+    'stim[].pulse.shape':           ('int',   1,         True),
+    'stim[].pulse.tau_edge':        ('float', 0.01,      True),
+    'stim[].pulse.tau_plateau':     ('float', 1000.0,    True),
+    'stim[].pulse.d1':              ('float', 1.0,       True),
+    'stim[].pulse.bias':            ('float', 0.0,       True),
+    # the strength of the second phase of a biphasic pulse, which only d1 < 1
+    # selects. Stimulus refuses that pulse (it reverses the current, through an
+    # extracellular electrode), so the key is accepted and never acted upon.
+    'stim[].pulse.s2':              ('float', 0.0,       False),
     'stim[].ptcl.start':            ('float', 0.0,       True),
     'stim[].ptcl.duration':         ('float', None,      True),
     'stim[].ptcl.npls':             ('int',   None,      True),
@@ -262,6 +274,11 @@ REGISTRY = {
     'stimulus[].strength':          ('float', 0.0,       True),
     'stimulus[].start':             ('float', 0.0,       True),
     'stimulus[].duration':          ('float', None,      True),
+    'stimulus[].tau_edge':          ('float', 0.01,      True),
+    'stimulus[].tau_plateau':       ('float', 1000.0,    True),
+    'stimulus[].d1':                ('float', 1.0,       True),
+    'stimulus[].bias':              ('float', 0.0,       True),
+    'stimulus[].s2':                ('float', 0.0,       False),
     'stimulus[].npls':              ('int',   None,      True),
     'stimulus[].bcl':               ('float', None,      True),
     'stimulus[].x0':                ('float', 0.0,       True),
@@ -314,7 +331,17 @@ LEGACY_STIM_KEYS = {'name': 'name',
                     'duration': 'ptcl.duration',
                     'npls': 'ptcl.npls',
                     'bcl': 'ptcl.bcl',
+                    'tau_edge': 'pulse.tau_edge',
+                    'tau_plateau': 'pulse.tau_plateau',
+                    'd1': 'pulse.d1',
+                    'bias': 'pulse.bias',
                     'vtx_file': 'elec.vtx_file'}
+
+# The waveform numbering of stim[].pulse.shape, by the Stimulus shape it
+# selects. The legacy stimulus[] family carries no shape key: the reference
+# shapes every one of its pulses as a truncated exponential.
+PULSE_SHAPES = {0: 'square', 1: 'truncexp'}
+LEGACY_PULSE_SHAPE : str = 'truncexp'
 
 _INDEX = re.compile(r'\[(\d+)\]')
 
@@ -1034,11 +1061,26 @@ class ParameterMapper:
                 npls = 1 if tend > 0.0 else 0
             if bcl is None:
                 bcl = tend - start
+            if legacy:
+                shape = LEGACY_PULSE_SHAPE
+            else:
+                wform = self.value('stim[{}].pulse.shape'.format(index))
+                if wform not in PULSE_SHAPES:
+                    raise ValueError('stim[{}].pulse.shape = {}: this front end samples the '
+                                     'square (0) and truncated exponential (1) pulses only, '
+                                     'and the shape changes the charge the stimulus '
+                                     'delivers'.format(index, wform))
+                shape = PULSE_SHAPES[wform]
             props = {'tstart': start,
                      'nstim': npls,
                      'period': bcl if bcl > 0.0 else 1.0,
                      'duration': duration,
                      'intensity': entry['pulse.strength'],
+                     'shape': shape,
+                     'tau_edge': entry['pulse.tau_edge'],
+                     'tau_plateau': entry['pulse.tau_plateau'],
+                     'd1': entry['pulse.d1'],
+                     'bias': entry['pulse.bias'],
                      'name': name if len(name) > 0 else '{}{}'.format(DEFAULT_STIM_NAME, index)}
             p0 = entry['elec.p0']
             p1 = entry['elec.p1']
@@ -1245,10 +1287,6 @@ class ParameterMapper:
                                 'same state variables and the same exposed parameters, so a '
                                 '{} state file is read and written as '
                                 'one'.format(selected, target, selected))
-        if any(key.startswith('stimulus[') for key in self.__store):
-            self.__notes.append('legacy stimulus[] keys: the reference shapes every legacy pulse '
-                                'as a truncated exponential (tau_edge, tau_plateau); gpuSolve '
-                                'applies a square pulse of the same strength and duration')
         if self.__count_or_zero('lats') > 0 and len(self.value('start_statef').strip()) > 0:
             # the reference carries the activation files of the previous run
             # directory over and appends to them; here each segment writes its

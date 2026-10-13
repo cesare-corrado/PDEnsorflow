@@ -168,7 +168,11 @@ def _write_two_region_cable(folder: str, scar_gna: str):
                    'gregion[0].g_il = 0.174\n'
                    'gregion[0].g_it = 0.174\n'
                    'num_stim = 1\n'
-                   'stim[0].pulse.strength = 60.0\n'
+                   # comfortably above the excitation threshold of this cable:
+                   # at 60 uA/uF the three paced nodes are within 5% of it, so
+                   # the subject of the test (per-region GNa) would be decided
+                   # by the charge the pulse shape delivers
+                   'stim[0].pulse.strength = 80.0\n'
                    'stim[0].ptcl.start     = 0.0\n'
                    'stim[0].ptcl.duration  = 1.0\n'
                    'stim[0].elec.p0[0]     = 0.0\n'
