@@ -6,6 +6,8 @@ Contains:
   * localMass:      a collection of functions to assemble local mass matrices in cartesian coordinates
   * localStiffness: a collection of functions to assemble local stiffness matrices in cartesian coordinates
   * globalMatrices: a collection of functions to assemble global sparse matrices
+  * matrixcache:    a cache of the assembled matrices on disk, to skip the assembly
+                    when several runs share the same mesh and the same conductivities
 """
 
 from gpuSolve._version import __version__
@@ -26,3 +28,7 @@ from gpuSolve.matrices.globalMatrices import assemble_mass_matrix
 from gpuSolve.matrices.globalMatrices import assemble_stiffness_matrix
 from gpuSolve.matrices.globalMatrices import assemble_vectmat_dict
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
+from gpuSolve.matrices.globalMatrices import assemble_matrices_csr_arrays
+from gpuSolve.matrices.globalMatrices import csr_matrices_from_arrays
+from gpuSolve.matrices.matrixcache import MatrixCache
+from gpuSolve.matrices.matrixcache import MATRIX_CACHE_FORMAT_VERSION

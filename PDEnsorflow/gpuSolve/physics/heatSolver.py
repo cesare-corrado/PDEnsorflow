@@ -22,8 +22,11 @@ from gpuSolve.entities.triangulation import Triangulation
 from gpuSolve.entities.materialproperties import MaterialProperties
 from gpuSolve.matrices.globalMatrices import compute_coo_pattern
 from gpuSolve.matrices.globalMatrices import assemble_matrices_dict
+from gpuSolve.matrices.globalMatrices import assemble_matrices_csr_arrays
+from gpuSolve.matrices.globalMatrices import csr_matrices_from_arrays
 from gpuSolve.matrices.globalMatrices import compute_reverse_cuthill_mckee_indexing
 from gpuSolve.matrices.globalMatrices import csr_axpby
+from gpuSolve.matrices.matrixcache import MatrixCache
 from gpuSolve.matrices.localMass import localMass
 from gpuSolve.matrices.localStiffness import localStiffness
 from gpuSolve.linearsolvers.conjgrad import ConjGrad
@@ -84,6 +87,13 @@ class HeatSolver:
         # after these measurements, and the reference's scheme); for theta = 1
         # the two coincide.
         self._split_source : bool    = True
+        # name of the file that caches the assembled mass and stiffness
+        # matrices. Empty (the default) means no cache and the assembly runs as
+        # it always did; a name means load the matrices from that file when it
+        # carries this problem's key, and assemble and write it otherwise.
+        # Inert by default because the cache needs a key that describes the
+        # problem, and only the caller can build one that is complete.
+        self._matrix_cache_file : str = ''
 
         if cfgdict is not None:
             for attribute in self.__dict__.keys():
@@ -104,6 +114,7 @@ class HeatSolver:
         self._ctime : float                  = 0.0
         self._nbstim : int                   = 0
         self._renumbering : dict             = None
+        self._matrix_cache : MatrixCache     = MatrixCache({'fname': self._matrix_cache_file})
         self._StimulusDict : dict            = None
         self._I0_zero : tf.Tensor            = None
         # the number of steps that reach Tend. Floor division of the floats
@@ -136,15 +147,23 @@ class HeatSolver:
     def add_material_function(self, fname: str, fsign):
         self._materials.add_ud_function(fname, fsign)
 
+    def matrix_cache(self) -> MatrixCache:
+        """ matrix_cache() returns the matrix cache object """
+        return(self._matrix_cache)
+
+    def set_matrix_cache(self, fname: str, key: dict):
+        """ set_matrix_cache(fname,key) names the file that caches the
+            assembled matrices and the key it must carry to be used.
+            The key must list everything the matrices depend on; the caller
+            builds it, because the solver does not know where its material
+            properties came from. Called before assemble_matrices().
+        """
+        self._matrix_cache_file = fname
+        self._matrix_cache.set_fname(fname)
+        self._matrix_cache.set_key(key)
+
     def assemble_matrices(self):
-        connectivity = self._Domain.mesh_connectivity('True')
-        pattern      = compute_coo_pattern(connectivity)
-        if self._use_renumbering:
-            self._renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
-        lmatr        = {'mass': localMass, 'stiffness': localStiffness}
-        MATRICES     = assemble_matrices_dict(lmatr, pattern, self._Domain,
-                                              self._materials, connectivity,
-                                              renumbering=self._renumbering)
+        MATRICES    = self.__assemble_or_load_matrices()
         MASS        = MATRICES['mass']
         STIFFNESS   = MATRICES['stiffness']
         A           = csr_axpby(MASS, 1.0, STIFFNESS, self._theta * self._dt)
@@ -167,6 +186,57 @@ class HeatSolver:
                                            Ast.values.numpy(),
                                            int(Ast.dense_shape.numpy()[0]))
         self._Solver.set_precond(self._Precond)
+
+    def __assemble_or_load_matrices(self) -> dict:
+        """ returns the mass and stiffness matrices, read from the matrix cache
+            when one is named and valid for this problem, assembled otherwise.
+            With no cache named this is the assembly that has always run, by the
+            same call: the cache path is a separate branch so that a run without
+            one keeps its numerics and its cost exactly.
+        """
+        lmatr = {'mass': localMass, 'stiffness': localStiffness}
+        if self._matrix_cache.active():
+            if self._matrix_cache.key() is None:
+                # a file with no key would match any other run that also set
+                # none, on any mesh: refused rather than read, because the
+                # whole safety of the cache is in the key
+                raise ValueError('a matrix cache file was named but no key was set: '
+                                 'use set_matrix_cache(fname,key)')
+            stored = self._matrix_cache.load()
+            if stored is not None:
+                npt = self._Domain.Pts().shape[0]
+                if stored['npt'] != npt:
+                    # the key is the caller's description of the problem and may
+                    # not cover the mesh; the node count is checked here, where
+                    # the mesh is, so a file for another mesh cannot become a
+                    # matrix of the wrong size further down
+                    raise ValueError('matrix cache {}: holds {} nodes but the mesh has '
+                                     '{}'.format(self._matrix_cache.fname(), stored['npt'], npt))
+                # the renumbering is used for the whole run (it permutes U, the
+                # stimulus indices and the output), so it comes out of the file:
+                # recomputing it would need the sparsity pattern and therefore
+                # the mesh connectivity, which is what the cache skips
+                self._renumbering = stored['renumbering']
+                if self._use_renumbering and self._renumbering is None:
+                    raise ValueError('matrix cache {}: renumbering is on but the file '
+                                     'holds no permutation'.format(self._matrix_cache.fname()))
+                return(csr_matrices_from_arrays(stored))
+        connectivity = self._Domain.mesh_connectivity('True')
+        pattern      = compute_coo_pattern(connectivity)
+        if self._use_renumbering:
+            self._renumbering = compute_reverse_cuthill_mckee_indexing(pattern)
+        if self._matrix_cache.active():
+            # assembled in the host CSR form the file stores, so that the
+            # matrices written and the matrices used are the same arrays
+            arrays = assemble_matrices_csr_arrays(lmatr, pattern, self._Domain,
+                                                  self._materials, connectivity,
+                                                  renumbering=self._renumbering)
+            self._matrix_cache.save(arrays, renumbering=self._renumbering)
+            arrays['renumbering'] = self._renumbering
+            return(csr_matrices_from_arrays(arrays))
+        return(assemble_matrices_dict(lmatr, pattern, self._Domain,
+                                      self._materials, connectivity,
+                                      renumbering=self._renumbering))
 
     def set_initial_condition(self, U0: np.ndarray = None):
         npt = self._Domain.Pts().shape[0]

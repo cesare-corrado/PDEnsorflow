@@ -616,20 +616,26 @@ def assemble_stiffness_matrix(matrix_pattern: dict ,domain,matprops,stif_pname: 
 
 
 
-def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,domain,matprops,connectivity : dict = None, renumbering : dict = None) -> dict[tf.sparse.SparseTensor]:
-    """ function assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
-    Given a python dict of functions to compute local matrices, this function computes all the
-    global the sparse matrices using the domain connectivity and the matrix pattern.
-    It returs a dict of TensorFlow sparse tensors.
+def _assemble_global_entries(local_matrices_dict : dict, matrix_pattern: dict, domain, matprops, renumbering : dict = None) -> dict:
+    """ function _assemble_global_entries(local_matrices_dict,matrix_pattern,domain,matprops,renumbering)
+    assembles on the HOST the global entries of every matrix of
+    local_matrices_dict over the sparsity pattern, and returns them as numpy
+    arrays in the COO form of the pattern: one (row,col) pair for all the
+    matrices, one values array per matrix.
+    It is the host half of assemble_matrices_dict(), kept separate because the
+    same entries feed two forms: the device matrices that the solver uses and
+    the CSR arrays that the matrix cache stores. One assembly, two forms.
     Input:
         local_matrices_dict: a python dict of functions to compute the local matrices
         matrix_pattern:      the sparsity pattern of the matrix
         domain:              the domain object
         matprops:            a MaterialProperties object that implements functions to provide local properties
-        connectivity:        the domain connectivity (if None, it is computed and kept in memory)
         renumbering:         the node renumbering to reduce breadwidth (default = None)
-    Output:
-        MATRICES:  a python dict with the TensorFlow sparse tensors storing the matrices.
+    Output (dictionary):
+        npt:    the number of points; the matrices are npt x npt
+        rows:   int64, the row index of every entry, in pattern order
+        cols:   int64, the column index of every entry, in pattern order
+        values: a dict {matrix name: float32 array of nnz entries}
     """
     npt = domain.Pts().shape[0]
     print('Assembly the following sparse matrices:'.format(len(local_matrices_dict.keys())),flush=True)
@@ -697,20 +703,114 @@ def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,doma
         iperm       = renumbering['iperm']
         unique_rows = iperm[unique_rows].astype(np.int64)
         unique_cols = iperm[unique_cols].astype(np.int64)
-    indices = tf.constant(np.stack([unique_rows, unique_cols], axis=1), dtype=tf.int64)
 
-    dense_shape = [npt, npt]
-    MATRICES = {}
+    VALUES = {}
     for matr_name in local_matrices_dict.keys():
         # summed in float32, as the device sum it replaces was, so the values
         # agree with the previous assembly up to the order of the additions
         vals   = np.concatenate(all_vals[matr_name]).astype(np.float32)
         values = np.zeros(shape=(pattern_keys.shape[0],), dtype=np.float32)
         np.add.at(values, idx, vals)
-        sp = tf.sparse.SparseTensor(
-            indices=indices, values=tf.constant(values, dtype=tf.float32), dense_shape=dense_shape)
-        MATRICES[matr_name] = _wrap_sparse_tensor_as_csr(sp)
+        VALUES[matr_name] = values
 
     elapsed = time() - t0
     print('done in {:3.2f} s'.format(elapsed),flush=True)
+    return({'npt': npt, 'rows': unique_rows, 'cols': unique_cols, 'values': VALUES})
+
+
+def assemble_matrices_dict(local_matrices_dict : dict ,matrix_pattern: dict,domain,matprops,connectivity : dict = None, renumbering : dict = None) -> dict[tf.sparse.SparseTensor]:
+    """ function assemble_matrices_dict(local_matrices_dict,matrix_pattern,domain,matprops,connectivity=None)
+    Given a python dict of functions to compute local matrices, this function computes all the
+    global the sparse matrices using the domain connectivity and the matrix pattern.
+    It returs a dict of TensorFlow sparse tensors.
+    Input:
+        local_matrices_dict: a python dict of functions to compute the local matrices
+        matrix_pattern:      the sparsity pattern of the matrix
+        domain:              the domain object
+        matprops:            a MaterialProperties object that implements functions to provide local properties
+        connectivity:        the domain connectivity (if None, it is computed and kept in memory)
+        renumbering:         the node renumbering to reduce breadwidth (default = None)
+    Output:
+        MATRICES:  a python dict with the TensorFlow sparse tensors storing the matrices.
+    """
+    entries     = _assemble_global_entries(local_matrices_dict, matrix_pattern, domain,
+                                           matprops, renumbering=renumbering)
+    npt         = entries['npt']
+    indices     = tf.constant(np.stack([entries['rows'], entries['cols']], axis=1), dtype=tf.int64)
+    dense_shape = [npt, npt]
+    MATRICES = {}
+    for matr_name, values in entries['values'].items():
+        sp = tf.sparse.SparseTensor(
+            indices=indices, values=tf.constant(values, dtype=tf.float32), dense_shape=dense_shape)
+        MATRICES[matr_name] = _wrap_sparse_tensor_as_csr(sp)
+    return(MATRICES)
+
+
+def assemble_matrices_csr_arrays(local_matrices_dict : dict, matrix_pattern: dict, domain, matprops, connectivity : dict = None, renumbering : dict = None) -> dict:
+    """ function assemble_matrices_csr_arrays(local_matrices_dict,matrix_pattern,domain,matprops,connectivity,renumbering)
+    assembles the same matrices as assemble_matrices_dict(), but returns them
+    as host CSR arrays instead of device matrices: a row pointer and a column
+    array shared by every matrix, and one values array per matrix. This is the
+    form a matrix cache file stores, and csr_matrices_from_arrays() turns it
+    back into the device matrices.
+    Input:  as assemble_matrices_dict()
+    Output (dictionary):
+        npt:    the number of points; the matrices are npt x npt
+        nnz:    the number of stored entries
+        indptr: int64, shape (npt+1,), the first entry of each row
+        col:    int32, shape (nnz,), the column of every entry
+        values: a dict {matrix name: float32 array of nnz entries}
+    """
+    entries = _assemble_global_entries(local_matrices_dict, matrix_pattern, domain,
+                                       matprops, renumbering=renumbering)
+    npt     = entries['npt']
+    rows    = entries['rows']
+    cols    = entries['cols']
+    values  = entries['values']
+    if renumbering is not None:
+        # The pattern is assembled in the original numbering and sorted there,
+        # and the renumbering is then applied entry by entry: a permutation of
+        # a sorted array is not sorted, so the entries have to be put back into
+        # CSR order (by row, then by column). It is done once, here, on the run
+        # that writes the cache, so that every run that reads the file gets
+        # entries already in the order the CSR form needs and can skip the
+        # reordering that _wrap_sparse_tensor_as_csr does on the device.
+        # Without renumbering the keys are sorted already and the sort is skipped.
+        order  = np.argsort(rows * npt + cols)
+        rows   = rows[order]
+        cols   = cols[order]
+        values = {name: val[order] for name, val in values.items()}
+    indptr       = np.zeros(shape=(npt + 1,), dtype=np.int64)
+    indptr[1:]   = np.cumsum(np.bincount(rows, minlength=npt))
+    return({'npt': npt, 'nnz': int(cols.shape[0]),
+            'indptr': indptr, 'col': cols.astype(np.int32), 'values': values})
+
+
+def csr_matrices_from_arrays(arrays : dict) -> dict[CSRSparseMatrix]:
+    """ function csr_matrices_from_arrays(arrays)
+    builds the device matrices from the host CSR arrays of
+    assemble_matrices_csr_arrays() or of a matrix cache file.
+    Input:
+        arrays: a dict with npt, indptr, col and values, as described in
+                assemble_matrices_csr_arrays()
+    Output:
+        MATRICES:  a python dict with the CSRSparseMatrix storing the matrices.
+    """
+    npt         = int(arrays['npt'])
+    indptr      = np.asarray(arrays['indptr']).astype(np.int64)
+    # the CSRSparseMatrix is built from a SparseTensor, the only public route,
+    # so the row pointer is expanded back into one row index per entry
+    rows        = np.repeat(np.arange(npt, dtype=np.int64), np.diff(indptr))
+    cols        = np.asarray(arrays['col']).astype(np.int64)
+    indices     = tf.constant(np.stack([rows, cols], axis=1), dtype=tf.int64)
+    dense_shape = [npt, npt]
+    MATRICES    = {}
+    for matr_name, values in arrays['values'].items():
+        sp = tf.sparse.SparseTensor(
+            indices=indices, values=tf.constant(np.asarray(values), dtype=tf.float32),
+            dense_shape=dense_shape)
+        # the entries are in CSR order by construction, so tf.sparse.reorder is
+        # not called here: it would sort nnz entries on the device to obtain the
+        # order the arrays are already in
+        MATRICES[matr_name] = CSRSparseMatrix(sp)
     return(MATRICES)

@@ -208,6 +208,14 @@ REGISTRY = {
     # on a mesh in the mesher's own order (see HeatSolver). Output keeps the
     # mesh numbering. renumbering = 0 restores the previous numerics.
     'renumbering':                  ('int',   1,         True),
+    # gpuSolve-only, like `renumbering`: the file that caches the assembled
+    # mass and stiffness matrices. Empty (the default) means no cache, so a
+    # run that does not ask for one behaves exactly as before. A study that
+    # calls the solver many times on the same mesh with the same
+    # conductivities gives the same name to every invocation: the first writes
+    # the file and the others read it, which skips the mesh connectivity and
+    # the assembly (160 s of the 185 s of setup on a 4.0 M-node mesh).
+    'matrix_cache':                 ('str',   '',        True),
     'num_gregions':                 ('int',   1,         True),
     'num_imp_regions':              ('int',   1,         True),
     'num_stim':                     ('int',   0,         True),
@@ -559,6 +567,12 @@ class ParameterMapper:
                 'dt_per_plot': dt_per_plot,
                 'use_renumbering': self.value('renumbering') != 0,
                 'theta': self.diffusion_theta()})
+
+    def matrix_cache_file(self) -> str:
+        """ matrix_cache_file() returns the name of the matrix cache file, or
+            an empty string when no cache is asked for
+        """
+        return(self.value('matrix_cache'))
 
     def diffusion_theta(self) -> float:
         """ diffusion_theta() returns the theta of the diffusion step.
