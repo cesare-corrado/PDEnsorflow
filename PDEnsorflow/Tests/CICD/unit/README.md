@@ -268,6 +268,13 @@ its default is ENDO rather than EPI, and its modifiers scale base conductances
 that do not depend on the cell type at all. `meshformat` is accepted and
 reported as not acted upon.
 
+A **cell-model alias** (`Tomek19`, a fork of the other simulator's `.model`
+file that exposes the base conductances and drug-block factors this Tomek
+already carries) selects the model it names, keeps that model's cell types
+(ENDO by default, `flags=` still validated), resolves an `im_param` written for
+the fork without translation, and is reported in the run banner. An unknown
+model names the accepted aliases as well as the models.
+
 The **`num_LATs` / `lats[]` family** turns into one `LatDetector` config per
 entry: the defaults are the reference's (method 1, threshold -10 mV, upstroke,
 every activation), `LAT_ID[0]` names an entry that carries no `ID` of its own,
@@ -387,6 +394,13 @@ entries of the reference's state structure in its order, with its
 single-precision gates; the expected orders are copied from its generated
 headers. Every state variable of every model and plugin appears in its layout
 exactly once, and every parameter entry exists. Malformed files are refused.
+
+**Model aliases** (`IONIC_MODEL_ALIASES`) are checked here too, because they
+only work if the two names really are one model: every alias must target a
+provided model, must not shadow one, and must share its state list. A file
+written under the alias heads its section with the alias and is read back under
+it, while the canonical name refuses it, which is the interchange the alias
+exists for.
 
 ### `test_singlecell_run.py` &mdash; the `singlecell` executable end to end
 Short runs of `main()` on `MitchellSchaeffer` with the reference's parameters
