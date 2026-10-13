@@ -258,7 +258,10 @@ class HeatSolver:
             t_const = tf.constant(ctime, dtype=tf.float32)
             for _name, stim in self._StimulusDict.items():
                 if stim.stimulate_tissue_timevalue(t_const):
-                    I0 = tf.add(I0, stim())
+                    # the stimulus is called with the time, so that a shaped
+                    # pulse is scaled by its waveform at this step; a square
+                    # pulse ignores the argument and is unchanged by it
+                    I0 = tf.add(I0, stim(ctime))
         return I0
 
     def step(self, t: float) -> tf.Variable:

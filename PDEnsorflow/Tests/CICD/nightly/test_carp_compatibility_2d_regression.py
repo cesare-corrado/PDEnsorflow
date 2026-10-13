@@ -63,6 +63,16 @@ _VMIN      = -80.0
 _VMAX      = 20.0
 _VTH       = -30.0                                # activation threshold, rising edge
 _XFRAC     = 0.05                                 # paced strip: the first 5% of the sheet in x
+# Where the front is propagating rather than being driven: twice the paced
+# strip. Inside the strip, and within a few elements of its edge, the
+# activation time is set by the pulse and by the current sink the unpaced
+# tissue next to it presents, not by propagation, so the activation time is
+# not monotone in x there. With a square pulse the whole strip crossed the
+# threshold during the pulse and the question did not arise; with the pulse
+# shape the format asks for, the strip crosses it after the pulse has ended,
+# on its own regenerative upstroke, and the two columns either side of the
+# edge activate 0.03 ms out of order.
+_MONO_LO   = 0.10
 _INT_LO    = 0.4                                  # sheet interior for the LAT fit: [0.4, 0.8] * Lx
 _INT_HI    = 0.8
 _CV_TOL    = 0.10                                 # relative tolerance on conduction velocity
@@ -199,7 +209,8 @@ def sheet_run(_graph_mode, data_dir, tmp_path_factory) -> dict:
 def test_carp_front_end_front_propagates(sheet_run):
     """The run completes, the potential stays physical and the planar front is
     unidirectional: the mean activation time per x-column increases along the
-    sheet (a per-node check does not apply, since many nodes share each x)."""
+    sheet, over the part of it the front propagates through (a per-node check
+    does not apply, since many nodes share each x)."""
     assert sheet_run['status'] == 0
     V = sheet_run['V']
     assert np.all(np.isfinite(V))
@@ -209,6 +220,7 @@ def test_carp_front_end_front_propagates(sheet_run):
 
     xcoord, lat = sheet_run['x'], sheet_run['lat']
     columns = np.unique(np.round(xcoord, 3))
+    columns = columns[columns >= _MONO_LO * sheet_run['Lx']]
     means   = []
     for xval in columns:
         here = np.isclose(xcoord, xval) & np.isfinite(lat)

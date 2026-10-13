@@ -68,6 +68,13 @@ Two things differ from that script, both because of the format:
   `pulse.strength = 60` for 2 ms. A transmembrane stimulus needs no unit
   conversion: it is added to `dV/dt` in mV/ms, which is what the strength of a
   `crct.type = 0` electrode already means.
+* **Pulse shape.** The format defaults `stim[].pulse.shape` to the truncated
+  exponential, so that is the pulse the front end applies: it rises with
+  `tau_edge`, creeps down with `tau_plateau` over its plateau, and falls back
+  over the last `5 tau_edge` of its duration, which costs about 2.6% of the
+  charge a square pulse of the same strength and duration would deliver. The
+  `Stimulus` class defaults to the square pulse instead, so `equivalent_script.py`
+  has to ask for `'shape': 'truncexp'` to stay equivalent.
 
 One **LAT detector** is asked for as well (`num_LATs = 1`): the first crossing
 of -30 mV on the upstroke of every node, written as
@@ -95,7 +102,7 @@ Measured on this mesh, `check_result.py` reports:
 
 ```
 front end : 251 frames x 63001 nodes
-            V in [-81.082, 29.063] mV, all finite: True
+            V in [-81.082, 22.880] mV, all finite: True
 CV measured:  47.199 um/ms (4.72 cm/s)
 CV analytic:  46.188 um/ms (4.62 cm/s)
 rel. error : 2.19%
