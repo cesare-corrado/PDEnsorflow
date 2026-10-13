@@ -113,9 +113,31 @@ that the monitoring does not perturb the solution.
 
 The detector costs time, measured on this example (2500 steps, 63001 nodes,
 RTX A2000): 51.1 and 51.9 s in the time loop against 41.1 s with the same file
-and `-lats[0].method 0`, about 4 ms per step. That is the price of asking for
-activation times on a mesh this size, and it buys a monitor that sees every step
-rather than every tenth one.
+and `-lats[0].method 0`, about 4 ms per step.
+
+Where that time goes was measured, and the first answer was wrong. The guess
+that the per-step read-back of the activation count is the cost is false:
+deferring it (`set_use_deferred_count(True)`) made this run **slower**, 55.8 and
+56.0 s, and it was slower at every mesh size tried later. Running the step as
+one compiled graph (`set_use_graph_check(True)`) writes a **byte-identical**
+activation file and roughly halves what the detector costs per step, but that
+was not visible here: on the shared RTX A2000 of this workstation the same
+comparison gave 51.3 and 51.1 s against 50.8 and 50.3 s, i.e. nothing, because
+another process was holding the card at 99% while it ran.
+
+Repeated on an **idle** RTX 5090, the detector cost per step (loop time minus
+the signal-generation baseline) is:
+
+| nodes | `all = 0` eager | `all = 0` graph | `all = 1` eager | `all = 1` graph |
+|------:|----------------:|----------------:|----------------:|----------------:|
+| 63 001 | 955 us | 456 us | 1138 us | 632 us |
+| 1 000 000 | 1418 us | 625 us | 1619 us | 800 us |
+| 4 000 000 | 2235 us | 1085 us | 2480 us | 1290 us |
+
+So the compiled step is worth about a factor two at every size, and the figures
+quoted from this workstation were contention, not physics.
+`Tests/DEVTESTS/LAT/lat_detector_scaling.py` reproduces the table; it needs an
+idle GPU.
 
 Frame k holds the solution at t = k ms (k = 0 ... 250). The diffusion step is
 Crank-Nicolson (`parab_solve = 1`, `theta = 0.5`, the defaults). With implicit

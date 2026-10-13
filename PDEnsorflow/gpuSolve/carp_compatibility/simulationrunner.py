@@ -561,6 +561,17 @@ class SimulationRunner:
             # its dt must be the step actually taken, not the key it was
             # derived from
             config['dt'] = model.dt()
+            # one compiled graph per step instead of about fifteen eager
+            # operations: it detects the same activations to the bit and halves
+            # what the detection costs per step on an idle GPU, measured from
+            # 63k to 4M nodes (Tests/DEVTESTS/LAT/lat_detector_scaling.py). A
+            # run driven by a parameter file is never short enough for the one
+            # trace, built in init() below, to matter.
+            config['use_graph_check'] = True
+            # the deferred count would fit here too, since the loop ignores
+            # what check() returns, and it is deliberately NOT set: it measured
+            # slower at every mesh size, because the per-step read-back also
+            # paces the eager queue
             detector = LatDetector(config)
             detector.init(model.U())
             self._lats.append(detector)
