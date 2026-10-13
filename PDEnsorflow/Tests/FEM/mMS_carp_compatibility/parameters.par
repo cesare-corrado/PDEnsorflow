@@ -51,3 +51,18 @@ stim[0].ptcl.duration  = 2.0
 stim[0].ptcl.npls      = 1
 stim[0].elec.p0[0]     = 0.0
 stim[0].elec.p1[0]     = 500.0
+
+#-------------------------------------------------- local activation times (LAT)
+# One detector on Vm: the first threshold crossing of every node, written as
+# OUT_mMS/init_acts_vm_act.dat (one time per node, -1 where a node never
+# activated). It sees every time step, not only the recorded frames, so
+# check_result.py gets the front speed from it to a finer time resolution than
+# the 1 ms spacedt allows.
+num_LATs = 1
+lats[0].ID        = "vm_act"
+lats[0].measurand = 0            # Vm; 1 (Phie) needs an extracellular solve
+lats[0].method    = 1            # instant of threshold crossing
+lats[0].mode      = 0            # upstroke
+lats[0].threshold = -30.0        # mid-upstroke of the [-80, 20] band
+lats[0].all       = 0            # first activation of each node only
+lats[0].start     = 0.0

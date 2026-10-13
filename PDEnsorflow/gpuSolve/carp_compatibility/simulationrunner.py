@@ -20,6 +20,7 @@ from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
 from gpuSolve.physics import no_mass_property
 from gpuSolve.physics import Prepacer
+from gpuSolve.physics import LatDetector
 from gpuSolve.ionic.ionicmodelwithplugins import IonicModelWithPlugins
 from gpuSolve.IO.readers import VtxReader
 from gpuSolve.IO.readers import StateReader
@@ -61,6 +62,7 @@ class SimulationRunner:
         self._savestate : dict       = None
         self._chkpt_index : int      = 0
         self._next_chkpt : float     = None
+        self._lats : list            = None
 
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -83,6 +85,13 @@ class SimulationRunner:
     def outdir(self) -> str:
         """ outdir() returns the output directory of the run """
         return(self._outdir)
+
+    def lat_detectors(self) -> list:
+        """ lat_detectors() returns the LatDetector list the parameters asked
+            for; empty when no num_LATs / lats[] entry is actuated, None before
+            build()
+        """
+        return(self._lats)
 
     def elapsed(self) -> float:
         """ elapsed() returns the wall-clock duration of the time loop in seconds """
@@ -116,6 +125,7 @@ class SimulationRunner:
             self.__prepace()
             self.__restore_state()
             self.__open_output()
+            self.__add_lat_detectors()
             self.__schedule_saves()
             self._model.finalize_for_run()
         except Exception as err:
@@ -151,6 +161,15 @@ class SimulationRunner:
             for istep in range(self._first_step, model.nt()):
                 ctime += model.dt()
                 model.step(ctime)
+                if len(self._lats) > 0:
+                    # the potential is fetched once and shared: every detector
+                    # sees the same step, and the fetch is skipped entirely
+                    # when no activation monitoring was asked for. What
+                    # check() returns is deliberately not read: the file at the
+                    # end of the run is what the parameters asked for
+                    potential = model.U()
+                    for detector in self._lats:
+                        detector.check(potential, ctime)
                 if (istep + 1) % model.dt_per_plot() == 0:
                     self._writer.imshow(model.U())
                     frames += 1
@@ -164,6 +183,7 @@ class SimulationRunner:
             if self._verbose:
                 model.solver().summary()
                 print('solution, elapsed: {:f} sec'.format(self._elapsed), flush=True)
+            self.__write_lats()
             self._writer.wait()
             self._writer = None
         except Exception as err:
@@ -523,6 +543,36 @@ class SimulationRunner:
             raise ValueError('stimulus "{}" selects no node: the box {} to {} lies outside '
                              'the mesh'.format(name, list(lower), list(upper)))
         return(mask)
+
+    def __add_lat_detectors(self):
+        """ builds one LatDetector per actuated lats[] entry and seeds it with
+            the initial potential, so the first step cannot read a stale
+            previous signal and report an activation that never happened.
+
+            The detectors are fed the potential in the mesh numbering
+            (MonodomainSolver.U(), not the internal solver order), so the node
+            indices they write are the ones the input mesh uses.
+        """
+        model      = self._model
+        self._lats = []
+        for config in self._mapper.lat_detectors():
+            # dt comes from the solver rather than from the parameters: the
+            # detector interpolates the activation instant inside a step, so
+            # its dt must be the step actually taken, not the key it was
+            # derived from
+            config['dt'] = model.dt()
+            detector = LatDetector(config)
+            detector.init(model.U())
+            self._lats.append(detector)
+
+    def __write_lats(self):
+        """ writes the activation file of every detector into the output
+            directory, once the time loop has finished
+        """
+        for detector in self._lats:
+            fname = detector.write(self._outdir)
+            if self._verbose:
+                print('activations written to {}'.format(fname), flush=True)
 
     def __open_output(self):
         """ creates the output directory and the IGB writer, and exports the

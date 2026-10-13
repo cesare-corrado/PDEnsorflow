@@ -257,8 +257,16 @@ without cell types is refused), and `GKr` / `GKs` modifiers scale the default of
 that cell type, also when a per-node value is pushed before the model is
 initialised. Tomek is the counter-case that keeps the two model families apart:
 its default is ENDO rather than EPI, and its modifiers scale base conductances
-that do not depend on the cell type at all. `meshformat`
-and the `lats[]` keys are accepted and reported as not acted upon.
+that do not depend on the cell type at all. `meshformat` is accepted and
+reported as not acted upon.
+
+The **`num_LATs` / `lats[]` family** turns into one `LatDetector` config per
+entry: the defaults are the reference's (method 1, threshold -10 mV, upstroke,
+every activation), `LAT_ID[0]` names an entry that carries no `ID` of its own,
+and a member outside the values the format defines is refused. Two kinds of
+entry are dropped with a note instead of being run, as the reference drops
+them: `measurand = 1` (Phie needs the extracellular solve this front end does
+not do) and `method <= 0` (the format's own switch for an inert entry).
 
 ### `test_carp_compatibility_run.py` &mdash; the front end end to end
 One short run of `main()` on a 5 mm cable written as `.pts` / `.elem` / `.lon`
@@ -268,6 +276,14 @@ IGB header matches the frames actually recorded, that the potential stays finite
 and inside the model's band, and that the activation front travels in one
 direction. The quantitative conduction-velocity check lives with the example in
 `Tests/FEM/mMS_carp_compatibility`, where the mesh resolves the front.
+
+The same run asks for **three LAT detectors**, which covers the file layouts of
+`num_LATs` / `lats[]` end to end: `all = 0` writes one first-activation time per
+node as `init_acts_<ID>.dat` (`-1` where a node never activated), `all = 1`
+writes the node/time table `<ID>.dat`, and the `measurand = 1` entry writes
+nothing. The times are checked against the recorded frames: a detector sees
+every step, so its time for a node must fall inside the frame interval in which
+that node crossed the threshold.
 
 Also covers the **vertex-file electrode**: a short run whose `elec.vtx_file`
 names five nodes must depolarise exactly those and leave the far end at rest
