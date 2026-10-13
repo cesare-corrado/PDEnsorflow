@@ -20,10 +20,12 @@ import pytest
 from gpuSolve.IO.readers.svfilereader import SvFileReader
 from gpuSolve.IO.writers.svfilewriter import SvFileWriter
 from gpuSolve.carp_compatibility.parametermapper import IONIC_MODELS
+from gpuSolve.carp_compatibility.parametermapper import IONIC_MODEL_ALIASES
 from gpuSolve.carp_compatibility.parametermapper import IONIC_PLUGINS
 from gpuSolve.carp_compatibility.svlayouts import SV_LAYOUTS
 from gpuSolve.carp_compatibility.svlayouts import IMP_DATA_NAMES
 from gpuSolve.carp_compatibility.svlayouts import sv_layout
+from gpuSolve.carp_compatibility.svstatefile import SvStateFile
 from gpuSolve.ionic.ms2v import MitchellSchaeffer2v
 from gpuSolve.ionic.mms2v import ModifiedMS2v
 
@@ -163,3 +165,57 @@ def test_plugin_layouts(name):
     assert section == name
     states = [entry[2] for entry in entries if entry[1] == 'state']
     assert sorted(states) == sorted(plugin.state_variable_names())
+
+
+# ---- model aliases ---------------------------------------------------------
+def test_an_alias_heads_its_own_section():
+    """A state file is headed by the name of the model that wrote it, so a file
+    from a fork named Tomek19 heads its section Tomek19 while holding the
+    entries of Tomek. Selecting the model by that alias must therefore expect
+    that header, and selecting it by its own name must not."""
+    model = _instance('Tomek')
+    section, entries = sv_layout(model, 'Tomek19')
+    assert section == 'Tomek19'
+    assert entries == SV_LAYOUTS['Tomek'][1]
+    # the canonical name keeps the table's section
+    assert sv_layout(model, 'Tomek')[0] == 'Tomek'
+    # and a name that is not an alias of THIS model does not rename it: `mMS`
+    # selects another class, whose own section must stay its own
+    assert sv_layout(model, 'mMS')[0] == 'Tomek'
+
+
+def test_every_alias_targets_a_provided_model_with_the_same_states():
+    """An alias says two names are one model. If the target were missing, or
+    the state lists differed, the file would pass the section check and fail on
+    the entry list, which is a worse error than refusing the alias outright."""
+    for alias, target in IONIC_MODEL_ALIASES.items():
+        assert target in IONIC_MODELS, alias
+        assert alias not in IONIC_MODELS, '{} would shadow a model'.format(alias)
+        model = _instance(target)
+        assert sv_layout(model, alias) == (alias, SV_LAYOUTS[type(model).__name__][1])
+
+
+def test_a_file_written_under_an_alias_is_read_back_under_it(tmp_path):
+    """The round trip the alias exists for: a file whose section is the fork's
+    name is read when the run selects that name, and refused when it selects
+    the canonical one, because then the run is a different model as far as the
+    file is concerned."""
+    model = _instance('Tomek')
+    svfile = SvStateFile({'model': model, 'imp_name': 'Tomek19'})
+    section, entries, prefix = svfile.sections()[0]
+    assert section == 'Tomek19'
+    values = [(entry[0], 0.25) for entry in entries]
+    fname  = os.path.join(str(tmp_path), 'tomek19.sv')
+    writer = SvFileWriter({'fname': fname})
+    writer.write([(gname, -65.0 if gname == 'Vm' else None) for gname in IMP_DATA_NAMES],
+                 [(section, values)])
+
+    read_back = SvStateFile({'model': _instance('Tomek'), 'imp_name': 'Tomek19'})
+    read_back.read(fname)
+    assert read_back.Vm() == pytest.approx(-65.0)
+    assert len(read_back.states()) == len(entries)
+    assert read_back.mismatches() == []
+
+    as_tomek = SvStateFile({'model': _instance('Tomek'), 'imp_name': 'Tomek'})
+    with pytest.raises(ValueError, match='the state file holds Tomek19'):
+        as_tomek.read(fname)

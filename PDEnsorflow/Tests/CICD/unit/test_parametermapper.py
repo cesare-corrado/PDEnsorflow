@@ -39,6 +39,7 @@ from gpuSolve.carp_compatibility.parametermapper import apply_param_mod
 from gpuSolve.force_terms import Stimulus
 from gpuSolve.ionic.mms2v import ModifiedMS2v
 from gpuSolve.ionic.ms2v import MitchellSchaeffer2v
+from gpuSolve.ionic.tomek import Tomek
 
 _TAGS = {1, 2, 3}
 
@@ -593,3 +594,53 @@ def test_tomek_mixed_cell_types_travel_as_a_map():
     model = mapper.ionic_model_class()(dt=0.01, **mapper.ionic_model_options())
     maps  = mapper.ionic_parameter_maps(model, {1, 2})
     assert maps['celltype'] == {1: 0.0, 2: 1.0}
+
+
+# ---- cell-model aliases ----------------------------------------------------
+def test_an_alias_selects_the_model_it_names():
+    """An installation of the other simulator may carry a fork of a `.model`
+    file whose only change is to expose parameters this library's class already
+    has. `Tomek19` is that fork of Tomek, so a file naming it must run Tomek
+    rather than stop on an unknown model, and the substitution must be
+    reported."""
+    mapper = _mapper(['-imp_region[0].im', 'Tomek19'])
+    assert mapper.ionic_model_name() == 'Tomek19'        # what the input said
+    assert mapper.ionic_model_class() is Tomek           # what runs
+    assert any('Tomek19 is provided by this library' in note for note in mapper.notes())
+
+
+def test_an_alias_keeps_the_cell_types_of_its_target():
+    """The cell-type tables are keyed by the canonical name, so an alias must
+    reach them: Tomek defaults to ENDO, not to the EPI of
+    tenTusscherPanfilov, and `flags=` must still be validated."""
+    assert _mapper(['-imp_region[0].im', 'Tomek19']).ionic_model_options() == {'cell_type': 'ENDO'}
+    assert _mapper(['-imp_region[0].im', 'Tomek19',
+                    '-imp_region[0].im_param', 'flags=EPI']).ionic_model_options() == {
+                        'cell_type': 'EPI'}
+    with pytest.raises(ValueError, match='not a cell type of Tomek19'):
+        _mapper(['-imp_region[0].im', 'Tomek19',
+                 '-imp_region[0].im_param', 'flags=NOSUCH']).ionic_model_options()
+
+
+def test_the_parameters_the_fork_exposes_are_the_ones_the_class_carries():
+    """The alias is only admissible because the two are one model: every
+    parameter `Tomek19` exposes exists on this Tomek, so an im_param written
+    for the fork resolves without translation."""
+    exposed = ('GNa', 'GNaL_b', 'GK1_b', 'GKr_b', 'GKs_b', 'Gto_b', 'PCa_b',
+               'CoefGNa', 'CoefGNaL', 'CoefK1', 'CoefKr', 'CoefKs', 'Coefto', 'CoefCaL')
+    model = Tomek(dt=0.01)
+    model.set_use_rush_larsen(False)          # the step matrix is slow and not the subject
+    for name in exposed:
+        assert model.get_parameter(name) is not None, name
+    mapper = _mapper(['-imp_region[0].im', 'Tomek19',
+                      '-imp_region[0].im_param', 'GKr_b*0.6,CoefKr*0.1'])
+    maps = mapper.ionic_parameter_maps(model, {1})
+    assert maps['GKr_b'][1] == pytest.approx(0.6 * float(model.get_parameter('GKr_b')))
+    assert maps['CoefKr'][1] == pytest.approx(0.1)
+
+
+def test_an_unknown_model_names_the_aliases_too():
+    """The message a typo produces must list what is accepted, aliases
+    included, or the reader cannot tell why their name was refused."""
+    with pytest.raises(ValueError, match='Tomek19 as Tomek'):
+        _mapper(['-imp_region[0].im', 'Tomek20']).ionic_model_class()

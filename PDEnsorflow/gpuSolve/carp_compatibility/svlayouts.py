@@ -63,6 +63,9 @@ IMP_DATA_NAMES = ('Vm', 'Lambda', 'delLambda', 'Tension', 'Ke', 'Nae', 'Cae', 'I
                   'tension_component', 'illum')
 
 # Cai: uM in the reference files, mM in gpuSolve
+from gpuSolve.carp_compatibility.parametermapper import IONIC_MODELS
+from gpuSolve.carp_compatibility.parametermapper import IONIC_MODEL_ALIASES
+
 _UM_PER_MM : float = 1.0e3
 
 
@@ -129,9 +132,36 @@ def sv_layout(model, section_name: str) -> tuple:
         cell model or a plugin (the object, not its wrapper). A class with no
         counterpart in the reference gets its own state variables, under
         section_name, the name the run selected it by.
+
+        When the run selected the model by an alias (IONIC_MODEL_ALIASES), the
+        section takes the alias instead of the table's name. A state file is
+        headed by the name of the model that wrote it, so a file from a fork
+        called Tomek19 heads its section Tomek19, and SvStateFile.read()
+        refuses a section it did not expect. Writing follows the same rule, so
+        a file this front end writes under the alias is read back by the other
+        simulator. The entries are the table's either way: an alias is only
+        admissible for a model with the same state variables, which is what
+        makes the two files interchangeable in the first place.
     """
     classname = type(model).__name__
     if classname in SV_LAYOUTS:
-        return(SV_LAYOUTS[classname])
+        name, entries = SV_LAYOUTS[classname]
+        if _is_alias_of(section_name, model):
+            return((section_name, entries))
+        return((name, entries))
     return((section_name, [(name, 'state', name, 1.0, False)
                            for name in model.state_variable_names()]))
+
+
+def _is_alias_of(section_name: str, model) -> bool:
+    """ _is_alias_of(section_name, model) says whether section_name is a
+        registered alias that selects exactly this model's class. The target is
+        resolved through IONIC_MODELS rather than compared with the class name,
+        because the name a file uses need not be the class name (`mMS` selects
+        ModifiedMS2v, whose section is legitimately MitchellSchaeffer and must
+        not be renamed by a `mMS` selection).
+    """
+    target = IONIC_MODEL_ALIASES.get(section_name)
+    if target is None:
+        return(False)
+    return(IONIC_MODELS.get(target) is type(model))

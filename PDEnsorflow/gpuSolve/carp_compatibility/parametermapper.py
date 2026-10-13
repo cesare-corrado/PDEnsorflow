@@ -92,6 +92,35 @@ IONIC_MODELS = {'mMS': ModifiedMS2v,
                 'Tomek': Tomek,
                 'Fenton': Fenton4v}
 
+# Names the reference accepts for a model this library already provides under
+# another name, as {name in the input: name in IONIC_MODELS}. An installation
+# of the other simulator may carry a fork of a `.model` file whose only change
+# is to expose parameters the gpuSolve class already has, and every file of
+# that study then names the fork; reading them must not mean editing them.
+#
+# An alias is only admissible when the two really are the same model: the same
+# state variables in the same order, and parameters with the same names and the
+# same meaning. A fork that changes the equations needs its own class, because
+# an alias for it would silently run different physics (see
+# ParameterMapper.__collect_notes, which reports every substitution in the run
+# banner so that it is never silent).
+#
+# Tomek19: a fork that exposes the base conductances and the drug coefficients
+# as parameters (GNa, GNaL_b, GK1_b, GKr_b, GKs_b, Gto_b, PCa_b, CoefGNa,
+# CoefGNaL, CoefK1, CoefKr, CoefKs, Coefto, CoefCaL), where the reference
+# Tomek exposes only the cell type. gpuSolve's Tomek carries exactly those
+# parameters, with the same names and the same defaults, and the same
+# Coef x cell-type factor x base product, so the two are one model.
+IONIC_MODEL_ALIASES = {'Tomek19': 'Tomek'}
+
+
+def canonical_model_name(name: str) -> str:
+    """ canonical_model_name(name) returns the name IONIC_MODELS knows a cell
+        model by: the name itself, or what IONIC_MODEL_ALIASES maps it to
+    """
+    return(IONIC_MODEL_ALIASES.get(name, name))
+
+
 # Cell types a model can be switched to with the `flags=<TYPE>` item of
 # im_param, by model name. The reference re-initialises the model parameters
 # for the flag BEFORE it applies the other modifiers, so `GKs*1.5,flags=ENDO`
@@ -711,12 +740,15 @@ class ParameterMapper:
             modified variant as soon as any region gives it a non-zero a_crit,
             which is exactly what that parameter means.
         """
-        name = self.ionic_model_name()
+        name = canonical_model_name(self.ionic_model_name())
         if len(name) == 0:
             return(None)
         if name not in IONIC_MODELS:
-            raise ValueError('unknown cell model "{}"; this front end provides {}'.format(
-                name, ', '.join(sorted(IONIC_MODELS.keys()))))
+            raise ValueError('unknown cell model "{}"; this front end provides {}, and '
+                             'accepts {}'.format(
+                                 name, ', '.join(sorted(IONIC_MODELS.keys())),
+                                 ', '.join('{} as {}'.format(alias, target) for alias, target
+                                           in sorted(IONIC_MODEL_ALIASES.items()))))
         if IONIC_MODELS[name] is not None:
             return(IONIC_MODELS[name])
         modified = False
@@ -747,7 +779,7 @@ class ParameterMapper:
         types, requested = self.__region_cell_types()
         if types is None:
             return({})
-        name = self.ionic_model_name()
+        name = canonical_model_name(self.ionic_model_name())
         distinct = set(requested.values())
         if len(distinct) == 1:
             return({'cell_type': distinct.pop()})
@@ -804,8 +836,11 @@ class ParameterMapper:
             model; types is None, and the dict empty, for a model without cell
             types. Validates the flags items.
         """
-        name = self.ionic_model_name()
-        types = IONIC_CELL_TYPES.get(name)
+        # the tables are keyed by the canonical name, while the messages keep
+        # the name the input used: a reader looking for "Tomek19" in the error
+        # must find the word they wrote
+        name  = self.ionic_model_name()
+        types = IONIC_CELL_TYPES.get(canonical_model_name(name))
         requested : dict = {}
         for index in range(self.count('imp_region')):
             if len(self.value('imp_region[{}].im'.format(index)).strip()) == 0:
@@ -818,7 +853,7 @@ class ParameterMapper:
                                          index, flag, name))
                 continue
             if len(flag) == 0:
-                flag = DEFAULT_CELL_TYPE[name]
+                flag = DEFAULT_CELL_TYPE[canonical_model_name(name)]
             if flag not in types:
                 # a "|"-separated list lands here too: a node has exactly one
                 # cell type, so a combination has no meaning
@@ -1200,6 +1235,16 @@ class ParameterMapper:
             if tsav is not None and tsav > self.value('tend'):
                 self.__notes.append('tsav[{}] = {} is after tend = {}: that state is never '
                                     'saved'.format(index, tsav, self.value('tend')))
+        selected = self.ionic_model_name()
+        if selected in IONIC_MODEL_ALIASES:
+            # the substitution is never silent: a reader who wrote the fork's
+            # name must be told which class ran, and that the parameters they
+            # tune are the ones it carries
+            target = IONIC_MODEL_ALIASES[selected]
+            self.__notes.append('imp_region[].im = {} is provided by this library\'s {}: the '
+                                'same state variables and the same exposed parameters, so a '
+                                '{} state file is read and written as '
+                                'one'.format(selected, target, selected))
         if any(key.startswith('stimulus[') for key in self.__store):
             self.__notes.append('legacy stimulus[] keys: the reference shapes every legacy pulse '
                                 'as a truncated exponential (tau_edge, tau_plateau); gpuSolve '
