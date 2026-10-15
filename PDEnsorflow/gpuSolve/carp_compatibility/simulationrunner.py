@@ -276,6 +276,9 @@ class SimulationRunner:
                   for name, values in checkpoint['state_variables'].items()}
         region_of_node = np.reshape(np.asarray(self._model.domain().point_region_ids()), (-1,))
         for entry in entries:
+            # entry['tags'] are node region IDs, not element tags: the mapper
+            # has already resolved them through the nodal map, so imp_region[0]
+            # carries the ID of the nodes no other region claims
             nodes = np.where(np.isin(region_of_node, entry['tags']))[0]
             if nodes.size == 0:
                 # the tags exist in the element list, but every node they touch
@@ -351,6 +354,14 @@ class SimulationRunner:
             model a node runs is the one the reference would give it. A node no
             region claims keeps the no-region sentinel and takes imp_region[0],
             as it does there.
+            The array holds a TAG (or the sentinel), not the index of the region
+            that owns it; ParameterMapper.tag_to_entry() is what turns one into
+            the other, and everything that needs the region must go through it.
+            One consumer deliberately does not: the prepacer partitions nodes by
+            the raw value, so a region claiming two tags is paced as two cells
+            rather than one. That is a finer partition of the same regions, and
+            the cell parameters are equal inside each part, so the state it
+            distributes is the same; it just does more work than the reference.
         """
         domain = self._model.domain()
         domain.set_regionIDrule('carp_compatibility')

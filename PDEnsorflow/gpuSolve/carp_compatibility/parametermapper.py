@@ -156,6 +156,13 @@ IM_PARAM_FLAGS : str = 'flags='
 # that resolves a 'region' property node by node raises on such a node.
 NODAL_DEFAULT_TAG : int = -1
 
+# The value an `ID[j]` slot holds when the counter num_IDs promises it but the
+# file never assigns it. It is the registry default of imp_region[].ID[], and
+# the same value the reference leaves there before it warns about it. It is
+# numerically NODAL_DEFAULT_TAG, which is why region_tags() drops it: the two
+# mean entirely different things and must never meet in one tag list.
+UNSET_REGION_ID : int = -1
+
 # Ionic plugins for imp_region[].plugins, by the name the parameter file uses.
 IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKrassowska98,
                  'Defib_AshiharaTrayanova':             DefibAshiharaTrayanova}
@@ -680,46 +687,88 @@ class ParameterMapper:
 
     def region_tags(self, prefix: str, index: int) -> list:
         """ region_tags(prefix, index) returns the element tags claimed by one
-            entry. An empty list means the entry claims every tag implicitly.
+            entry. An empty list means the entry claims nothing.
+            That is not the same as governing nothing: entry 0 is the default
+            region and governs every tag no other entry claims, whether it
+            lists IDs or not (see tag_to_entry).
             Both spellings are accepted: the aggregate `ID = 1:3,7` and the
             indexed `ID[0] = 1` with its num_IDs counter.
+            A slot inside the count that the file never assigns holds
+            UNSET_REGION_ID and is reported and dropped, as the reference
+            reports it ("not all %u IDs provided"). It must not survive as a
+            tag: on the nodal path the same value is the ID of a node no region
+            reaches, so an entry claiming it would take over the whole default
+            region. Nothing legitimate is lost, because an element tag that
+            reaches the nodal assignment is never negative (point_region_ids
+            refuses the mesh outright).
         """
         aggregate = self.__store.get('{}[{}].ID'.format(prefix, index))
         if aggregate is not None:
-            return(expand_idset(aggregate))
-        tags : list = []
-        nid = self.value('{}[{}].num_IDs'.format(prefix, index))
-        if nid > 0:
-            for jid in range(nid):
-                tags.append(self.value('{}[{}].ID[{}]'.format(prefix, index, jid)))
+            tags = expand_idset(aggregate)
         else:
-            # no counter given: take the indexed entries that are actually there
-            jid = 0
-            while '{}[{}].ID[{}]'.format(prefix, index, jid) in self.__store:
-                tags.append(self.value('{}[{}].ID[{}]'.format(prefix, index, jid)))
-                jid += 1
+            tags = [self.value('{}[{}].ID[{}]'.format(prefix, index, jid))
+                    for jid in range(self.__id_count(prefix, index))]
+        if UNSET_REGION_ID in tags:
+            self.__note_once('{}[{}] claims {} ID(s) but not all of them are given: the '
+                             'missing one(s) claim no tag'.format(prefix, index, len(tags)))
+            tags = [tag for tag in tags if tag != UNSET_REGION_ID]
         return(tags)
 
     def tag_to_entry(self, prefix: str, tags: set) -> dict:
-        """ tag_to_entry(prefix, tags) maps each mesh tag to the index of the
-            entry that governs it. An entry that lists no tag claims all of them
-            implicitly, an explicit claim overrides an implicit one, and a tag
-            claimed by nobody is absent from the map so the caller falls back to
-            the documented defaults. A tag claimed by an entry but missing from
-            the mesh is reported and otherwise ignored.
+        """ tag_to_entry(prefix, tags) maps each tag to the index of the entry
+            that governs it, as the reference's region_mask() does:
+              * entry 0 is the implicit default. It claims nothing of its own,
+                and the IDs it may list do not compete, because the reference
+                builds the tag-to-region map over the entries 1..n only
+                (physics/ionics.cc:415, and the comment at line 355, "region 0
+                is the implicit default").
+              * an entry from 1 onwards claims exactly the tags it lists;
+              * a tag two entries claim goes to the one with the HIGHER index,
+                which is where the reference's map ends up after it has walked
+                the entries in order;
+              * every other tag belongs to entry 0, the value the reference
+                initialises its whole region array with (ionics.cc:410). Such a
+                tag therefore takes entry 0's parameters, not the library
+                defaults: there is always a default region.
+            Three things are reported and otherwise left alone, the same three
+            the reference warns about: a tag an entry claims but the mesh does
+            not carry, a tag claimed twice, and the tags that fall to entry 0.
         """
-        assignment : dict = {}
-        for index in range(self.count(prefix)):
-            if len(self.region_tags(prefix, index)) == 0:
-                for tag in tags:
-                    assignment[tag] = index
+        if self.count(prefix) == 0:
+            # the file mentions no entry of this family at all, so there is no
+            # default region to fall back on and the caller uses the documented
+            # defaults. The reference always has one entry (num_gregions and
+            # num_imp_regions both default to 1), so it has no such case.
+            return({})
+        assignment : dict = {tag: 0 for tag in tags}
+        claimed : dict    = {}
         for index in range(self.count(prefix)):
             for tag in self.region_tags(prefix, index):
-                if tag in tags:
-                    assignment[tag] = index
-                else:
-                    self.__notes.append('region tag {} in {}[{}] is not in the '
-                                        'element list'.format(tag, prefix, index))
+                if tag not in tags:
+                    self.__note_once('region tag {} in {}[{}] is not in the '
+                                     'element list'.format(tag, prefix, index))
+                    continue
+                if index == 0:
+                    # listed on the default entry, which does not compete: the
+                    # tag is entry 0's anyway unless another entry claims it
+                    continue
+                if tag in claimed:
+                    self.__note_once('region tag {} is claimed by both {}[{}] and {}[{}]: the '
+                                     'entry with the higher index governs it'.format(
+                                         tag, prefix, claimed[tag], prefix, index))
+                claimed[tag] = index
+                assignment[tag] = index
+        if self.count(prefix) > 1:
+            # with a single entry every tag is the default one's by definition,
+            # and the reference does not build the map at all, so it says
+            # nothing either. NODAL_DEFAULT_TAG is not a mesh tag and is left
+            # out: on the nodal path it stands for the nodes no region reaches.
+            defaulted = sorted(tag for tag, owner in assignment.items()
+                               if owner == 0 and tag != NODAL_DEFAULT_TAG)
+            if len(defaulted) > 0:
+                self.__note_once('tag(s) {} are claimed by no {} other than the default one: '
+                                 'they take {}[0]'.format(
+                                     ', '.join(str(tag) for tag in defaulted), prefix, prefix))
         return(assignment)
 
     def element_property_maps(self, tags: set) -> dict:
@@ -847,19 +896,21 @@ class ParameterMapper:
         return(tags)
 
     def __nodal_tag_to_entry(self, tags: set) -> tuple:
-        """ (tags, assignment) for the maps that are read node by node rather
-            than element by element.
-            The node tags are the mesh tags plus NODAL_DEFAULT_TAG, which is
-            pinned to imp_region[0]: the reference builds its nodal mask over
-            the regions 1..n only, so region 0 never claims tags there and
-            instead governs every node the other regions do not reach. Letting
-            tag_to_entry() decide would give that node the bare model defaults
-            whenever imp_region[0] happens to list IDs of its own.
+        """ (tags, assignment) for everything that is resolved node by node
+            rather than element by element: the cell parameters, the plugin
+            parameters and the state files.
+            The node tags are the mesh tags plus NODAL_DEFAULT_TAG, the ID
+            Triangulation.point_region_ids() gives a node that no region
+            reaches. No region claims it, so tag_to_entry() gives it
+            imp_region[0] by the one rule that also sends every unclaimed mesh
+            tag there.
+            This is the only place that resolves the nodal map. A consumer that
+            pinned the sentinel itself could pin it differently, and the state
+            files and the cell parameters once did exactly that: keep the
+            resolution here and add consumers to it, rather than beside it.
         """
         nodal_tags = set(tags) | {NODAL_DEFAULT_TAG}
-        assignment = self.tag_to_entry('imp_region', nodal_tags)
-        assignment[NODAL_DEFAULT_TAG] = 0
-        return(nodal_tags, assignment)
+        return(nodal_tags, self.tag_to_entry('imp_region', nodal_tags))
 
     def ionic_parameter_maps(self, model, tags: set) -> dict:
         """ ionic_parameter_maps(model, tags) returns {parameter: {tag: value}}
@@ -977,13 +1028,19 @@ class ParameterMapper:
               'index':   the index of the imp_region
               'name':    the name of the region, for the messages
               'file':    the state file
-              'tags':    the element tags the region governs, sorted
+              'tags':    the node region IDs the region governs, sorted
               'plugins': the plugin names the region lists, in order
-            A region whose file is empty, and one that governs no tag of the
-            mesh, are left out; the second is noted, because a file that reaches
-            no node is almost always a mistake in the tag list.
+            The IDs are the ones point_region_ids() puts on a node, resolved
+            through the nodal map, so imp_region[0] carries NODAL_DEFAULT_TAG
+            and its file reaches every node the other regions do not claim, as
+            the reference's region 0 does. Matching on the declared IDs alone
+            would drop that file and leave the bulk of the mesh on the cell
+            model's own defaults.
+            A region whose file is empty, and one that governs no ID, are left
+            out; the second is noted, because a file that reaches no node is
+            almost always a mistake in the tag list.
         """
-        assignment = self.tag_to_entry('imp_region', tags)
+        _nodal_tags, assignment = self.__nodal_tag_to_entry(tags)
         entries : list = []
         for index in range(self.count('imp_region')):
             fname = self.value('imp_region[{}].im_sv_init'.format(index)).strip()
@@ -1275,6 +1332,37 @@ class ParameterMapper:
         if len(unknown) > 0:
             raise ValueError('Unrecognized keyword{}: {}'.format(
                 '' if len(unknown) == 1 else 's', ', '.join(unknown)))
+
+    def __id_count(self, prefix: str, index: int) -> int:
+        """ how many ID slots one entry of an indexed family claims, in the
+            indexed `ID[j]` spelling.
+            It is the LARGER of the num_IDs counter and the highest slot the
+            file assigns, which is what the reference's parser resolves a
+            counter to (parser/runtime.cpp: the explicit counter is written
+            first, then the count inferred from the assigned leaves raises it).
+            So a counter that is too small does not silently drop a tag, and a
+            counter that is too large leaves slots unset, which region_tags()
+            reports and drops. Reading the assigned slots is not enough on its
+            own: the file may leave a gap, and a gap inside the count is a
+            missing ID rather than the end of the list.
+        """
+        declared = self.value('{}[{}].num_IDs'.format(prefix, index))
+        head     = '{}[{}].ID['.format(prefix, index)
+        assigned = -1
+        for key in self.__store:
+            if key.startswith(head):
+                assigned = max(assigned, indices_of(key)[-1])
+        return(max(int(declared), 1 + assigned))
+
+    def __note_once(self, note: str) -> None:
+        """ __note_once(note) records a line for the run banner unless it is
+            already there. The tag-to-entry map is resolved once per consumer
+            (the element properties, the cell parameters, the plugin parameters,
+            the state files), and the same tag list gives the same notes every
+            time; the banner must not repeat them.
+        """
+        if note not in self.__notes:
+            self.__notes.append(note)
 
     def __resolve_count(self, prefix: str) -> int:
         """ how many entries an indexed family has. The counter wins when it is
