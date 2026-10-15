@@ -121,7 +121,10 @@ def test_flags_per_region_scale_each_regions_own_default():
     model = mapper.ionic_model_class()(dt=_DT, **mapper.ionic_model_options())
     maps  = mapper.ionic_parameter_maps(model, {1, 2})
     assert list(maps.keys())[0] == 'celltype'
-    assert maps['celltype'] == {1: CELL_TYPE_IDS['ENDO'], 2: CELL_TYPE_IDS['MCELL']}
+    # the maps are read node by node, so they also carry NODAL_DEFAULT_TAG,
+    # the ID of a node no region reaches, which takes imp_region[0]
+    assert maps['celltype'] == {1: CELL_TYPE_IDS['ENDO'], 2: CELL_TYPE_IDS['MCELL'],
+                               -1: CELL_TYPE_IDS['ENDO']}
     assert maps['GKs'][1] == pytest.approx(1.5 * 0.392)
     assert maps['GKs'][2] == pytest.approx(1.5 * 0.098)
 

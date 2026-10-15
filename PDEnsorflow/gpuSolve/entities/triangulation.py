@@ -154,6 +154,14 @@ class Triangulation:
         self._connectivity : dict       = None
         self._contravbasis : dict       = None
         self._pointRegIDs : np.ndarray  = None
+        # The rule that gives a node one region ID when the elements it belongs
+        # to carry several. 'mostfrequent' is the default because it is what
+        # every existing caller already got; the alternative is opt-in.
+        self._regionIDrule : str        = 'mostfrequent'
+        # The region IDs allowed to compete for a node under 'carp_compatibility'.
+        # None means every ID in the element list competes; an empty set means
+        # none does, so every node takes the no-region sentinel.
+        self._regionIDtags : set        = None
 
 
     def Pts(self) -> np.ndarray:
@@ -276,6 +284,64 @@ class Triangulation:
                 return(self._pointRegIDs)   
         else:
             return(self._pointRegIDs)
+
+    def regionIDrule(self) -> str:
+        """ function regionIDrule():
+        returns the rule used to give a node a region ID
+        """
+        return(self._regionIDrule)
+
+
+    def set_regionIDrule(self,rule: str):
+        """ function set_regionIDrule(rule)
+        sets the rule that gives a node one region ID when the elements it
+        belongs to carry several. Accepted values:
+          * 'mostfrequent':       the most frequent region ID among those
+                                  elements and, on a tie, the smallest one.
+          * 'carp_compatibility': the highest region ID among those elements,
+                                  restricted to regionIDtags() when it is set.
+                                  This reproduces the nodal region assignment
+                                  of the reference simulator, which takes the
+                                  maximum element tag at the node over the tags
+                                  claimed by a region and leaves every other
+                                  node to the default region.
+        Any stored array is released: it was computed under the previous rule
+        and must not answer a later call.
+        """
+        if rule not in ('mostfrequent','carp_compatibility'):
+            raise ValueError("set_regionIDrule: rule must be 'mostfrequent' or "
+                             "'carp_compatibility', got '{}'".format(rule))
+        self._regionIDrule = rule
+        self.release_point_region_ids()
+
+
+    def regionIDtags(self) -> set:
+        """ function regionIDtags():
+        returns the region IDs allowed to compete for a node under the
+        'carp_compatibility' rule, or None when every ID competes
+        """
+        return(self._regionIDtags)
+
+
+    def set_regionIDtags(self,tags):
+        """ function set_regionIDtags(tags)
+        sets the region IDs allowed to compete for a node under the
+        'carp_compatibility' rule. The caller is the layer that knows which
+        IDs a region claims (the mesh itself does not), so this is state of the
+        simulation setup rather than of the mesh.
+        tags=None restores the default, where every ID in the element list
+        competes, which keeps the rule usable on a bare mesh. An empty set is
+        NOT the same thing: it means no ID competes, so every node takes the
+        no-region sentinel, which is the assignment the reference makes when a
+        single region is defined.
+        Any stored array is released, as set_regionIDrule() does.
+        """
+        if tags is None:
+            self._regionIDtags = None
+        else:
+            self._regionIDtags = set(int(tag) for tag in tags)
+        self.release_point_region_ids()
+
 
     def element_contravariant_basis(self,elemtype : str, elemID : int, localcoords : list =[]) -> dict:
         """function element_contravariant_basis(elemtype,elemID,localcoords=[])
@@ -421,18 +487,17 @@ class Triangulation:
         return(contravbasis)
 
     def __compute_point_region_ids(self) -> np.ndarray:
-        '''This function assigns to each point the region ID
-        taking the most recurrent region ID of the elements
-        that have the point as a vertex.       
+        '''This function assigns to each point one region ID out of those
+        carried by the elements that have the point as a vertex, following
+        the rule given by set_regionIDrule().
         '''
         print('Associating a region ID to points')
         npt = self._Pts.shape[0]
         t0 = time()
-        # The (point, region) pairs of every element vertex are counted with
+        # The (point, region) pairs of every element vertex are reduced with
         # one sort over all of them rather than a Python list per point (about
-        # 80 s on 3.3 M points). The winner per point is the largest count and,
-        # on a tie, the SMALLEST region ID, which is what argmax(bincount())
-        # returned per point before.
+        # 80 s on 3.3 M points). Both rules are a lexsort on those pairs and
+        # differ only in the sort keys, so the cost is the same either way.
         points  : list = []
         regions : list = []
         for elemtype, Elements in self._Elems.items():
@@ -445,19 +510,36 @@ class Triangulation:
         regions = np.concatenate(regions)
         if np.any(regions < 0):
             raise ValueError('point_region_ids: region IDs must be non-negative')
-        nreg = int(regions.max()) + 1
-        pairs, counts = np.unique(points * nreg + regions, return_counts=True)
-        pair_pts = pairs // nreg
-        pair_reg = pairs % nreg
-        # sort by point, then by decreasing count, then by increasing region:
-        # the first entry of each point is its winner
-        order = np.lexsort((pair_reg, -counts, pair_pts))
-        first = np.ones(order.shape[0], dtype=bool)
-        first[1:] = pair_pts[order][1:] != pair_pts[order][:-1]
-        winners = order[first]
-        # a point that no element uses keeps -1
+        if self._regionIDrule == 'carp_compatibility' and self._regionIDtags is not None:
+            # A region ID that no region claims must not take part in the
+            # maximum: the reference restricts it to the claimed tags, so a
+            # node meeting an unclaimed higher ID still goes to the highest
+            # claimed one rather than falling to the default region.
+            keep    = np.isin(regions, np.array(sorted(self._regionIDtags), dtype=np.int64))
+            points  = points[keep]
+            regions = regions[keep]
+        # a point that no element uses, and under 'carp_compatibility' a point
+        # that no claimed region ID reaches, keeps the no-region sentinel -1
         pointRegIDs = np.zeros(npt)-1
-        pointRegIDs[pair_pts[winners]] = pair_reg[winners]
+        if points.shape[0] > 0:
+            nreg = int(regions.max()) + 1
+            pairs, counts = np.unique(points * nreg + regions, return_counts=True)
+            pair_pts = pairs // nreg
+            pair_reg = pairs % nreg
+            if self._regionIDrule == 'carp_compatibility':
+                # sort by point, then by decreasing region ID: the first entry
+                # of each point is the largest ID it meets. The counts play no
+                # part, the reference compares the tags themselves.
+                order = np.lexsort((-pair_reg, pair_pts))
+            else:
+                # sort by point, then by decreasing count, then by increasing
+                # region: the first entry of each point is its winner, which is
+                # what argmax(bincount()) returned per point before.
+                order = np.lexsort((pair_reg, -counts, pair_pts))
+            first = np.ones(order.shape[0], dtype=bool)
+            first[1:] = pair_pts[order][1:] != pair_pts[order][:-1]
+            winners = order[first]
+            pointRegIDs[pair_pts[winners]] = pair_reg[winners]
         elapsed = time() - t0
         print('done in {:3.2f} s'.format(elapsed),flush=True)
         return(pointRegIDs)

@@ -113,6 +113,9 @@ class SimulationRunner:
             # here: forcing it runs every kernel operation by operation, and
             # made a step of the Tomek model 27 times slower on 63001 nodes.
             self.__build_solver()
+            # before anything reads the nodal region IDs: the rule and the
+            # claimed tags change what those IDs are
+            self.__configure_region_rule()
             self.__assign_materials()
             self.__assign_cell_parameters()
             # after the materials, because their values are what the cache key
@@ -276,8 +279,8 @@ class SimulationRunner:
             nodes = np.where(np.isin(region_of_node, entry['tags']))[0]
             if nodes.size == 0:
                 # the tags exist in the element list, but every node they touch
-                # was won by another region (point_region_ids gives a node the
-                # most frequent tag of the elements it belongs to)
+                # was won by another region (a node takes the highest tag among
+                # those the imp_regions claim, see __configure_region_rule)
                 self._mapper.add_note('imp_region[{}].im_sv_init = "{}" is ignored: no node '
                                       'belongs to the region'.format(entry['index'], entry['file']))
                 continue
@@ -339,6 +342,19 @@ class SimulationRunner:
         prepacer.read_lats(settings['lats_file'], npt)
         prepacer.set_model_factory(lambda: self.__new_ionic_model(settings['dt']))
         prepacer.prepace(self._model)
+
+    def __configure_region_rule(self):
+        """ tells the mesh how to give a node one region ID when the elements
+            it belongs to carry several.
+            A parameter-file run asks for the reference assignment, the highest
+            tag at the node among those an imp_region claims, so that the cell
+            model a node runs is the one the reference would give it. A node no
+            region claims keeps the no-region sentinel and takes imp_region[0],
+            as it does there.
+        """
+        domain = self._model.domain()
+        domain.set_regionIDrule('carp_compatibility')
+        domain.set_regionIDtags(self._mapper.nodal_region_tags())
 
     def __mesh_tags(self) -> set:
         """ the set of element tags that actually occur in the mesh """

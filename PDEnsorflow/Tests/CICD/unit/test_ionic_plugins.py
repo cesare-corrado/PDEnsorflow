@@ -312,9 +312,11 @@ def test_plug_param_and_the_regional_switch_become_tag_maps():
     model.set_model(ModifiedMS2v())
     model.add_plugin(EP())
     maps = mapper.plugin_parameter_maps(model, {1, 2})
-    assert maps['{}.active'.format(EP_NAME)] == {1: 1.0, 2: 0.0}
-    assert maps['{}.sigma'.format(EP_NAME)] == {1: 26.0, 2: 13.0}
-    assert maps['{}.w0'.format(EP_NAME)] == {1: 6.0, 2: 5.25}
+    # the maps are read node by node, so they also carry NODAL_DEFAULT_TAG,
+    # the ID of a node no region reaches, which takes imp_region[0]
+    assert maps['{}.active'.format(EP_NAME)] == {1: 1.0, 2: 0.0, -1: 1.0}
+    assert maps['{}.sigma'.format(EP_NAME)] == {1: 26.0, 2: 13.0, -1: 26.0}
+    assert maps['{}.w0'.format(EP_NAME)] == {1: 6.0, 2: 5.25, -1: 6.0}
 
 
 def test_a_plugin_on_every_region_needs_no_switch():

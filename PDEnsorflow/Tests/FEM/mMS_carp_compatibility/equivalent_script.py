@@ -45,15 +45,27 @@ if __name__ == '__main__':
     OUTDIR = 'OUT_mMS_api'
 
     tags     = (1, 2, 3, 4)
+    # The cell parameters are read node by node, and a node whose triangles do
+    # not all carry the same tag has to be given one of them. The front end
+    # asks the mesh for the assignment of the reference simulator (the highest
+    # tag an imp_region claims), so this script asks for the same one, or the
+    # two runs would differ along the boundary of tag 3.
+    # Only imp_region[1] claims a tag there, tag 3: the IDs of imp_region[0]
+    # do not take part, because the reference builds its nodal mask over the
+    # regions 1..n and leaves region 0 to govern every node they do not reach.
+    # Such a node carries NO_REGION, so every nodal map needs a value for it,
+    # the value of imp_region[0].
+    NO_REGION = -1
+    nodal_tags = tags + (NO_REGION,)
     sigma_l  = {tag: SIGMA for tag in tags}
     sigma_t  = {tag: SIGMA for tag in tags}
     beta     = {tag: BETA for tag in tags}
-    tau_in   = {tag: 0.15 for tag in tags}
-    tau_out  = {tag: 1.5 for tag in tags}
-    tau_open = {tag: 105.0 for tag in tags}
-    tau_close = {1: 120.0, 2: 120.0, 3: 60.0, 4: 120.0}
-    u_gate   = {tag: 0.1 for tag in tags}
-    u_crit   = {tag: 0.1 for tag in tags}
+    tau_in   = {tag: 0.15 for tag in nodal_tags}
+    tau_out  = {tag: 1.5 for tag in nodal_tags}
+    tau_open = {tag: 105.0 for tag in nodal_tags}
+    tau_close = {1: 120.0, 2: 120.0, 3: 60.0, 4: 120.0, NO_REGION: 120.0}
+    u_gate   = {tag: 0.1 for tag in nodal_tags}
+    u_crit   = {tag: 0.1 for tag in nodal_tags}
 
     config = {'mesh_file_name': 'square',       # the micrometre mesh, no suffix
               'use_renumbering': True,
@@ -72,6 +84,8 @@ if __name__ == '__main__':
 
     ionic = ModifiedMS2v(dt=dt)
     model = MonodomainSolver(ionic, config)
+    model.domain().set_regionIDrule('carp_compatibility')
+    model.domain().set_regionIDtags({3})
     model.add_element_material_property('sigma_l', 'region', sigma_l)
     model.add_element_material_property('sigma_t', 'region', sigma_t)
     model.add_element_material_property('beta', 'region', beta)
