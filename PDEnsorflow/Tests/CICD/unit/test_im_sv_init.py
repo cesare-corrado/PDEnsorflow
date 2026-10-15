@@ -165,6 +165,41 @@ def test_the_nodes_of_the_first_region_stay_at_rest(conditioned):
     assert np.all(h[:_SPLIT] == pytest.approx(1.0))
 
 
+def test_the_default_region_file_reaches_the_nodes_no_region_claims(tmp_path):
+    """imp_region[0] is the DEFAULT region, and under the carp_compatibility
+    rule its nodes carry the no-region sentinel rather than the tag of their
+    elements, because the reference builds its nodal mask over the regions
+    1..n only. A file on region 0 must still reach them.
+
+    This is the case every parameter file of the induction pipeline uses: the
+    healthy myocardium is region 0 and carries the paced state, the border zone
+    is region 1. Matching the file on the declared IDs alone finds no node, and
+    the run then starts 92 per cent of the mesh from the model's own defaults
+    while reporting nothing worse than a note.
+    """
+    folder = str(tmp_path)
+    _write_cable(folder)
+    # the file moves to region 0, which claims tag 1; region 1 claims tag 2 and
+    # is therefore the only claimed tag of the nodal assignment
+    _write_par(folder)
+    with open(os.path.join(folder, 'cable.par')) as fin:
+        par = fin.read()
+    par = par.replace('imp_region[1].im_sv_init = "region1.sv"\n',
+                      'imp_region[0].im_sv_init = "region1.sv"\n')
+    with open(os.path.join(folder, 'cable.par'), 'w') as fout:
+        fout.write(par)
+    _write_state_file(folder)
+    runner = _build(folder)
+    regions = np.reshape(np.asarray(runner.model().domain().point_region_ids()), (-1,))
+    h = np.reshape(np.asarray(runner.model().checkpoint()['state_variables']['H_state']), (-1,))
+    # nodes 0..7 meet tag 1 only, which no region claims: the sentinel
+    assert np.all(regions[:_SPLIT] == -1.0)
+    assert np.all(regions[_SPLIT:] == 2.0)
+    # and they are exactly the nodes the file must have conditioned
+    assert np.all(h[:_SPLIT] == pytest.approx(_FILE_H))
+    assert np.all(h[_SPLIT:] == pytest.approx(1.0))
+
+
 # ---- what the file is not allowed to do -------------------------------------
 def test_a_file_written_for_another_model_is_refused(tmp_path):
     """The reference logs "IMPs do not match region" and its tissue solver

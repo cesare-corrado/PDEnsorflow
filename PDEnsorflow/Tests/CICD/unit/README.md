@@ -79,6 +79,40 @@ claimed set sends every node there, which is the assignment the reference makes
 when a single region is defined. Both setters must release a stored assignment,
 and an unknown rule name must be refused.
 
+### `test_region_assignment_reference.py` &mdash; the assignment is the reference's
+Giving a node its region is a purely combinatorial function of the element tags
+and of the region ID lists: no floating point, no partitioning, no free
+iteration order. So it is required to agree with the reference **exactly**, and
+this module transcribes `region_mask(..., mask_elem=false)` from
+`physics/ionics.cc` as its oracle: the tag-to-region map is built over the
+regions **1..n only** ("region 0 is the implicit default"), a tag two regions
+claim goes to the higher index, a node takes the **highest claimed tag** it
+meets and then that tag's region, and a node no claimed tag reaches keeps region
+0. Eleven scenarios are driven through both, on the nodal path and on the
+element path that the conductivities take: one region, disjoint regions, a
+region from 1 onwards that lists no ID, an unclaimed tag, a tag claimed twice, a
+default region that lists IDs of its own, and a tag the mesh does not carry.
+One of them exists to separate the tie rule from its plausible wrong twin: where
+the highest tag belongs to a LOWER region index than a lower tag does, the
+highest tag still wins, which is the rule the reference singles out as the one
+that would otherwise make the assignment depend on the MPI partitioning.
+
+The composition is what is compared, `point_region_ids()` mapped through
+`tag_to_entry()`, not either half alone: gpuSolve carries an element tag plus
+the no-region sentinel where the reference carries a resolved region index, and
+it was the last step, tag to region, that one consumer performed and another did
+not. Two further cases are pinned by name because they are the ones that bite: a
+node meeting tags 1 and 3, where 3 is listed on `imp_region[0]` and 1 on
+`imp_region[1]`, belongs to region **1** (an "every listed tag competes" rule
+would say 0 and run the wrong cell model wherever an RV element meets a
+border-zone element); and an `ID` slot the `num_IDs` counter promises but the
+file never assigns, which holds `-1`, the same value as the no-region sentinel,
+and must not let that region claim the whole default region. Two more pin the
+places the resolution must live: `state_init_files()` must hand its consumer
+node IDs with the sentinel already resolved, and a `num_IDs` smaller than the
+assigned `ID[j]` list must not drop a tag. The default `mostfrequent` rule is
+asserted untouched in the same module.
+
 ### `test_theta_scheme.py` &mdash; the theta method of the diffusion step
 `(M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U*`. On a 21-node cable with
 no forcing, the exact space-discrete solution `expm(-t M^-1 K) U0` (computed
@@ -163,6 +197,17 @@ the reference, whose reader refuses it ("IMPs do not match region"); a parameter
 stored in the file is reported and **not** applied, because the parameters come
 from the defaults and from `im_param`; and the mapper reads the key, with the
 note that fires when the region governs no tag of the mesh.
+
+Also covers **a file on `imp_region[0]`, the default region**, which is the case
+every parameter file of the VT induction pipeline uses: the bulk of the mesh is
+region 0 and carries the paced state, and a smaller region 1 carries the border
+zone. Under the `carp_compatibility` rule those nodes hold the no-region
+sentinel rather than the tag of their elements, because the reference builds its
+nodal mask over the regions 1..n only, so matching the file on the declared IDs
+alone finds no node and the file is dropped with nothing worse than a note. The
+test pins the assignment (`-1` on the unclaimed half of the cable) and the state
+that must follow it. This is a regression test: 1.13.0 shipped without it and
+started 92 per cent of a 4 M-node mesh from the model's own defaults.
 
 ### `test_ionic.py` &mdash; `gpuSolve.ionic` cell models
 One parametrised contract test over every model (finite, shape-preserving,
@@ -279,7 +324,19 @@ the **conductivity rule**, since `bidm_eqv_mono` defaults to 1 and makes the
 monodomain conductivity the half harmonic mean of the two domains rather than
 `g_il`. The diffusion scheme: `parab_solve = 1` with `theta` (0.5 by default,
 1.0 accepted with a note), and implicit Euler with a note for the schemes that
-are not implemented (0 and 2). Also covers which region governs which tag, cell-model selection by
+are not implemented (0 and 2). **Which region governs which tag** follows the
+reference's `region_mask`: entry 0 is the implicit default and the IDs it lists
+do not restrict it, an entry from 1 onwards claims exactly what it lists (so an
+empty list claims nothing), a tag claimed twice goes to the higher index, and
+every other tag takes entry 0's parameters rather than the library defaults.
+The counter is resolved as the reference's parser resolves it, to the larger of
+`num_IDs` and the highest `ID[j]` the file assigns, so a counter that is too
+small does not silently drop a tag. Three notes are checked: a tag the mesh does
+not carry, a tag claimed twice, and the tags that take the default region (the
+last one silent when there is only one region, as the reference is). The first
+is deliberately **louder** than the reference, which skips its tag checks
+entirely when only one region is defined; it reports a typo that is inert in
+both codes. Also covers cell-model selection by
 `a_crit`, the cell-parameter modifiers (`tau_in*0.3`, `tau_in-10%` and the
 other forms, resolved against the cell model default, and the malformed ones
 that must raise), the `cg_norm_parab` stopping tests, stimulus defaults derived from

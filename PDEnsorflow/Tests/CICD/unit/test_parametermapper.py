@@ -114,27 +114,64 @@ def test_beta_folds_in_volfrac():
 
 
 # ---- which region governs which tag ----------------------------------------
-def test_a_region_without_ids_claims_every_tag():
-    """A region that lists no tag is assigned implicitly to all of them."""
+def test_the_only_region_governs_every_tag():
+    """One region is the default region, so every tag is its own."""
     mapper = _mapper(['-bidm_eqv_mono', '0', '-gregion[0].g_il', '1.0'])
     maps   = mapper.element_property_maps(_TAGS)
     assert all(maps['sigma_l'][tag] == pytest.approx(1.0e5) for tag in _TAGS)
 
 
-def test_a_tag_claimed_by_nobody_falls_back_to_the_defaults():
-    """An explicit ID list claims only what it names; the rest take the
-    documented defaults rather than stopping the run."""
+def test_a_tag_claimed_by_nobody_takes_the_default_region():
+    """gregion[0] is the DEFAULT region: the IDs it lists do not restrict it,
+    because the reference never lets region 0 compete for a tag and gives every
+    unclaimed tag its parameters (region_mask, physics/ionics.cc). A tag outside
+    its list therefore gets g_il = 1.0 here, not the library default 0.174."""
     mapper = _mapper(['-bidm_eqv_mono', '0', '-num_gregions', '1',
                       '-gregion[0].ID', '1', '-gregion[0].g_il', '1.0'])
     maps   = mapper.element_property_maps(_TAGS)
     assert maps['sigma_l'][1] == pytest.approx(1.0e5)
-    assert maps['sigma_l'][2] == pytest.approx(1.0e5 * 0.174)
-    assert maps['sigma_l'][3] == pytest.approx(1.0e5 * 0.174)
+    assert maps['sigma_l'][2] == pytest.approx(1.0e5)
+    assert maps['sigma_l'][3] == pytest.approx(1.0e5)
 
 
-def test_an_explicit_claim_beats_an_implicit_one():
-    """gregion[1] names tag 3, so it governs it even though gregion[0] claims
-    every tag implicitly."""
+def test_a_region_from_1_onwards_claims_only_what_it_lists():
+    """A region that lists no tag claims nothing: the reference builds its map
+    from the ID lists alone (nsubregs = num_IDs), so an empty list leaves the
+    region without elements rather than giving it the whole mesh."""
+    mapper = _mapper(['-bidm_eqv_mono', '0', '-num_gregions', '2',
+                      '-gregion[0].g_il', '1.0', '-gregion[1].g_il', '2.0'])
+    maps   = mapper.element_property_maps(_TAGS)
+    assert all(maps['sigma_l'][tag] == pytest.approx(1.0e5) for tag in _TAGS)
+
+
+def test_a_tag_claimed_twice_goes_to_the_higher_index():
+    """The reference walks the regions in order and overwrites its tag map, so
+    the last region to claim a tag governs it, and it says so."""
+    mapper = _mapper(['-bidm_eqv_mono', '0', '-num_gregions', '3',
+                      '-gregion[0].g_il', '1.0',
+                      '-gregion[1].g_il', '2.0', '-gregion[1].ID', '2,3',
+                      '-gregion[2].g_il', '3.0', '-gregion[2].ID', '3'])
+    maps = mapper.element_property_maps(_TAGS)
+    assert maps['sigma_l'][1] == pytest.approx(1.0e5)
+    assert maps['sigma_l'][2] == pytest.approx(2.0e5)
+    assert maps['sigma_l'][3] == pytest.approx(3.0e5)
+    assert any('claimed by both' in note for note in mapper.notes())
+
+
+def test_the_tags_that_fall_to_the_default_region_are_reported():
+    """The reference warns which element tags no configured region covers
+    (check_unassigned_tags); with a single region there is nothing to say."""
+    mapper = _mapper(['-num_gregions', '2', '-gregion[1].ID', '3'])
+    mapper.element_property_maps(_TAGS)
+    assert any('they take gregion[0]' in note for note in mapper.notes())
+    quiet = _mapper(['-num_gregions', '1'])
+    quiet.element_property_maps(_TAGS)
+    assert not any('they take gregion[0]' in note for note in quiet.notes())
+
+
+def test_an_explicit_claim_beats_the_default_region():
+    """gregion[1] names tag 3, so it governs it; the rest stay with
+    gregion[0]."""
     mapper = _mapper(['-bidm_eqv_mono', '0', '-num_gregions', '2',
                       '-gregion[0].g_il', '1.0',
                       '-gregion[1].g_il', '2.0', '-gregion[1].ID', '3'])
@@ -517,8 +554,9 @@ def test_ttp_conductance_modifiers_resolve_against_cell_type():
         maps   = mapper.ionic_parameter_maps(model, {1, 2})
         assert maps['GKr'][1] == pytest.approx(1.5 * 0.153)
         assert maps['GKs'][1] == pytest.approx(1.5 * gks)
-        # tag 2 has no region, so it keeps the model default
-        assert maps['GKs'][2] == pytest.approx(gks)
+        # tag 2 is claimed by no region, so it belongs to imp_region[0], the
+        # default region, and runs the model that region tuned
+        assert maps['GKs'][2] == pytest.approx(1.5 * gks)
 
 
 def test_ttp_per_node_conductance_survives_initialisation():
@@ -588,8 +626,9 @@ def test_tomek_conductance_modifiers_are_base_values():
         assert maps['GNa'][1]    == pytest.approx(0.38 * 11.7802)
         assert maps['GKr_b'][1]  == pytest.approx(0.3 * 0.0321)
         assert maps['GKs_b'][1]  == pytest.approx(0.2 * 0.0011)
-        # tag 2 has no region, so it keeps the model default
-        assert maps['GKs_b'][2]  == pytest.approx(0.0011)
+        # tag 2 is claimed by no region, so it belongs to imp_region[0], the
+        # default region, and runs the model that region tuned
+        assert maps['GKs_b'][2]  == pytest.approx(0.2 * 0.0011)
 
 
 def test_tomek_mixed_cell_types_travel_as_a_map():
