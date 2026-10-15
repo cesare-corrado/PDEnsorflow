@@ -283,8 +283,10 @@ def test_parameter_file_selects_the_model_and_maps_region_parameters():
                                         '-imp_region[1].im_param', 'celltype=1,GNa=0']))
     assert mapper.ionic_model_class() is Tomek
     maps = mapper.ionic_parameter_maps(Tomek(dt=_DT), {1, 2})
-    assert maps['celltype'] == {1: 0.0, 2: 1.0}
-    assert maps['GNa'] == {1: pytest.approx(_GNA), 2: 0.0}
+    # the maps are read node by node, so they also carry NODAL_DEFAULT_TAG,
+    # the ID of a node no region reaches, which takes imp_region[0]
+    assert maps['celltype'] == {1: 0.0, 2: 1.0, -1: 0.0}
+    assert maps['GNa'] == {1: pytest.approx(_GNA), 2: 0.0, -1: pytest.approx(_GNA)}
 
 
 def test_cell_type_constructor_argument_sets_the_uniform_type():

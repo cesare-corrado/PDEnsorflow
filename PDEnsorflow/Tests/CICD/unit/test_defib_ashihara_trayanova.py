@@ -189,9 +189,11 @@ def test_plug_param_reaches_the_plugin_on_its_region_only():
     model.add_plugin(ElectroporationDeBruinKrassowska98())
     model.add_plugin(IA())
     maps = mapper.plugin_parameter_maps(model, {1, 2})
-    assert maps['{}.active'.format(IA_NAME)] == {1: 1.0, 2: 0.0}
-    assert maps['{}.VtakeOff'.format(IA_NAME)] == {1: 150.0, 2: 160.0}
-    assert maps['{}.slopeFac'.format(IA_NAME)] == {1: 2.0, 2: 1.0}
+    # the maps are read node by node, so they also carry NODAL_DEFAULT_TAG,
+    # the ID of a node no region reaches, which takes imp_region[0]
+    assert maps['{}.active'.format(IA_NAME)] == {1: 1.0, 2: 0.0, -1: 1.0}
+    assert maps['{}.VtakeOff'.format(IA_NAME)] == {1: 150.0, 2: 160.0, -1: 150.0}
+    assert maps['{}.slopeFac'.format(IA_NAME)] == {1: 2.0, 2: 1.0, -1: 2.0}
 
 
 def _write_cable(folder: str):

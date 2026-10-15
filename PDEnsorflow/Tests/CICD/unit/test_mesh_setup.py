@@ -121,3 +121,69 @@ def test_pattern_matches_the_loop(square):
     for key in ('I', 'J', 'StartIndex'):
         assert new[key].dtype == ref[key].dtype, key
         assert np.array_equal(new[key], ref[key]), key
+
+
+@pytest.fixture
+def four_regions(tmp_path) -> Triangulation:
+    """Node 0 belongs to one edge of each region 1, 2, 3 and 4, so every rule
+    has to pick one of the four; nodes 1..4 belong to one edge each."""
+    mesh = {'Pts': np.array([[0.0, 0, 0], [1.0, 0, 0], [-1.0, 0, 0],
+                             [0.0, 1, 0], [0.0, -1, 0]]),
+            'Elems': {'Edges': np.array([[0, 1, 1], [0, 2, 2],
+                                         [0, 3, 3], [0, 4, 4]], dtype=np.int32)},
+            'Fibres': None}
+    fname = str(tmp_path / 'four.pkl')
+    with open(fname, 'wb') as fout:
+        pickle.dump(mesh, fout, protocol=pickle.HIGHEST_PROTOCOL)
+    domain = Triangulation()
+    domain.readMesh(fname)
+    return(domain)
+
+
+def test_mostfrequent_is_the_default_rule(four_regions):
+    """The rule no caller asked for must be the one they already got."""
+    assert four_regions.regionIDrule() == 'mostfrequent'
+    assert four_regions.regionIDtags() is None
+    # four tags once each: a four-way tie, won by the smallest
+    assert np.array_equal(four_regions.point_region_ids(),
+                          np.array([1.0, 1.0, 2.0, 3.0, 4.0]))
+
+
+def test_carp_compatibility_takes_the_highest_region(four_regions):
+    """With every tag competing, node 0 takes the largest one."""
+    four_regions.set_regionIDrule('carp_compatibility')
+    assert np.array_equal(four_regions.point_region_ids(),
+                          np.array([4.0, 1.0, 2.0, 3.0, 4.0]))
+
+
+def test_carp_compatibility_ignores_the_unclaimed_regions(four_regions):
+    """Regions 1 and 2 claim 1, 2 and 3; nobody claims 4. Node 0 must take 3,
+    the highest CLAIMED tag, not 4, and node 4 (only tag 4) must fall to the
+    no-region sentinel."""
+    four_regions.set_regionIDrule('carp_compatibility')
+    four_regions.set_regionIDtags({1, 2, 3})
+    assert np.array_equal(four_regions.point_region_ids(),
+                          np.array([3.0, 1.0, 2.0, 3.0, -1.0]))
+
+
+def test_carp_compatibility_with_no_claimed_tag_assigns_nothing(four_regions):
+    """An empty claimed set is not None: no tag competes, so every node takes
+    the sentinel, which is what a single region gives in the reference."""
+    four_regions.set_regionIDrule('carp_compatibility')
+    four_regions.set_regionIDtags(set())
+    assert np.array_equal(four_regions.point_region_ids(), np.zeros(5) - 1.0)
+
+
+def test_the_setters_release_a_stored_assignment(four_regions):
+    """A stored array computed under one rule must not answer the next call."""
+    assert np.array_equal(four_regions.point_region_ids(storeIDs=True),
+                          np.array([1.0, 1.0, 2.0, 3.0, 4.0]))
+    four_regions.set_regionIDrule('carp_compatibility')
+    assert four_regions.point_region_ids(storeIDs=True)[0] == 4.0
+    four_regions.set_regionIDtags({1, 2, 3})
+    assert four_regions.point_region_ids()[0] == 3.0
+
+
+def test_an_unknown_rule_is_refused(four_regions):
+    with pytest.raises(ValueError):
+        four_regions.set_regionIDrule('highest')

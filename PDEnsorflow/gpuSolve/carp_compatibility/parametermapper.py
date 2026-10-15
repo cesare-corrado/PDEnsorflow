@@ -151,6 +151,11 @@ CELL_TYPE_PARAMETER : str = 'celltype'
 # The im_param item that selects a cell type rather than modifying a parameter.
 IM_PARAM_FLAGS : str = 'flags='
 
+# The region ID that Triangulation.point_region_ids() gives a node no region
+# reaches. The per-node parameter maps must carry a value for it, or the lookup
+# that resolves a 'region' property node by node raises on such a node.
+NODAL_DEFAULT_TAG : int = -1
+
 # Ionic plugins for imp_region[].plugins, by the name the parameter file uses.
 IONIC_PLUGINS = {'Electroporation_DeBruinKrassowska98': ElectroporationDeBruinKrassowska98,
                  'Defib_AshiharaTrayanova':             DefibAshiharaTrayanova}
@@ -826,6 +831,36 @@ class ParameterMapper:
             return({'cell_type': distinct.pop()})
         return({'cell_type': DEFAULT_CELL_TYPE[name]})
 
+    def nodal_region_tags(self) -> set:
+        """ nodal_region_tags() returns the element tags claimed by the
+            imp_regions that take part in the nodal region assignment, i.e.
+            imp_region[1] onwards.
+            imp_region[0] is left out on purpose: it is the default region, and
+            the reference builds its nodal mask over the regions 1..n only, so
+            IDs written on region 0 do not compete for a node there either.
+            An empty set therefore means that no tag competes, which is the
+            assignment the reference makes when a single region is defined.
+        """
+        tags : set = set()
+        for index in range(1, self.count('imp_region')):
+            tags |= set(int(tag) for tag in self.region_tags('imp_region', index))
+        return(tags)
+
+    def __nodal_tag_to_entry(self, tags: set) -> tuple:
+        """ (tags, assignment) for the maps that are read node by node rather
+            than element by element.
+            The node tags are the mesh tags plus NODAL_DEFAULT_TAG, which is
+            pinned to imp_region[0]: the reference builds its nodal mask over
+            the regions 1..n only, so region 0 never claims tags there and
+            instead governs every node the other regions do not reach. Letting
+            tag_to_entry() decide would give that node the bare model defaults
+            whenever imp_region[0] happens to list IDs of its own.
+        """
+        nodal_tags = set(tags) | {NODAL_DEFAULT_TAG}
+        assignment = self.tag_to_entry('imp_region', nodal_tags)
+        assignment[NODAL_DEFAULT_TAG] = 0
+        return(nodal_tags, assignment)
+
     def ionic_parameter_maps(self, model, tags: set) -> dict:
         """ ionic_parameter_maps(model, tags) returns {parameter: {tag: value}}
             for every cell parameter that some im_param names. A tag whose
@@ -840,7 +875,7 @@ class ParameterMapper:
             modifiers, as in the reference. Tags no region claims take the
             constructor type (ionic_model_options).
         """
-        assignment = self.tag_to_entry('imp_region', tags)
+        tags, assignment = self.__nodal_tag_to_entry(tags)
         per_region : dict = {}
         named : set       = set()
         for index in range(self.count('imp_region')):
@@ -994,7 +1029,7 @@ class ParameterMapper:
                 region's plugins list; a tag whose region does not mention the
                 parameter keeps the plugin default.
         """
-        assignment = self.tag_to_entry('imp_region', tags)
+        tags, assignment = self.__nodal_tag_to_entry(tags)
         per_region : dict = {}
         for index in range(self.count('imp_region')):
             names = self.region_plugins(index)
