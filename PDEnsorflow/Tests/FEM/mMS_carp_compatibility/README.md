@@ -33,7 +33,7 @@ state file : OUT_mMS/state.100.pkl at t = 100.0000 ms, model ModifiedMS2v, 63001
 frames     : uninterrupted 251, restarted 151
 restart frame 0 vs saved Vm: max |dV| = 0.000e+00 mV
 restarted vs uninterrupted over the last 150 frames (150 ms):
-            max |dV| = 3.033e-04 mV, mean |dV| = 6.425e-06 mV, all finite: True
+            max |dV| = 5.569e-04 mV, mean |dV| = 6.397e-06 mV, all finite: True
             max |dV| on the first / last compared frame: 6.866e-05 / 1.068e-04 mV
 ```
 
@@ -41,7 +41,7 @@ The resumed run is not identical to round-off: the CG warm-start history
 `U^{n-1}` is not stored in the state file, so the first step after the restart
 starts CG from a different guess, and the two runs then agree to within the CG
 tolerance. Saving the state does not change the uninterrupted run:
-`check_result.py` still gives 47.199 um/ms.
+`check_result.py` still gives 47.198 um/ms.
 
 The mesh is a build artefact, not data: `make_mesh.py` converts
 `Tests/data/triangulated_square.pkl` (a 10 x 10 mm sheet stored in millimetres)
@@ -83,6 +83,30 @@ unchanged; it sees every time step, so its activation times are finer than the
 1 ms `spacedt` of the IGB frames, and `check_result.py` fits the front speed
 from them as well.
 
+### Which region a node belongs to
+
+The conductivities are element properties, so each triangle simply uses its own
+tag. The cell parameters are read **node by node**, and a node on the boundary
+between two tags has to be given one of them. The front end asks the mesh for
+the assignment of the reference simulator
+(`Triangulation.set_regionIDrule('carp_compatibility')`): a node takes the
+highest tag an `imp_region` **claims** among the triangles it belongs to, and a
+node no claimed tag reaches keeps the `-1` sentinel and is governed by
+`imp_region[0]`.
+
+Only `imp_region[1]` claims a tag here, tag 3. The IDs of `imp_region[0]` do not
+take part: the reference builds its nodal mask over the regions 1..n only and
+leaves region 0 to govern whatever they do not reach, which is the same set of
+nodes either way. So of the 63001 nodes, 15876 are governed by `imp_region[1]`
+(`tau_close = 60`) and the remaining 47125 by `imp_region[0]`
+(`tau_close = 120`).
+
+`equivalent_script.py` asks for the same rule and the same claimed set, and adds
+the `-1` entry to each of its nodal maps. Without that it would use the library
+default (`mostfrequent`, the most frequent tag at the node and, on a tie, the
+smallest), which differs on the 130 nodes that lie on the boundary of tag 3, and
+the two runs would no longer be comparable.
+
 `bidm_eqv_mono = 0` is set on purpose. Left at its default of 1 the conductivity
 would be the half harmonic mean of the intracellular and extracellular values
 rather than `g_il` alone, and would not reproduce the script.
@@ -102,12 +126,12 @@ Measured on this mesh, `check_result.py` reports:
 
 ```
 front end : 251 frames x 63001 nodes
-            V in [-81.082, 22.880] mV, all finite: True
-CV measured:  47.199 um/ms (4.72 cm/s)
+            V in [-81.080, 22.880] mV, all finite: True
+CV measured:  47.198 um/ms (4.72 cm/s)
 CV analytic:  46.188 um/ms (4.62 cm/s)
 rel. error : 2.19%
-LAT file  : 63001 of 63001 nodes activated, t in [0.669, 202.115] ms
-CV from LAT:  47.197 um/ms (4.72 cm/s), rel. error 2.18%
+LAT file  : 63001 of 63001 nodes activated, t in [0.669, 202.116] ms
+CV from LAT:  47.196 um/ms (4.72 cm/s), rel. error 2.18%
 vs Python API: max |dV| = 0.000e+00 mV, mean |dV| = 0.000e+00 mV
 ```
 

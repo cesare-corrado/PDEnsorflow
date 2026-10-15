@@ -69,6 +69,16 @@ four regions) the new code must give the **same** result entry by entry and in
 the same dtype. A three-node mesh pins the tie rule of the region IDs: a node
 shared equally by two regions takes the smaller ID.
 
+Also covers the **two region-ID rules** (`set_regionIDrule`) on a five-node star
+whose centre meets one element of each region 1, 2, 3 and 4: `mostfrequent` (the
+default, so the existing callers are unchanged) gives the centre 1, the smallest
+of a four-way tie, while `carp_compatibility` gives it 4, the highest. With the
+claimed set restricted to {1, 2, 3} the centre takes 3, the highest **claimed**
+ID, and the node that only region 4 reaches falls to the `-1` sentinel; an empty
+claimed set sends every node there, which is the assignment the reference makes
+when a single region is defined. Both setters must release a stored assignment,
+and an unknown rule name must be refused.
+
 ### `test_theta_scheme.py` &mdash; the theta method of the diffusion step
 `(M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U*`. On a 21-node cable with
 no forcing, the exact space-discrete solution `expm(-t M^-1 K) U0` (computed
@@ -333,6 +343,15 @@ nothing. The times are checked against the recorded frames: a detector sees
 every step, so its time for a node must fall inside the frame interval in which
 that node crossed the threshold. The front end builds its detectors with the
 compiled step switched on, so this test covers that path as well.
+
+Also covers the **nodal region assignment** of a parameter-file run, which asks
+for the `carp_compatibility` rule: on a cable whose halves carry tags 1 and 2,
+with `imp_region[1].ID = 1` and nothing claiming tag 2, every node that an
+element of tag 1 reaches must be governed by region 1 (the junction node
+included, which meets both tags) and the rest must fall to `imp_region[0]`. The
+assertion is on the per-node value of `tau_in`, which is where the assignment is
+felt, and it also covers the parameter lookup of the nodes that carry the
+no-region sentinel.
 
 Also covers the **vertex-file electrode**: a short run whose `elec.vtx_file`
 names five nodes must depolarise exactly those and leave the far end at rest

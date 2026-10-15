@@ -419,3 +419,72 @@ def test_the_run_reaches_tend(tend, dt, nsteps):
     not divide it (1.01 ms at 0.02 ms is 50 steps, to 1.00 ms)."""
     from gpuSolve.physics import HeatSolver
     assert HeatSolver({'Tend': tend, 'dt': dt}).nt() == nsteps
+
+
+def _write_two_tag_cable(folder: str):
+    """The same cable, with the left half tagged 1 and the right half tagged 2."""
+    with open(os.path.join(folder, 'cable.pts'), 'w') as fout:
+        fout.write('{}\n'.format(_NPT))
+        for ipt in range(_NPT):
+            fout.write('{:.6f} 0.000000 0.000000\n'.format(ipt * _DX))
+    with open(os.path.join(folder, 'cable.elem'), 'w') as fout:
+        fout.write('{}\n'.format(_NELEM))
+        for iel in range(_NELEM):
+            fout.write('Ln {} {} {}\n'.format(iel, iel + 1, 1 if iel < _NELEM // 2 else 2))
+    with open(os.path.join(folder, 'cable.lon'), 'w') as fout:
+        fout.write('1\n')
+        for _iel in range(_NELEM):
+            fout.write('1.0 0.0 0.0\n')
+
+
+def test_a_node_takes_the_highest_claimed_region(tmp_path):
+    """imp_region[1] claims tag 1 only, so tag 2 is claimed by nobody.
+
+    The nodal assignment must then be the reference's: a node is governed by
+    the highest tag an imp_region claims among the elements it belongs to, and
+    a node no claimed tag reaches falls to imp_region[0]. Node 25 belongs to
+    one element of each tag, so it goes to region 1, not to the default.
+
+    The assertion is on the per-node value of a cell parameter, which is where
+    the assignment is actually felt, and it also covers the lookup of the
+    nodes that carry the no-region sentinel.
+    """
+    from gpuSolve.carp_compatibility.optionreader import OptionReader
+    from gpuSolve.carp_compatibility.parametermapper import ParameterMapper
+    from gpuSolve.carp_compatibility.simulationrunner import SimulationRunner
+    folder = str(tmp_path)
+    _write_two_tag_cable(folder)
+    with open(os.path.join(folder, 'two.par'), 'w') as fout:
+        fout.write('meshname = cable\nsimID = OUT_TWO\ntend = 0.5\n'
+                   'dt = {}\nspacedt = 0.25\ntimedt = 100.0\n'
+                   'num_imp_regions = 2\n'
+                   'imp_region[0].im = "mMS"\n'
+                   'imp_region[0].im_param = "tau_in=0.3"\n'
+                   'imp_region[1].im = "mMS"\n'
+                   'imp_region[1].ID = 1\n'
+                   'imp_region[1].im_param = "tau_in=0.9"\n'
+                   'num_gregions = 1\ngregion[0].g_il = 0.174\n'
+                   'gregion[0].g_it = 0.174\n'.format(_DT_US))
+    cwd = os.getcwd()
+    try:
+        os.chdir(folder)
+        mapper = ParameterMapper()
+        mapper.resolve(OptionReader().read(['+F', 'two.par']))
+        runner = SimulationRunner({'verbose': False})
+        runner.set_mapper(mapper)
+        runner.build()
+        regions = np.reshape(np.asarray(runner.model().domain().point_region_ids()), (-1,))
+        tau_in  = np.reshape(np.asarray(runner.model().ionic_model().get_parameter('tau_in')), (-1,))
+        # the cell parameters live in the solver's node order once the run has
+        # been finalized, the region IDs in the mesh's: bring the first back
+        renumbering = runner.model().renumbering()
+        if renumbering is not None:
+            tau_in = np.take(tau_in, renumbering['iperm'])
+    finally:
+        os.chdir(cwd)
+    # nodes 0..25 meet an element of tag 1, which is the only claimed tag
+    assert np.array_equal(regions[:1 + _NELEM // 2], np.ones(1 + _NELEM // 2))
+    # nodes 26.. meet tag 2 only, which no region claims
+    assert np.array_equal(regions[1 + _NELEM // 2:], np.zeros(_NPT - 1 - _NELEM // 2) - 1.0)
+    assert np.allclose(tau_in[:1 + _NELEM // 2], 0.9)
+    assert np.allclose(tau_in[1 + _NELEM // 2:], 0.3)

@@ -599,7 +599,9 @@ def test_tomek_mixed_cell_types_travel_as_a_map():
     assert mapper.ionic_model_options() == {'cell_type': 'ENDO'}
     model = mapper.ionic_model_class()(dt=0.01, **mapper.ionic_model_options())
     maps  = mapper.ionic_parameter_maps(model, {1, 2})
-    assert maps['celltype'] == {1: 0.0, 2: 1.0}
+    # the maps are read node by node, so they also carry NODAL_DEFAULT_TAG,
+    # the ID of a node no region reaches, which takes imp_region[0]
+    assert maps['celltype'] == {1: 0.0, 2: 1.0, -1: 0.0}
 
 
 # ---- cell-model aliases ----------------------------------------------------
