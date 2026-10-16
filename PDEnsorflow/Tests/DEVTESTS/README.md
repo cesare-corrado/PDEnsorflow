@@ -16,6 +16,16 @@ needs an **idle** GPU: an earlier run on a card another process held at 99%
 reversed the conclusion for `all = 0`. The numbers it produced on an RTX 5090
 are in its docstring.
 
+## betaJump
+`beta_jump_cable.py` shows what the place of beta changes. On a 20 mm cable
+whose second half has four times the membrane surface per unit volume, it runs
+the same problem twice, once with beta dividing the conductivity (the
+formulation before this change) and once with beta on the mass integral and the
+conductivity divided by the single reference value, and prints the arrival time
+of the front at both. Inside each half the two agree, because a constant beta
+divides out exactly there; the whole difference is at the jump, where dividing
+by a function of space is not an identity.
+
 ## IO
 The automated `BaseWriter` unit test (`test_basewriter.py`) is now part of the
 continuous-integration suite at `Tests/CICD/unit/`, where it runs on every push

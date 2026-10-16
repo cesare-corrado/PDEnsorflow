@@ -36,8 +36,16 @@
     The 1.0e5 is the product of the S/m -> mS/um conversion (1.0e-3) and the
     um^2 -> cm^2 factor (1.0e-8) that turns beta Cm into uF/um^3. beta and
     volFrac only ever appear multiplied together, so they are folded into ONE
-    element property named `beta`, and the tensor function divides by it: that
-    keeps beta visible and per-element rather than pre-multiplied away.
+    element property named `beta`, which keeps beta visible and per-element
+    rather than pre-multiplied away.
+
+    That formula divides by beta, which is dividing the equation by a function
+    of space and is an identity only while beta is uniform. So only ONE value
+    of it, reference_beta(), leaves the membrane side and divides the
+    conductivity; the rest travels as the coefficient beta/beta_ref of the mass
+    integral, which is where the equation puts it. See
+    gpuSolve.physics.diffusion_tensor for the derivation. The sigma maps below
+    are therefore undivided: the solver performs the single division.
 
     A transmembrane stimulus needs no conversion at all. Under operator
     splitting the reference adds `dt * pulse.strength` straight to Vm, which is
@@ -773,8 +781,10 @@ class ParameterMapper:
 
     def element_property_maps(self, tags: set) -> dict:
         """ element_property_maps(tags) returns the {tag: value} maps of the
-            three element properties the diffusion tensor needs: sigma_l,
-            sigma_t (already in um^2/ms) and beta.
+            element properties of the diffusion problem: sigma_l, sigma_t (both
+            already in um^2/ms, undivided) and beta. The solver divides the
+            conductivity by reference_beta() alone and carries beta/beta_ref on
+            the mass integral.
         """
         sigma_l : dict = {}
         sigma_t : dict = {}
@@ -812,6 +822,41 @@ class ParameterMapper:
                 raise ValueError('imp_region[{}]: cellSurfVolRatio * volFrac must be '
                                  'positive, got {}'.format(iindex, beta[tag]))
         return({'sigma_l': sigma_l, 'sigma_t': sigma_t, 'beta': beta})
+
+    def reference_beta(self, beta_map: dict) -> float:
+        """ reference_beta(beta_map) returns the single value of beta that the
+            conductivity is divided by, given the per-tag beta map that
+            element_property_maps() built.
+            The equation may be divided by a constant but not by a function of
+            space, so one value leaves the membrane side and the rest of beta
+            stays there as the coefficient beta/beta_ref of the mass integral
+            (see gpuSolve.physics.diffusion_tensor). Which value is a free
+            choice: scaling both matrices by a constant does not change the
+            solution. Two things decide it:
+              * the beta of imp_region[0] when it governs a tag of this mesh.
+                It is the default region, so that is the value this front end
+                has always divided by, and a file with one beta then assembles
+                exactly the matrices it did before beta moved;
+              * otherwise the smallest beta in the map, because imp_region[0]'s
+                own value then belongs to no element: dividing by it would
+                rescale a system that should not have moved. This happens when
+                the other regions claim every tag of the mesh between them.
+            The reference is taken FROM THE MAP rather than computed beside it,
+            so that the divisor and the weights cannot disagree.
+        """
+        if len(beta_map) == 0:
+            raise ValueError('reference_beta: the beta map is empty, so there is no mesh '
+                             'tag to take a reference from')
+        values = set(float(value) for value in beta_map.values())
+        default = None
+        if self.count('imp_region') > 0:
+            default = float(self.value('imp_region[0].cellSurfVolRatio')
+                            * self.value('imp_region[0].volFrac'))
+        beta_ref = default if default in values else min(values)
+        if beta_ref <= 0.0:
+            raise ValueError('cellSurfVolRatio * volFrac must be positive, got {}'.format(
+                beta_ref))
+        return(beta_ref)
 
     def ionic_model_name(self) -> str:
         """ ionic_model_name() returns the cell model named by the imp_regions,

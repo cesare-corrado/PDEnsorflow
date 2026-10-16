@@ -61,8 +61,17 @@ Two things differ from that script, both because of the format:
   directly. A parameter file carries conductivities in **S/m** and the mesh in
   micrometres, so the same physics is `g_il = g_it = 0.01 S/m` with
   `cellSurfVolRatio = 1`: the mapping applies
-  `sigma = 1e5 * g * g_mult / (beta * volFrac) = 1000 um^2/ms`, which is
-  `0.001 mm^2/ms`.
+  `sigma = 1e5 * g * g_mult / (beta_ref * volFrac) = 1000 um^2/ms`, which is
+  `0.001 mm^2/ms`. `beta_ref` is the `beta` of `imp_region[0]`, the only value
+  the conductivity is divided by; where a file gives several regions different
+  `cellSurfVolRatio`, the rest of `beta` weighs the mass matrix instead. Here
+  both regions have `cellSurfVolRatio = 1`, so the weight is 1 and the two
+  readings of the formula coincide.
+* **Where `beta` goes.** `equivalent_script.py` registers the `beta` map, the
+  reference `beta_ref` and the weighted mass function, exactly as the runner
+  does, so the two routes assemble the same two matrices. With
+  `cellSurfVolRatio = 1` everywhere the mass coefficient is 1, so this changes
+  no number here; it keeps the script a faithful mirror of the front end.
 * **Pacing.** The script starts from a depolarised block at `x < 0.5 mm`. A
   parameter file paces with a stimulus, so `S1` covers the same strip with
   `pulse.strength = 60` for 2 ms. A transmembrane stimulus needs no unit

@@ -10,7 +10,8 @@
         CV = 0.5 (1 - 2 u_crit) sqrt(2 D / tau_in)
 
     with D the diffusion coefficient the solver actually used, which for this
-    parameter file is sigma / beta = 1000 um^2/ms. The measured speed comes
+    parameter file is sigma / beta_ref = 1000 um^2/ms (both regions share one
+    cellSurfVolRatio, so beta_ref is that value). The measured speed comes
     from a straight-line fit of the local activation time against x over the
     interior of the sheet, away from the paced strip and the far edge.
 
@@ -34,7 +35,7 @@ FRONTEND_LAT : str = os.path.join('OUT_mMS', 'init_acts_vm_act.dat')
 API_IGB : str      = os.path.join('OUT_mMS_api', 'vm.igb')
 MESH_PTS : str     = 'square.pts'
 
-D_COEFF : float  = 1000.0        # um^2/ms, sigma / beta as the parameter file sets them
+D_COEFF : float  = 1000.0        # um^2/ms, sigma / beta_ref as the parameter file sets them
 TAU_IN : float   = 0.15
 U_CRIT : float   = 0.1
 FRAME_DT : float = 1.0           # ms, the spacedt of the parameter file

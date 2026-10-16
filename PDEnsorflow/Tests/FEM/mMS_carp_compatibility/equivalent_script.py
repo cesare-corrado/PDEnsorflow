@@ -27,7 +27,7 @@ import tensorflow as tf
 from gpuSolve.ionic.mms2v import ModifiedMS2v
 from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
-from gpuSolve.physics import no_mass_property
+from gpuSolve.physics import mass_beta_weight
 from gpuSolve.IO.writers import IGBWriter
 
 
@@ -89,13 +89,17 @@ if __name__ == '__main__':
     model.add_element_material_property('sigma_l', 'region', sigma_l)
     model.add_element_material_property('sigma_t', 'region', sigma_t)
     model.add_element_material_property('beta', 'region', beta)
+    # the reference value the conductivity is divided by, as the parameter-file
+    # runner registers it: beta is uniform here, so the weight the mass
+    # integral carries is exactly 1 and the two matrices are unchanged
+    model.add_element_material_property('beta_ref', 'uniform', BETA)
     model.add_nodal_material_property('tau_in', 'region', tau_in)
     model.add_nodal_material_property('tau_out', 'region', tau_out)
     model.add_nodal_material_property('tau_open', 'region', tau_open)
     model.add_nodal_material_property('tau_close', 'region', tau_close)
     model.add_nodal_material_property('u_gate', 'region', u_gate)
     model.add_nodal_material_property('u_crit', 'region', u_crit)
-    model.add_material_function('mass', no_mass_property)
+    model.add_material_function('mass', mass_beta_weight)
     model.add_material_function('stiffness', conductivity_tensor)
     model.assign_nodal_properties()
     model.assemble_matrices()

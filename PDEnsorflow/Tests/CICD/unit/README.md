@@ -113,6 +113,47 @@ node IDs with the sentinel already resolved, and a `num_IDs` smaller than the
 assigned `ID[j]` list must not drop a tag. The default `mostfrequent` rule is
 asserted untouched in the same module.
 
+### `test_beta_in_mass.py` &mdash; where beta enters the system
+`beta`, the membrane surface area per unit tissue volume, belongs on the
+membrane side of `beta (Cm dV/dt + I_ion) = div(sigma grad V)`. Dividing the
+equation through by it, which is what this library did from the start, is exact
+only while `beta` is uniform: `div((sigma/beta) grad V)` is not
+`(1/beta) div(sigma grad V)`, the difference being a spurious term in
+`grad(beta)`. So a varying `beta` stays where the equation puts it, as the
+coefficient of the mass integral, and only a single reference value `beta_ref`
+divides the conductivity, which is dividing by a constant and always allowed.
+
+The tests pin both halves of that and the compatibility that matters: with a
+**uniform** `beta`, registering `beta_ref` must leave both matrices equal **to
+the bit**, since that is every existing run; with a varying `beta`, the mass
+matrix is checked element by element against the closed form of a 1D cable,
+with the interface node required to be the sum of its two half-elements each
+weighted by its own `beta`, which is what a nodal `beta` could not produce; the
+stiffness is checked to be divided by `beta_ref` **only**, since dividing by
+the element's `beta` as well would count it twice; and the same problem is
+assembled through both assembly paths, because the vectorised one builds the
+mass matrix from the element measures and never called the material function,
+so a coefficient it ignored would pass every test written against the
+per-element path. **Every assembly check is parametrised over both paths**, and
+the cable carries a fibre field for that reason: the vectorised path is taken
+only when the mesh has one, which is every mesh of the reference's format, and
+it divided the conductivity by the element's own `beta` while the per-element
+function divided by the reference. The two halves of the fix then disagreed on
+exactly the runs that matter, and a cable without fibres could not see it.
+
+Four more: the vectorised mass must follow the **registered material
+function**, so a problem that registers `beta` and `beta_ref` but asks for the
+geometric mass gets the geometric mass (deciding from the property names gave
+it a weighted one); a non-positive `beta` or `beta_ref` must stop the assembly
+on both paths, rather than produce a mass matrix that is not positive definite
+and quietly invalidate CG; `reference_beta()` is `imp_region[0]`'s
+`cellSurfVolRatio * volFrac` when that region governs a tag and the smallest
+`beta` of the map when it governs none, so a uniform `beta` is never rescaled;
+and the run itself must register all three things (the `beta` map, `beta_ref`,
+and the weighted mass function), recorded as `SimulationRunner.build()`
+registers them, because the solver drops its element properties once the
+matrices are assembled.
+
 ### `test_theta_scheme.py` &mdash; the theta method of the diffusion step
 `(M + theta dt K) U^{n+1} = (M - (1 - theta) dt K) U*`. On a 21-node cable with
 no forcing, the exact space-discrete solution `expm(-t M^-1 K) U0` (computed

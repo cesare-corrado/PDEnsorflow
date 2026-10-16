@@ -11,7 +11,9 @@
     It exists because the front end has whole layers the unit tests cannot
     reach on a small cable: the vectorised assembly path (which builds the
     diffusion tensor from the region maps WITHOUT calling the material
-    function, and so has to apply beta itself), reverse Cuthill-McKee
+    function, so it has to divide the conductivity by beta_ref and weigh the
+    mass integral by beta/beta_ref itself; it divided by the per-element beta
+    once, which counted beta twice on every mesh with fibres), reverse Cuthill-McKee
     renumbering of a real mesh, and the IGB writer's chunked flush. Two defects
     of exactly that kind were found by running the real example rather than the
     unit suite, which is the argument for this test.

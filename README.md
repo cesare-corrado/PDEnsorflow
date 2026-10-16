@@ -1,4 +1,4 @@
-# PDEnsorflow 1.13.1
+# PDEnsorflow 1.13.2
 
 **PDEnsorflow**  is a library developed under `TensorFlow 2.X` to solve Partial dfferential equations.
 Since version 1.2, it implements finite differences and finite element solvers.
@@ -125,7 +125,8 @@ Three points are worth knowing before writing a parameter file:
   same file name: the first writes it and the others read it, which skips the
   mesh connectivity and the assembly (160 s of the 185 s of setup on a 4.0
   M-node, 23 M-tetrahedron mesh). The file carries a key describing the mesh
-  content, the per-region conductivities and `beta`, and the renumbering: any
+  content, the per-region conductivities, `beta` and the reference `beta_ref`
+  the conductivity is divided by, and the renumbering: any
   difference and the matrices are reassembled, so a changed conductivity or a
   mesh rewritten in place can never be read back as the old one. `dt` and
   `theta` are deliberately not part of it, since the system matrix is rebuilt
