@@ -2,14 +2,19 @@ import numpy as np
 
 
 def localMass(elemtype: str,elemData: dict, props = None):
-    """function localMass(elemtype,elemData)
+    """function localMass(elemtype,elemData,props)
     returns the local mass matrix for element of type elemtype.
-    Material properties are considered uniform and unitary
-    on the Element.
-    Input: 
+    Material properties are considered uniform on the Element: props is the
+    scalar coefficient of the mass integral, and None means 1.0, which is the
+    mass matrix of a problem that has no such coefficient.
+    A coefficient that is constant on the element multiplies the integral
+    exactly, so it is a factor on the local matrix rather than a change of the
+    quadrature (gpuSolve.physics.diffusion_tensor.mass_beta_weight is the
+    monodomain case, where the coefficient is beta/beta_ref).
+    Input:
         elemtype: the type of geometric element
         elemData: the dictionary containing the element data
-        props:    a dummy argument
+        props:    the scalar coefficient of the integral, or None for 1.0
     Output:
          lmass: a numpy array of the local mass.
     """
@@ -22,7 +27,10 @@ def localMass(elemtype: str,elemData: dict, props = None):
                      'Pyras': None,
                      'Prisms': None
                     }  
-    return(function_dict[elemtype](elemData,props) )
+    lmass = function_dict[elemtype](elemData,props)
+    if props is None:
+        return(lmass)
+    return(props * lmass)
 
 
 def linear_Edge_local_Mass(elemData : dict, props = None) -> np.ndarray:

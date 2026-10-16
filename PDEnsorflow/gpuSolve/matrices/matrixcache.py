@@ -39,11 +39,21 @@ class MatrixCache:
     them would be of no use for it.
 
     The key holds everything the matrices depend on: the content digest of the
-    mesh file, the per-region sigma_l, sigma_t and beta, whether the nodes are
-    renumbered, and the gpuSolve version. It is compared whole, and ANY
+    mesh file, the per-region sigma_l, sigma_t and beta, the single reference
+    beta_ref that the conductivity is divided by (the rest of beta weighs the
+    mass integral, so both halves of it belong to the key), whether the nodes
+    are renumbered, and the gpuSolve version. It is compared whole, and ANY
     difference means reassembling: a cache that silently substituted the wrong
     conductivities would run physics nobody asked for and say nothing, which is
     far worse than being slow.
+
+    The key is the CALLER'S to build (see HeatSolver.set_matrix_cache), and it
+    has to name everything that selects how the matrices are assembled, not only
+    the values that go into them. beta is the example: the same per-region beta
+    assembles one mass matrix when it divides the conductivity and another when
+    it weighs the mass integral, so the key carries beta_ref, which is what
+    chooses between the two. A key that omitted it would match its own older
+    file and read back matrices of the other formulation without a word.
     """
 
     def __init__(self, config: dict = None):

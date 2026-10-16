@@ -193,16 +193,80 @@ _stiffness_nbasis = {
 }
 
 
-def _batch_local_mass_vectorized(elemtype, measures):
+def _batch_local_mass_vectorized(elemtype, measures, weights = None):
     """Vectorized local mass matrix computation.
     Input:
         elemtype: element type string
         measures: (nElems, 1) array of element measures
+        weights:  (nElems,) coefficients of the mass integral, or None for 1.0
     Output:
         (nElems, nV, nV) array of local mass matrices
     """
-    tpl = _mass_templates[elemtype]
-    return tpl['scale'] * measures[:, :, np.newaxis] * tpl['template'][np.newaxis, :, :]
+    tpl   = _mass_templates[elemtype]
+    lmass = tpl['scale'] * measures[:, :, np.newaxis] * tpl['template'][np.newaxis, :, :]
+    if weights is None:
+        return lmass
+    # a coefficient that is constant on the element is a factor on its local
+    # matrix, so it scales the batch; the measures already carry the geometry
+    return weights[:, np.newaxis, np.newaxis] * lmass
+
+
+# Vectorized coefficient of the mass integral for all elements.
+# The monodomain case is beta/beta_ref (see physics.diffusion_tensor), which is
+# region-based like the conductivities, so it is gathered the same way.
+def _try_batch_mass_weight(matr_name, elemtype, Elements, domain, matprops):
+    """Try to vectorize the mass coefficient. Returns (weights, success).
+    Input:
+        matr_name: the name of the matrix, used to find its ud_function
+        elemtype:  element type string
+        Elements:  numpy array of element connectivity (nElems x (nV+1))
+        domain:    the domain object
+        matprops:  MaterialProperties object
+    Output:
+        weights: (nElems,) array of coefficients, or None when there is none
+        success: True when this path may build the mass matrix, False when the
+                 per-element function must be called instead
+    """
+    if Elements.shape[0] == 0:
+        return None, True
+    # The REGISTERED FUNCTION decides whether the mass carries a coefficient,
+    # exactly as it does for the stiffness. Deciding from the property names
+    # instead would let this path invent a coefficient that the function
+    # declines to supply (a problem that registers beta and beta_ref but asks
+    # for the geometric mass would silently get a weighted one), so the
+    # function is asked, on the first element, and its answer is what this path
+    # has to reproduce.
+    probe = matprops.execute_ud_func(matr_name, elemtype, 0, domain, matprops)
+    if probe is None:
+        return None, True
+    prop_names = matprops.element_property_names()
+    if prop_names is None or 'beta' not in prop_names or 'beta_ref' not in prop_names:
+        # the function returned a coefficient but the properties this path
+        # gathers are not the ones it used: it is somebody else's function, so
+        # it runs per element and stays the only thing that decides the value
+        return None, False
+    # a property that is not region-based is left to the per-element function,
+    # so that both paths apply the coefficient identically rather than this one
+    # quietly ignoring it
+    if matprops.element_property_type('beta') != 'region':
+        return None, False
+    if matprops.element_property_type('beta_ref') != 'uniform':
+        return None, False
+    beta_map  = matprops._element_properties['beta']['idmap']
+    beta_ref  = float(matprops._element_properties['beta_ref']['idmap'])
+    if beta_ref <= 0.0:
+        raise ValueError('beta_ref must be positive, got {}'.format(beta_ref))
+    regionIDs = Elements[:, -1]
+    weights   = np.array([beta_map[int(r)] / beta_ref for r in regionIDs], dtype=np.float64)
+    if np.any(weights <= 0.0):
+        raise ValueError('beta must be positive, got {} in the region map'.format(
+            float(np.min(weights)) * beta_ref))
+    # the gather must reproduce what the function returned, or the two assembly
+    # paths would give different matrices for the same problem: a function that
+    # computes its coefficient some other way belongs on the per-element path
+    if not np.isclose(weights[0], float(probe), rtol=0.0, atol=0.0):
+        return None, False
+    return weights, True
 
 
 def _batch_local_stiffness_vectorized(elemtype, contrabasis, measures, Sigma_batch):
@@ -267,10 +331,21 @@ def _try_batch_sigma(matr_name, elemtype, Elements, domain, matprops):
     # per-element function, so that both paths apply it identically rather than
     # this one quietly ignoring it.
     beta_map = None
+    beta_ref = None
     if 'beta' in prop_names:
         if matprops.element_property_type('beta') != 'region':
             return None, False
         beta_map = matprops._element_properties['beta']['idmap']
+        # beta_ref, when it is registered, is the ONLY thing the conductivity is
+        # divided by: the rest of beta weights the mass integral instead (see
+        # _try_batch_mass_weight). Dividing by the element's own beta here as
+        # well would count beta twice, on both sides of the equation.
+        if 'beta_ref' in prop_names:
+            if matprops.element_property_type('beta_ref') != 'uniform':
+                return None, False
+            beta_ref = float(matprops._element_properties['beta_ref']['idmap'])
+            if beta_ref <= 0.0:
+                raise ValueError('beta_ref must be positive, got {}'.format(beta_ref))
 
     # Vectorized: gather region IDs and fibre directions for all elements
     regionIDs = Elements[:, -1]                                # (nElems,)
@@ -281,9 +356,15 @@ def _try_batch_sigma(matr_name, elemtype, Elements, domain, matprops):
     sigma_l_arr = np.array([sigma_l_map[int(r)] for r in regionIDs], dtype=np.float64)  # (nElems,)
     sigma_t_arr = np.array([sigma_t_map[int(r)] for r in regionIDs], dtype=np.float64)  # (nElems,)
     if beta_map is not None:
-        beta_arr    = np.array([beta_map[int(r)] for r in regionIDs], dtype=np.float64)
-        sigma_l_arr = sigma_l_arr / beta_arr
-        sigma_t_arr = sigma_t_arr / beta_arr
+        if beta_ref is not None:
+            divisor = beta_ref
+        else:
+            divisor = np.array([beta_map[int(r)] for r in regionIDs], dtype=np.float64)
+            if np.any(divisor <= 0.0):
+                raise ValueError('beta must be positive, got {} in the region map'.format(
+                    float(np.min(divisor))))
+        sigma_l_arr = sigma_l_arr / divisor
+        sigma_t_arr = sigma_t_arr / divisor
     # Sigma = sigma_t * I + (sigma_l - sigma_t) * fib ⊗ fib
     eye3 = np.eye(3, dtype=np.float64)
     diff_sigma = sigma_l_arr - sigma_t_arr                     # (nElems,)
@@ -328,8 +409,12 @@ def _batch_local_matrices(elemtype, Elements, domain, local_matrices_dict, matpr
         # Vectorized mass matrix
         for matr_name in list(remaining.keys()):
             if remaining[matr_name] is localMass and elemtype in _mass_templates:
-                batch_lmat[matr_name] = _batch_local_mass_vectorized(elemtype, measures)
-                del remaining[matr_name]
+                weights, weights_ok = _try_batch_mass_weight(
+                    matr_name, elemtype, Elements, domain, matprops)
+                if weights_ok:
+                    batch_lmat[matr_name] = _batch_local_mass_vectorized(
+                        elemtype, measures, weights)
+                    del remaining[matr_name]
 
         # Vectorized stiffness matrix
         for matr_name in list(remaining.keys()):
