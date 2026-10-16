@@ -18,7 +18,7 @@ import numpy as np
 from gpuSolve.physics import HeatSolver
 from gpuSolve.physics import MonodomainSolver
 from gpuSolve.physics import conductivity_tensor
-from gpuSolve.physics import no_mass_property
+from gpuSolve.physics import mass_beta_weight
 from gpuSolve.physics import Prepacer
 from gpuSolve.physics import LatDetector
 from gpuSolve.ionic.ionicmodelwithplugins import IonicModelWithPlugins
@@ -64,6 +64,7 @@ class SimulationRunner:
         self._next_chkpt : float     = None
         self._lats : list            = None
         self._element_maps : dict    = None
+        self._beta_ref : float       = None
 
         if config is not None:
             for attribute in self.__dict__.keys():
@@ -377,15 +378,25 @@ class SimulationRunner:
 
     def __assign_materials(self):
         """ registers the conductivities and beta, and the two material
-            functions the assembler calls
+            functions the assembler calls.
+            beta is registered twice over: as the per-region map, and as the
+            single reference value beta_ref that the conductivity is divided by.
+            The equation may be divided by a constant but not by a function of
+            space, so only the reference leaves the membrane side; the rest of
+            beta stays there, as the coefficient beta/beta_ref of the mass
+            integral (see gpuSolve.physics.diffusion_tensor). Where beta is
+            uniform the coefficient is exactly 1 and the two matrices are the
+            ones every earlier version assembled.
         """
         maps = self._mapper.element_property_maps(self.__mesh_tags())
         # kept, because they are also the part of the matrix cache key that
         # describes the physics, and recomputing them there could drift
         self._element_maps = maps
+        self._beta_ref     = self._mapper.reference_beta(maps['beta'])
         for pname in ('sigma_l', 'sigma_t', 'beta'):
             self._model.add_element_material_property(pname, 'region', maps[pname])
-        self._model.add_material_function('mass', no_mass_property)
+        self._model.add_element_material_property('beta_ref', 'uniform', self._beta_ref)
+        self._model.add_material_function('mass', mass_beta_weight)
         self._model.add_material_function('stiffness', conductivity_tensor)
 
     def __configure_matrix_cache(self):
@@ -411,6 +422,9 @@ class SimulationRunner:
                  'sigma_l': self._element_maps['sigma_l'],
                  'sigma_t': self._element_maps['sigma_t'],
                  'beta': self._element_maps['beta'],
+                 # the mass matrix now carries beta/beta_ref, so the reference
+                 # is part of what the two matrices depend on
+                 'beta_ref': self._beta_ref,
                  'renumbering': int(self._mapper.value('renumbering') != 0),
                  'gpuSolve_version': cache.version_string()}
         self._model.set_matrix_cache(fname, key)
