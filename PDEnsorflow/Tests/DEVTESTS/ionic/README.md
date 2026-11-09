@@ -43,8 +43,9 @@ Single-cell pacing of the Tomek (ToR-ORd) model for ENDO, EPI and MCELL at once
 (three nodes of one model). The step follows the order of the reference
 single-cell tool, `bench`: the stimulus is added to V, the model is advanced with
 that V, then `V -= dt*Iion`. The model default uses Rush-Larsen for the gates
-and the matrix exponential for the IKr Markov chain; `--forward_euler` selects
-the scheme of the reference for both. The 1 ms stepping loop is compiled with XLA (about
+and the SR release fluxes `Jrel_np`, `Jrel_p`, and the matrix exponential for the
+IKr Markov chain; `--forward_euler` selects the scheme of the reference for all
+of them. The 1 ms stepping loop is compiled with XLA (about
 12 s per beat on the RTX A2000 instead of about 19 minutes); `--no_xla` turns
 that off.
 
