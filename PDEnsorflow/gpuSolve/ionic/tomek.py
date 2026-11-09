@@ -100,7 +100,12 @@ class Tomek(IonicModel):
         False they hold x_inf(V), tau(V) and the IKr rates, and every one of
         these variables uses forward Euler, written as the reference
         implementation writes it, which is useful to compare with it step for
-        step. All other variables use forward Euler in both modes.
+        step. The SR release fluxes Jrel_np and Jrel_p follow the same switch:
+        with True they use the Rush-Larsen update, computed in place because
+        their steady state and time constant depend on ICaL_ss and Cajsr, not
+        on V alone, and they are not clipped to [0, 1]; with False they use
+        forward Euler and the reference's [0, 1] clip. All other variables use
+        forward Euler in both modes.
 
         differentiate() is compiled with XLA. The model has several hundred
         small kernels per step; fused, a step on the RTX A2000 takes 2.7 ms for
@@ -426,6 +431,7 @@ class Tomek(IonicModel):
         variables and of the IKr Markov chain: exponential schemes (True,
         default; Rush-Larsen for the gates, the matrix exponential for the
         chain) or forward Euler for both (False), the reference's scheme. The
+        SR release fluxes Jrel_np and Jrel_p follow the same choice. The
         choice is baked into the voltage table, so it must be made before
         initialize_state_variables().
         """
@@ -1100,6 +1106,15 @@ class Tomek(IonicModel):
         new : dict = {name: s[name] + dt * rate for name, rate in diff.items()}
 
         if self._use_rush_larsen:
+            # SR release fluxes: Rush-Larsen, x_new = x_inf + (x - x_inf) exp(-dt/tau).
+            # They relax linearly towards Jrel_inf with tau_rel, i.e. they have
+            # the form of a gate, so the exponential update is exact for inputs
+            # frozen over the step. Jrel_inf depends on ICaL_ss and Cajsr, so the
+            # update cannot come from the voltage table and is computed here.
+            # tau_rel >= 0.001 ms, so dt/tau <= 10 at dt = 0.01 ms and exp() has
+            # no cancellation problem.
+            new['Jrel_np'] = Jrel_inf + (s['Jrel_np'] - Jrel_inf) * tf.exp(-dt / tau_rel)
+            new['Jrel_p']  = Jrel_infp + (s['Jrel_p'] - Jrel_infp) * tf.exp(-dt / tau_relp)
             # IKr Markov chain: x_new = exp(dt Q(V)) x, the tabulated step matrix
             ikr = [s[name] for name in _IKR_STATES]
             for i, name in enumerate(_IKR_STATES):
@@ -1124,8 +1139,16 @@ class Tomek(IonicModel):
 
         # ---- bounds of the reference model, then store ----
         concentrations = ('CaMKt', 'Nai', 'Nass', 'Ki', 'Kss', 'Cai', 'Cass', 'Cansr', 'Cajsr')
+        # The reference clips Jrel_np and Jrel_p to [0, 1] with the gates. They
+        # are fluxes (mM/ms), not probabilities, so that bound has no physical
+        # meaning; it is kept in forward-Euler mode only, to reproduce the
+        # reference step for step. The Rush-Larsen update stays between the old
+        # value and Jrel_inf on its own and needs no clip.
+        unclipped = ('Jrel_np', 'Jrel_p') if self._use_rush_larsen else ()
         for name in self.state_variable_names():
-            if name in concentrations:
+            if name in unclipped:
+                value = new[name]
+            elif name in concentrations:
                 value = tf.maximum(new[name], 1.0e-9)
             else:
                 value = tf.clip_by_value(new[name], 0.0, 1.0)
