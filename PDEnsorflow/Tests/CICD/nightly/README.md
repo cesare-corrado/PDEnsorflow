@@ -72,6 +72,16 @@ conda run -n <gpu-env> python -m pytest PDEnsorflow/Tests/CICD/unit PDEnsorflow/
   `dt = 0.01` ms) forward Euler on Tomek's IKr Markov chain is unstable in both
   codes, so that part of a Tomek trajectory is a shared numerical artifact.
   Marked `nightly` + `gpu`.
+- `test_roe_reference_exchange.py` &mdash; binary state files (`.roe`) exchanged
+  with the reference simulator. The same parameter file is run by the reference
+  and by the front end on a 525-node, two-region slab, each saving at 10 ms; the
+  two files have the same name, format, region table and mask, and each
+  simulator restarted from the other's file continues the run that wrote it
+  within 0.05 mV over 10..20 ms (measured 0.008 mV Tomek, 0.005 mV
+  tenTusscherPanfilov with the electroporation plugin, against 0.22 mV between
+  the two simulators). An `mMS` case runs where the reference has that user
+  model. The module **skips without an error** where `openCARP` or `mesher` is
+  not installed. Marked `nightly` (it needs the reference, not a GPU).
 - `_gpu_check.py` &mdash; GPU sanity gate for the workflow (imports gpuSolve, then
   fails if no physical GPU is visible). Not a test; the leading underscore keeps
   pytest from collecting it. Run it as a script, never via `python -c`.

@@ -37,6 +37,10 @@ class MonodomainSolver(HeatSolver):
         # and quietly conclude the model is uniform.
         self._nodal_cell_parameters : list       = []
         self._has_nodal_cell_parameters : bool   = False
+        # The ionic term of the last step, dV/dt from the cell model alone. Only
+        # a reference to the tensor the step computes anyway is kept, so this
+        # costs no copy and no extra work; a saved state reads it as Iion.
+        self._ionic_rate : tf.Tensor             = None
         # Keep the ionic model's dt aligned with the solver's dt.
         if hasattr(self._ionic_model, '_dt'):
             self._ionic_model._dt = self._dt
@@ -150,6 +154,7 @@ class MonodomainSolver(HeatSolver):
             the ionic step (differentiate) is compiled with XLA.
         """
         dU   = self._ionic_model.differentiate(U)
+        self._ionic_rate = dU
         dU   = tf.add(dU, I0)
         RHS  = self._diffusion_rhs(U, dU)
         self._Solver.set_X0(self._warm_start_X0(U))
@@ -160,6 +165,35 @@ class MonodomainSolver(HeatSolver):
     # ---- accessors ----------------------------------------------------------
     def ionic_model(self) -> IonicModel:
         return self._ionic_model
+
+    def ionic_current(self) -> np.ndarray:
+        """ ionic_current() returns Iion, the ionic current density of the last
+            step in uA/uF (= mV/ms), one value per node in the user's node order:
+            the opposite of the cell model's rate dV/dt, the sign convention of
+            the reference's Iion. None before the first step.
+        """
+        if self._ionic_rate is None:
+            return(None)
+        rate = np.reshape(self._ionic_rate.numpy(), (-1,)).astype(np.float64)
+        return(-self._to_user_order(rate))
+
+    def cell_parameter(self, pname: str) -> np.ndarray:
+        """ cell_parameter(pname) returns the values of a cell (or plugin)
+            parameter, one per node in the user's node order, whether the model
+            holds one value or one per node (and whatever the renumbering).
+            None when the model has no such parameter.
+        """
+        value = self._ionic_model.get_parameter(pname)
+        if value is None:
+            return(None)
+        npt    = int(self._Domain.Pts().shape[0])
+        values = np.reshape(np.asarray(value, dtype=np.float64), (-1,))
+        if values.size == 1:
+            return(np.full(npt, values[0], dtype=np.float64))
+        if values.size != npt:
+            raise ValueError('cell parameter {} holds {} values for {} nodes'.format(
+                pname, values.size, npt))
+        return(self._to_user_order(values))
 
     def nodal_cell_parameters(self) -> list:
         """ nodal_cell_parameters() returns the names of the cell parameters

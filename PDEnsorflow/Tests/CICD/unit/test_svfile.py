@@ -28,6 +28,7 @@ from gpuSolve.carp_compatibility.svlayouts import sv_layout
 from gpuSolve.carp_compatibility.svstatefile import SvStateFile
 from gpuSolve.ionic.ms2v import MitchellSchaeffer2v
 from gpuSolve.ionic.mms2v import ModifiedMS2v
+from gpuSolve.ionic.fenton4v import Fenton4v
 
 # A state file written by bench, verbatim.
 BENCH_FILE = """0.800012            # Vm
@@ -59,6 +60,8 @@ REFERENCE_ORDER = {
     'tenTusscherPanfilov': ('CaSR CaSS Cai D F F2 FCaSS GCaL GKr GKs Gto H J Ki M Nai R R_ '
                             'S Xr1 Xr2 Xs'),
     'MitchellSchaeffer': 'V_gate V_max V_min a_crit h tau_close tau_in tau_open tau_out',
+    # the reference's user model mMS.model, generated with its limpet_fe.py
+    'mMS': 'V_gate V_max V_min a_crit h tau_close tau_in tau_open tau_out',
     'Tomek': ('C1 C2 C3 CaMKt Cai Cajsr Cansr Cass I Jrel_np Jrel_p Ki Kss Nai Nass O a ap d '
               'fCaf fCafp fCas ff ffp fs h hL hLp hp iF iFp iS iSp j jCa jp m mL nCa_i nCa_ss '
               'xs1 xs2'),
@@ -150,12 +153,24 @@ def test_every_state_and_parameter_of_a_layout_exists(name):
             assert model.get_parameter(entry[2]) is not None, entry
 
 
-def test_models_without_reference_counterpart_use_their_own_names():
-    # ModifiedMS2v is not the reference's MitchellSchaeffer (its outward
-    # current has a (1 - h) factor), so it gets its own section
+def test_mms_has_the_structure_of_the_reference_user_model():
+    # ModifiedMS2v is the reference's user model mMS (mMS.model): the nine
+    # fields of MitchellSchaeffer's structure, but its own model, so its own
+    # section; a_crit is the excitation threshold u_crit, not the constant 0
     section, entries = sv_layout(ModifiedMS2v(dt=0.01), 'mMS')
     assert section == 'mMS'
-    assert entries == [('H_state', 'state', 'H_state', 1.0, False)]
+    assert [entry[0] for entry in entries] == ['V_gate', 'V_max', 'V_min', 'a_crit', 'h',
+                                               'tau_close', 'tau_in', 'tau_open', 'tau_out']
+    assert ('a_crit', 'parameter', 'u_crit', 1.0, False) in entries
+    # MitchellSchaeffer with a non-zero a_crit runs ModifiedMS2v, and the
+    # state is still the reference's MitchellSchaeffer
+    assert sv_layout(ModifiedMS2v(dt=0.01), 'MitchellSchaeffer')[0] == 'MitchellSchaeffer'
+
+
+def test_models_without_reference_counterpart_use_their_own_names():
+    section, entries = sv_layout(Fenton4v(dt=0.01), 'Fenton')
+    assert section == 'Fenton'
+    assert [entry[0] for entry in entries] == list(Fenton4v(dt=0.01).state_variable_names())
 
 
 @pytest.mark.parametrize('name', sorted(IONIC_PLUGINS.keys()))

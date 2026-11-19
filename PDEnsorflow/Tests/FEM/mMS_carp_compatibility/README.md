@@ -20,16 +20,22 @@ python make_mesh.py --remove         # delete the generated mesh
 ### Saving the state and resuming from it
 
 ```
-PDEnsorflow +F parameters.par -num_tsav 1 -tsav[0] 100                          # also writes OUT_mMS/state.100.pkl
-PDEnsorflow +F parameters.par -simID OUT_mMS_restart -start_statef OUT_mMS/state.100
+PDEnsorflow +F parameters.par -num_tsav 1 -tsav[0] 100                          # also writes OUT_mMS/state.100.0.roe
+PDEnsorflow +F parameters.par -simID OUT_mMS_restart -start_statef OUT_mMS/state.100.0
 python check_restart.py              # the resumed run against the uninterrupted one
 ```
+
+The state is saved as the reference simulator saves it (`state_format = roe1`,
+the default): a binary `.roe` file named as the reference names it, from which
+the reference can restart too. `-state_format pkl` writes gpuSolve's own
+checkpoint instead (`state.100.0.pkl`); the restart below is the same with
+either.
 
 The resumed run starts at step 1000 (t = 100 ms) and writes frames for
 [100, 250] ms. Measured on an RTX A2000:
 
 ```
-state file : OUT_mMS/state.100.pkl at t = 100.0000 ms, model ModifiedMS2v, 63001 nodes, 1 state variable(s)
+state file : OUT_mMS/state.100.0.roe (format 1) at t = 100.0000 ms, 63001 nodes, regions mMS (47125 nodes), mMS (15876 nodes)
 frames     : uninterrupted 251, restarted 151
 restart frame 0 vs saved Vm: max |dV| = 0.000e+00 mV
 restarted vs uninterrupted over the last 150 frames (150 ms):

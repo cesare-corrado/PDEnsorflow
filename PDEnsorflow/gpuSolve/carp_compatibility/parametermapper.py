@@ -66,6 +66,7 @@ from gpuSolve.ionic.plugins.electroporation_debruin_krassowska98 import Electrop
 from gpuSolve.ionic.plugins.defib_ashihara_trayanova import DefibAshiharaTrayanova
 from gpuSolve.ionic.ionicmodelwithplugins import PLUGIN_SEPARATOR
 from gpuSolve.ionic.ionicmodelwithplugins import ACTIVE_PARAMETER
+from gpuSolve.IO.writers.roewriter import tsav_label
 
 
 # S/m and micrometres to um^2/ms, once beta (um^-1) has divided it out.
@@ -90,6 +91,10 @@ MAX_SAVE_TIMES : int = 50
 # Base name of the files written by interval checkpointing (chkpt_intv); the
 # time of the checkpoint is appended to it.
 CHECKPOINT_BASENAME : str = 'checkpoint'
+
+# Values of state_format: the reference's binary state file in its format 1 or
+# 3, or gpuSolve's own checkpoint.
+STATE_FORMATS : tuple = ('roe1', 'roe3', 'pkl')
 
 # Cell models. `MitchellSchaeffer` covers both variants: a_crit is 0 by default,
 # which is the plain model, and non-zero selects the modified one.
@@ -236,6 +241,14 @@ REGISTRY = {
     # the file and the others read it, which skips the mesh connectivity and
     # the assembly (160 s of the 185 s of setup on a 4.0 M-node mesh).
     'matrix_cache':                 ('str',   '',        True),
+    # gpuSolve-only: the format of the states saved by tsav and chkpt_intv.
+    # roe1 is the reference's binary state file as its release 19.0 writes and
+    # reads it, roe3 the format of its later releases; with either, an output
+    # folder of one simulator restarts the other with no renaming. pkl is
+    # gpuSolve's own checkpoint: it keeps the gates in float64, where the
+    # reference's file rounds them to float32, so a restart from it repeats an
+    # uninterrupted gpuSolve run exactly.
+    'state_format':                 ('str',   'roe1',    True),
     'num_gregions':                 ('int',   1,         True),
     'num_imp_regions':              ('int',   1,         True),
     'num_stim':                     ('int',   0,         True),
@@ -407,15 +420,6 @@ def expand_idset(text: str) -> list:
         else:
             raise ValueError('cannot read tag range "{}"'.format(chunk))
     return(tags)
-
-
-def time_label(ctime: float) -> str:
-    """ time_label(ctime) writes a time in ms for a file name, without trailing
-        zeros: 100.0 -> "100", 12.5 -> "12.5". Six decimals are kept before the
-        zeros are trimmed, so two save times one microsecond apart still get
-        different names.
-    """
-    return('{:.6f}'.format(ctime).rstrip('0').rstrip('.'))
 
 
 def parse_im_param(text: str, aliases: dict = None) -> dict:
@@ -653,12 +657,17 @@ class ParameterMapper:
     def savestate_settings(self) -> dict:
         """ savestate_settings() returns when to save the state and what to resume
             from, with every time in ms:
-              'save_times':   [(time, file name without extension)], one per tsav
+              'save_times':   [(time, tsav_ext)], one per tsav, in the given order
+              'write_statef': the base name of the tsav files
               'start_statef': the checkpoint to resume from ('' for a fresh run)
               'chkpt_start', 'chkpt_intv', 'chkpt_stop': interval checkpointing,
                               off when chkpt_intv is 0
+              'state_format': 'roe1', 'roe3' or 'pkl' (see STATE_FORMATS)
             The derived defaults are the reference's: a tsav that is not given is
-            one time step before tend, and its file-name suffix is the save time.
+            one time step before tend, and its tsav_ext is the save time printed
+            with one decimal (tsav_label). The file name itself is made where the
+            state is saved, because the reference takes the tsav_ext of the save
+            time nearest to the step that saves.
         """
         tend  = self.value('tend')
         dt_ms = self.value('dt') * DT_MICROSECONDS_TO_MS
@@ -666,7 +675,6 @@ class ParameterMapper:
         if nsav > MAX_SAVE_TIMES:
             raise ValueError('num_tsav = {}: at most {} save times are accepted'.format(
                 nsav, MAX_SAVE_TIMES))
-        basename = self.value('write_statef')
         saves : list = []
         for index in range(nsav):
             tsav = self.value('tsav[{}]'.format(index))
@@ -676,8 +684,8 @@ class ParameterMapper:
                 raise ValueError('tsav[{}] = {}: a save time cannot be negative'.format(index, tsav))
             suffix = self.value('tsav_ext[{}]'.format(index))
             if suffix is None or len(suffix.strip()) == 0:
-                suffix = time_label(tsav)
-            saves.append((tsav, '{}.{}'.format(basename, suffix.strip())))
+                suffix = tsav_label(tsav)
+            saves.append((tsav, suffix.strip()))
         chkpt_start = self.value('chkpt_start')
         chkpt_intv  = self.value('chkpt_intv')
         chkpt_stop  = self.value('chkpt_stop')
@@ -687,7 +695,13 @@ class ParameterMapper:
                          ('chkpt_stop', chkpt_stop)):
             if val < 0.0 or val > tend:
                 raise ValueError('{} = {}: must lie between 0 and tend = {}'.format(key, val, tend))
+        state_format = self.value('state_format').strip()
+        if state_format not in STATE_FORMATS:
+            raise ValueError('state_format = "{}": must be one of {}'.format(
+                state_format, ', '.join(STATE_FORMATS)))
         return({'save_times': saves,
+                'write_statef': self.value('write_statef'),
+                'state_format': state_format,
                 'start_statef': self.value('start_statef').strip(),
                 'chkpt_start': chkpt_start,
                 'chkpt_intv': chkpt_intv,
@@ -924,6 +938,16 @@ class ParameterMapper:
         if len(distinct) == 1:
             return({'cell_type': distinct.pop()})
         return({'cell_type': DEFAULT_CELL_TYPE[name]})
+
+    def imp_region_assignment(self, tags: set) -> dict:
+        """ imp_region_assignment(tags) returns {node region ID: imp_region
+            index} for the IDs point_region_ids() can put on a node of a mesh
+            carrying the element tags `tags` (NODAL_DEFAULT_TAG included). It is
+            the region every per-node quantity is resolved with: the cell
+            parameters, the state files, and the region mask of a binary state
+            file, which the reference writes as this index.
+        """
+        return(self.__nodal_tag_to_entry(tags)[1])
 
     def nodal_region_tags(self) -> set:
         """ nodal_region_tags() returns the element tags claimed by the
