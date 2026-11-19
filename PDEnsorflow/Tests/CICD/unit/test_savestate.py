@@ -233,29 +233,32 @@ def restart_runs(tmp_path_factory) -> dict:
     _write_cable(folder)
     with open(os.path.join(folder, 'full.par'), 'w') as fout:
         # renumbering is on by default: the saving run switches it off, so the
-        # restart (on) checks that a checkpoint is stored in the user's order
-        fout.write(_par('OUT_A', 'num_tsav = 1\ntsav[0] = {}\nchkpt_intv = 2.0\nrenumbering = 0\n'.format(_TSAV)))
+        # restart (on) checks that a checkpoint is stored in the user's order.
+        # These tests are about gpuSolve's own checkpoint (state_format = pkl);
+        # the binary state file of the reference is test_roe_state.py's
+        fout.write(_par('OUT_A', 'num_tsav = 1\ntsav[0] = {}\nchkpt_intv = 2.0\nrenumbering = 0\n'
+                        'state_format = pkl\n'.format(_TSAV)))
     with open(os.path.join(folder, 'restart.par'), 'w') as fout:
         # the extension is left out on purpose: it is accepted either way
-        fout.write(_par('OUT_B', 'start_statef = OUT_A/state.3\nrenumbering = 1\n'))
+        fout.write(_par('OUT_B', 'start_statef = OUT_A/state.3.0\nrenumbering = 1\n'))
     status_a = _run_in(folder, ['+F', 'full.par'])
     status_b = _run_in(folder, ['+F', 'restart.par'])
     return({'folder': folder, 'status_a': status_a, 'status_b': status_b})
 
 
 def test_the_save_times_write_their_files(restart_runs):
-    """tsav writes <write_statef>.<time>.pkl; checkpointing writes one file every
+    """tsav writes <write_statef>.<time %.1f>.pkl; checkpointing writes one file every
     chkpt_intv from chkpt_start up to chkpt_stop INCLUDED, which defaults to
     tend: the run reaches tend, and the reference's interval timer includes its
     end step, so there is a checkpoint at tend too."""
     assert restart_runs['status_a'] == 0
     outdir = os.path.join(restart_runs['folder'], 'OUT_A')
-    for name in ('state.3.pkl', 'checkpoint.0.pkl', 'checkpoint.2.pkl', 'checkpoint.4.pkl',
-                 'checkpoint.6.pkl'):
+    for name in ('state.3.0.pkl', 'checkpoint.0.0.pkl', 'checkpoint.2.0.pkl',
+                 'checkpoint.4.0.pkl', 'checkpoint.6.0.pkl'):
         assert os.path.isfile(os.path.join(outdir, name)), name
 
     reader = StateReader()
-    reader.read(os.path.join(outdir, 'state.3.pkl'))
+    reader.read(os.path.join(outdir, 'state.3.0.pkl'))
     assert reader.ionic_model() == 'ModifiedMS2v'
     assert reader.num_nodes() == _NPT
     assert reader.time() == pytest.approx(_TSAV, abs=0.5 * _DT_MS)
@@ -282,7 +285,7 @@ def test_the_restarted_run_matches_the_uninterrupted_one(restart_runs):
     assert V_restart.shape[0] == 1 + len(restart_steps)
 
     saved = StateReader()
-    saved.read(os.path.join(folder, 'OUT_A', 'state.3.pkl'))
+    saved.read(os.path.join(folder, 'OUT_A', 'state.3.0.pkl'))
     np.testing.assert_allclose(V_restart[0, :], saved.Vm(), atol=1.0e-5)
 
     V_matching = V_full[full_steps.index(restart_steps[0]):, :]
@@ -446,10 +449,13 @@ def _mapper(argv: list) -> ParameterMapper:
 
 
 def test_savestate_defaults_follow_the_format():
-    """A tsav left unset is one step before tend, named after its time; interval
-    checkpointing is off and stops at tend."""
+    """A tsav left unset is one step before tend, labelled with its time to one
+    decimal as the reference labels it; the files are the reference's binary
+    state files; interval checkpointing is off and stops at tend."""
     settings = _mapper(['-tend', '100', '-dt', '25', '-num_tsav', '1']).savestate_settings()
-    assert settings['save_times'] == [(pytest.approx(99.975), 'state.99.975')]
+    assert settings['save_times'] == [(pytest.approx(99.975), '100.0')]
+    assert settings['write_statef'] == 'state'
+    assert settings['state_format'] == 'roe1'
     assert settings['start_statef'] == ''
     assert settings['chkpt_intv'] == 0.0
     assert settings['chkpt_stop'] == 100.0
@@ -458,7 +464,10 @@ def test_savestate_defaults_follow_the_format():
 def test_save_times_take_their_names_from_tsav_ext_and_write_statef():
     settings = _mapper(['-num_tsav', '2', '-tsav[0]', '10', '-tsav[1]', '12.5',
                         '-tsav_ext[1]', 'late', '-write_statef', 'sv']).savestate_settings()
-    assert settings['save_times'] == [(10.0, 'sv.10'), (12.5, 'sv.late')]
+    assert settings['save_times'] == [(10.0, '10.0'), (12.5, 'late')]
+    assert settings['write_statef'] == 'sv'
+    with pytest.raises(ValueError, match='state_format'):
+        _mapper(['-state_format', 'roe2']).savestate_settings()
 
 
 def test_savestate_ranges_are_enforced():

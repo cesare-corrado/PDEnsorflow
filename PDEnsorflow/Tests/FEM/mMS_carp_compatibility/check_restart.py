@@ -6,8 +6,12 @@
     into another output folder:
 
         PDEnsorflow +F parameters.par -num_tsav 1 -tsav[0] 100
-        PDEnsorflow +F parameters.par -simID OUT_mMS_restart -start_statef OUT_mMS/state.100
+        PDEnsorflow +F parameters.par -simID OUT_mMS_restart -start_statef OUT_mMS/state.100.0
         python check_restart.py
+
+    The state is saved as the reference simulator saves it (state_format =
+    roe1, the default): OUT_mMS/state.100.0.roe, a binary state file the
+    reference can restart from too.
 
     The restarted output starts with the saved potential and then records the
     same frames as the uninterrupted run from 100 ms on, so the two are compared
@@ -28,11 +32,11 @@ os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
 import numpy as np
 
 from gpuSolve.IO.readers import IGBReader
-from gpuSolve.IO.readers import StateReader
+from gpuSolve.IO.readers import RoeReader
 
 FULL_IGB : str    = os.path.join('OUT_mMS', 'vm.igb')
 RESTART_IGB : str = os.path.join('OUT_mMS_restart', 'vm.igb')
-STATE_FILE : str  = os.path.join('OUT_mMS', 'state.100.pkl')
+STATE_FILE : str  = os.path.join('OUT_mMS', 'state.100.0.roe')
 FRAME_DT : float  = 1.0          # ms, the spacedt of the parameter file
 
 
@@ -45,11 +49,13 @@ def read_igb(path: str) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    state = StateReader()
-    state.read(STATE_FILE)
-    print('state file : {} at t = {:.4f} ms, model {}, {} nodes, {} state variable(s)'.format(
-        STATE_FILE, state.time(), state.ionic_model(), state.num_nodes(),
-        len(state.state_variables())))
+    state   = RoeReader()
+    content = state.read(STATE_FILE)
+    print('state file : {} (format {}) at t = {:.4f} ms, {} nodes, regions {}'.format(
+        STATE_FILE, content['format'], state.time(), state.num_nodes(),
+        ', '.join('{} ({} nodes)'.format(region['model'], state.region_nodes(index).size)
+                  for index, region in enumerate(content['regions']))))
+    saved_Vm = content['globals']['Vm']
 
     V_full    = read_igb(FULL_IGB)
     V_restart = read_igb(RESTART_IGB)
@@ -57,7 +63,7 @@ if __name__ == '__main__':
 
     # the first restarted frame is the saved state itself
     print('restart frame 0 vs saved Vm: max |dV| = {:.3e} mV'.format(
-        np.abs(V_restart[0, :] - state.Vm()).max()))
+        np.abs(V_restart[0, :] - saved_Vm).max()))
 
     # the remaining frames are the last ones of the uninterrupted run
     overlap = V_restart.shape[0] - 1

@@ -29,11 +29,19 @@
     (limpet/src/imps_src/<Model>.h, struct <Model>_state); the names and scales
     were checked against state files written by bench at t = 0.
 
-    A model with no counterpart in the reference (ModifiedMS2v, whose outward
-    current carries a (1 - h) factor the reference's MitchellSchaeffer does not
-    have, and Fenton4v) gets a layout made of its own state variables, under
-    its own parameter-file name. Such a file round-trips through singlecell but
-    has no meaning for the reference.
+    ModifiedMS2v is the reference's `mMS` model, a user model (mMS.model) whose
+    outward current carries the (1 - h) factor that MitchellSchaeffer does not
+    have. Its state structure has the same nine fields as MitchellSchaeffer's
+    (h, and the eight per-node parameters), but it is a different model: the
+    section is `mMS`, and a file of one does not restore into the other.
+
+    A model with no counterpart in the reference (Fenton4v) gets a layout made
+    of its own state variables, under its own parameter-file name. Such a file
+    round-trips through gpuSolve but the reference can only read it once a
+    model with the same structure is defined there.
+
+    The same layouts give the records of the binary tissue state files
+    (`.roe`, see roe_fields() and roestatefile.py).
 
     Copyright 2022-2023 Cesare Corrado (c.corrado@imperial.ac.uk)
 
@@ -118,6 +126,16 @@ SV_LAYOUTS = {
                      'fCaf', 'fCafp', 'fCas', 'ff', 'ffp', 'fs', 'h', 'hL', 'hLp', 'hp',
                      'iF', 'iFp', 'iS', 'iSp', 'j', 'jCa', 'jp', 'm', 'mL', 'nCa_i',
                      'nCa_ss', 'xs1', 'xs2')]),
+    'ModifiedMS2v': ('mMS', [
+        ('V_gate',    'parameter', 'u_gate',    1.0, False),
+        ('V_max',     'parameter', 'vmax',      1.0, False),
+        ('V_min',     'parameter', 'vmin',      1.0, False),
+        ('a_crit',    'parameter', 'u_crit',    1.0, False),
+        ('h',         'state',     'H_state',   1.0, False),
+        ('tau_close', 'parameter', 'tau_close', 1.0, False),
+        ('tau_in',    'parameter', 'tau_in',    1.0, False),
+        ('tau_open',  'parameter', 'tau_open',  1.0, False),
+        ('tau_out',   'parameter', 'tau_out',   1.0, False)]),
     'ElectroporationDeBruinKrassowska98': ('Electroporation_DeBruinKrassowska98', [
         ('n', 'state', 'n', 1.0, False)]),
     'DefibAshiharaTrayanova': ('Defib_AshiharaTrayanova', [
@@ -146,11 +164,30 @@ def sv_layout(model, section_name: str) -> tuple:
     classname = type(model).__name__
     if classname in SV_LAYOUTS:
         name, entries = SV_LAYOUTS[classname]
-        if _is_alias_of(section_name, model):
+        if _is_alias_of(section_name, model) or _selects_by_parameters(section_name, model):
             return((section_name, entries))
         return((name, entries))
     return((section_name, [(name, 'state', name, 1.0, False)
                            for name in model.state_variable_names()]))
+
+
+def roe_fields(entries: list) -> list:
+    """ roe_fields(entries) returns the (name, C type) list of a layout, the
+        form gpuSolve.IO's binary state files take: a gate is a Gatetype
+        (float32), every other entry a GlobalData_t (float64)
+    """
+    return([(entry[0], 'Gatetype' if entry[4] else 'GlobalData_t') for entry in entries])
+
+
+def _selects_by_parameters(section_name: str, model) -> bool:
+    """ _selects_by_parameters(section_name, model) says whether section_name
+        is a model name whose class is only chosen from the parameters
+        (IONIC_MODELS maps it to None: `MitchellSchaeffer` runs ModifiedMS2v
+        when a region sets a_crit). The run then is the reference's model of
+        that name, and the state is written under it.
+    """
+    return(section_name in IONIC_MODELS and IONIC_MODELS[section_name] is None
+           and type(model).__name__ in ('MitchellSchaeffer2v', 'ModifiedMS2v'))
 
 
 def _is_alias_of(section_name: str, model) -> bool:

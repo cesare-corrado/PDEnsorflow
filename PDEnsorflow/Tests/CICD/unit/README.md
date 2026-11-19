@@ -489,8 +489,10 @@ turning into NaN on the first step.
   `region`, `nodal` (array and dict) and `uniform` properties.
 
 ### `test_savestate.py` &mdash; checkpoints: saving and resuming a run
-A run of the paced cable saves its state half way (`tsav`) and every 2 ms
-(`chkpt_intv`), then a second run resumes from the half-way state with
+gpuSolve's own checkpoint (`state_format = pkl`); the reference's binary state
+file is `test_roe_state.py`. A run of the paced cable saves its state half way
+(`tsav`, file `state.3.0.pkl`: the reference's name, with this extension) and
+every 2 ms (`chkpt_intv`), then a second run resumes from the half-way state with
 renumbering switched on. The restarted output must start with the saved
 potential, be recorded on the same steps, and match the uninterrupted run within
 `1e-2` mV. It cannot match to round-off: the CG warm-start history `U^{n-1}` is
@@ -504,7 +506,26 @@ matches a run compiled afterwards; a ten Tusscher-Panfilov state
 on a scrambled mesh survives the renumbering for every variable; a pure-diffusion
 run saves and resumes; the file round-trips and a damaged one is refused; a
 checkpoint from another cell model or mesh, one saved after `tend`, or a missing
-file stops the run; and the `savestate` defaults and ranges of the parameters.
+file stops the run; and the `savestate` defaults and ranges of the parameters
+(a tsav left unset is labelled `100.0`, `roe1` is the default `state_format`, an
+unknown one is refused).
+
+### `test_roe_state.py` &mdash; the reference's binary state files in a run
+The paced cable in two ionic regions (tag 2 on its second half), saving with the
+defaults: the files are `.roe`, format 1, named as the reference names them
+(`state.3.0.roe`, `state.late.roe` from `tsav_ext`, `checkpoint.<t %.1f>.roe`),
+saved on step `lround(t / dt)` (tsav = 4.31 ms is saved at 4.3 ms); the region
+table says `mMS` twice, 72 bytes per node, and the mask puts the shared node with
+the higher tag. A restart from the file named without its extension matches the
+uninterrupted run within `1e-2` mV. A parameter changed in the parameter file
+does not take effect on a restart (the stored value is used, as the reference
+does) and is reported with a `WARNING`. Refused, each with its message: another
+cell model, another number of regions, another region of a node, another plugin
+set, and a `.roe` named `.pkl`. A plugin on one region writes its true record
+size and restarts; `roe3` (fingerprints) and `pkl` select their files and
+restart; `MitchellSchaeffer` with `a_crit` (run by ModifiedMS2v) is written
+under its own name. The exchange with the reference itself is the nightly
+`test_roe_reference_exchange.py`.
 
 ### `test_mesh_roundtrip.py` &mdash; the external mesh format
 Writes a small strip through `Triangulation.exportCarpFormat` and reads it back.
@@ -536,6 +557,10 @@ options does not start TensorFlow, which must see the device and thread
 settings first.
 
 ### `test_svfile.py` &mdash; single-cell state files (`.sv`)
+`mMS` (ModifiedMS2v) has the nine fields of the reference's user model
+`mMS.model`, under its own section; `MitchellSchaeffer` with `a_crit` keeps the
+section `MitchellSchaeffer`.
+
 `SvFileReader` on a file written by `bench --save-ini-file`, and
 `SvFileWriter` + `SvFileReader` round-tripping values that a 6-digit `%g`
 would round (the writer keeps full precision). The reference reads a file by
