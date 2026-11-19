@@ -8,6 +8,7 @@ Contains:
     * VtxReader:      a class to read .vtx vertex specification files
     * LatReader:      a class to read nodal activation time files
     * StateReader:    a class to read checkpoint (saved state) files
+    * RoeReader:      a class to read binary ionic state files (.roe)
 """
 
 
@@ -28,4 +29,5 @@ from gpuSolve.IO.readers.igbreader import IGBReader
 from gpuSolve.IO.readers.vtxreader import VtxReader
 from gpuSolve.IO.readers.latreader import LatReader
 from gpuSolve.IO.readers.statereader import StateReader
+from gpuSolve.IO.readers.roereader import RoeReader
 from gpuSolve.IO.readers.svfilereader import SvFileReader

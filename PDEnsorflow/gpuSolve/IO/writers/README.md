@@ -28,6 +28,20 @@ This class writes a checkpoint, the dict returned by `HeatSolver.checkpoint()` /
 `<fname>.partial` before renaming it, so a run killed while saving keeps the
 previous file intact.
 
+## RoeWriter
+Writes a binary ionic state file (`.roe`) byte for byte as the reference
+simulator does. `write(content, fname)` takes the dict `RoeReader.read()`
+returns, so a file read and written back is identical; `format` (default 1, the
+release-19.0 format), `revision`, `created` and `index_bytes` fall back to the
+writer's settings when the content has none. `encode_records(state, fields,
+packed)` turns per-node field values into records (gates cast to float32,
+padding zero). The module functions name the files as the reference does:
+`tsav_file_name(write_statef, tsav_label(t))` (`state.7.3.roe`),
+`checkpoint_file_name(t)` (`checkpoint.10.0.roe`) and `exit_file_name(t)`
+(`exit.save.12.500.roe`). A plugin entry without `stored_size` gets its true
+size in the region table: release 19.0 restores a plugin only from such a file,
+although it writes the model's size there itself.
+
 ## CarpMeshWriter
 
 This class writes a mesh in carp format (*.pts*, *.elem* and *.lon* files)
