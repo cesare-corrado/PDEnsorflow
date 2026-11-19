@@ -552,6 +552,23 @@ written under the alias heads its section with the alias and is read back under
 it, while the canonical name refuses it, which is the interchange the alias
 exists for.
 
+### `test_roe_io.py` &mdash; binary ionic state files (`.roe`)
+`RoeWriter` against bytes built field by field with `struct` from the layout of
+the reference's `dump_state` (header, global vectors with `Vm` first, region
+table, int8 mask, per-node records in canonical order). Record sizes match the
+reference's files (Courtemanche 96 bytes in C layout, 92 packed;
+tenTusscherPanfilov 136; Tomek 336; MitchellSchaeffer 72; the electroporation
+plugin 8) and padding is zero. Write, read, write again is byte-identical in
+formats 1, 2 and 3, with 32- and 64-bit node counts, and decodes to the values
+given (gates rounded to float32). The release-19.0 plugin table (the model's
+size stored for a plugin) is recovered from the file size and written back
+unchanged; two unknown plugin sizes need `set_plugin_sizes`. Also: the float32
+time, the FNV-1a fingerprint, the refusal of a foreign or truncated file, and
+the reference's file names (`state.7.3.roe`, `checkpoint.10.0.roe`,
+`exit.save.12.500.roe`). The comparison with files the reference writes, and
+its restart from files written here, is
+`Tests/DEVTESTS/IO/roe_reference_validation.py`.
+
 ### `test_singlecell_run.py` &mdash; the `singlecell` executable end to end
 Short runs of `main()` on `MitchellSchaeffer` with the reference's parameters
 (`V_min=0, V_max=1, tau_out=5`), compared with numbers from `bench`: a regular
