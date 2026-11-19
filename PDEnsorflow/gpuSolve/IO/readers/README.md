@@ -6,6 +6,7 @@ This is the sub-directory of I/O contains functions for reading data from files 
 * `CarpMeshReader`: a class to read carp meshes
 * `IGBReader`:      a class to read igb files
 * `StateReader`:    a class to read checkpoint (saved state) files
+* `RoeReader`:      a class to read binary ionic state files (`.roe`)
 * `LatReader`:      a class to read per-node activation time files
 
 ## LatReader
@@ -31,6 +32,19 @@ user's node order. `read(fname)` checks that the file is complete, that every
 array has `num_nodes` values and that none is NaN or Inf, and returns the dict.
 Loading a pickle can run code: read only checkpoint files you produced.
 
+## RoeReader
+Reads a binary ionic state file (`.roe`) as the reference simulator writes it
+(`tsav`, `chkpt_intv`) and reads it (`start_statef`); formats 1 (release 19.0),
+2 and 3. `read(fname)` returns a dict with the header (`format`, `revision`,
+`created`, `time` as the stored float32, `num_nodes`, `index_bytes`), the global
+vectors (`globals`, float64, canonical node order), the region table
+(`regions`), the region `mask` and the raw per-node `records`, one uint8 array
+per region. The reader needs no model knowledge: `region_state(region, fields,
+plugin=None)` decodes a region's records given the ordered `(name, C type)`
+list of the state structure (`record_dtype()` gives its C or packed layout,
+`fingerprint()` the format-3 fingerprint). The plugin sizes of a release-19.0
+file, which its region table gets wrong, are recovered from the file size or
+given with `set_plugin_sizes`. A truncated or foreign file is refused.
 
 ## ImageData
 

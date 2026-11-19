@@ -489,8 +489,10 @@ turning into NaN on the first step.
   `region`, `nodal` (array and dict) and `uniform` properties.
 
 ### `test_savestate.py` &mdash; checkpoints: saving and resuming a run
-A run of the paced cable saves its state half way (`tsav`) and every 2 ms
-(`chkpt_intv`), then a second run resumes from the half-way state with
+gpuSolve's own checkpoint (`state_format = pkl`); the reference's binary state
+file is `test_roe_state.py`. A run of the paced cable saves its state half way
+(`tsav`, file `state.3.0.pkl`: the reference's name, with this extension) and
+every 2 ms (`chkpt_intv`), then a second run resumes from the half-way state with
 renumbering switched on. The restarted output must start with the saved
 potential, be recorded on the same steps, and match the uninterrupted run within
 `1e-2` mV. It cannot match to round-off: the CG warm-start history `U^{n-1}` is
@@ -504,7 +506,38 @@ matches a run compiled afterwards; a ten Tusscher-Panfilov state
 on a scrambled mesh survives the renumbering for every variable; a pure-diffusion
 run saves and resumes; the file round-trips and a damaged one is refused; a
 checkpoint from another cell model or mesh, one saved after `tend`, or a missing
-file stops the run; and the `savestate` defaults and ranges of the parameters.
+file stops the run; and the `savestate` defaults and ranges of the parameters
+(a tsav left unset is labelled `100.0`, `roe1` is the default `state_format`, an
+unknown one is refused).
+
+### `test_phys_region.py` &mdash; physics regions (`phys_region[]`)
+The keys are optional, as in the reference. Without them nothing is checked, so
+an older parameter file runs as before (elements without a fibre direction are
+still solved on as tissue). With them, the intracellular regions (`ptype 0`)
+say which elements are myocardium: the union of their IDs, or, when none lists
+an ID, the elements with a fibre direction (the reference's rule). A
+myocardium-only mesh gives the same potential as without the keys, bit for bit;
+a tag outside every intracellular region, or an element without a fibre
+direction under the fibre rule, is bath and is refused (it needs a bidomain
+run). An extracellular region (`ptype 1`) is noted and ignored; eikonal, EMI,
+an unknown type, and physics regions with none intracellular are refused.
+
+### `test_roe_state.py` &mdash; the reference's binary state files in a run
+The paced cable in two ionic regions (tag 2 on its second half), saving with the
+defaults: the files are `.roe`, format 1, named as the reference names them
+(`state.3.0.roe`, `state.late.roe` from `tsav_ext`, `checkpoint.<t %.1f>.roe`),
+saved on step `lround(t / dt)` (tsav = 4.31 ms is saved at 4.3 ms); the region
+table says `mMS` twice, 72 bytes per node, and the mask puts the shared node with
+the higher tag. A restart from the file named without its extension matches the
+uninterrupted run within `1e-2` mV. A parameter changed in the parameter file
+does not take effect on a restart (the stored value is used, as the reference
+does) and is reported with a `WARNING`. Refused, each with its message: another
+cell model, another number of regions, another region of a node, another plugin
+set, and a `.roe` named `.pkl`. A plugin on one region writes its true record
+size and restarts; `roe3` (fingerprints) and `pkl` select their files and
+restart; `MitchellSchaeffer` with `a_crit` (run by ModifiedMS2v) is written
+under its own name. The exchange with the reference itself is the nightly
+`test_roe_reference_exchange.py`.
 
 ### `test_mesh_roundtrip.py` &mdash; the external mesh format
 Writes a small strip through `Triangulation.exportCarpFormat` and reads it back.
@@ -536,6 +569,10 @@ options does not start TensorFlow, which must see the device and thread
 settings first.
 
 ### `test_svfile.py` &mdash; single-cell state files (`.sv`)
+`mMS` (ModifiedMS2v) has the nine fields of the reference's user model
+`mMS.model`, under its own section; `MitchellSchaeffer` with `a_crit` keeps the
+section `MitchellSchaeffer`.
+
 `SvFileReader` on a file written by `bench --save-ini-file`, and
 `SvFileWriter` + `SvFileReader` round-tripping values that a 6-digit `%g`
 would round (the writer keeps full precision). The reference reads a file by
@@ -551,6 +588,23 @@ provided model, must not shadow one, and must share its state list. A file
 written under the alias heads its section with the alias and is read back under
 it, while the canonical name refuses it, which is the interchange the alias
 exists for.
+
+### `test_roe_io.py` &mdash; binary ionic state files (`.roe`)
+`RoeWriter` against bytes built field by field with `struct` from the layout of
+the reference's `dump_state` (header, global vectors with `Vm` first, region
+table, int8 mask, per-node records in canonical order). Record sizes match the
+reference's files (Courtemanche 96 bytes in C layout, 92 packed;
+tenTusscherPanfilov 136; Tomek 336; MitchellSchaeffer 72; the electroporation
+plugin 8) and padding is zero. Write, read, write again is byte-identical in
+formats 1, 2 and 3, with 32- and 64-bit node counts, and decodes to the values
+given (gates rounded to float32). The release-19.0 plugin table (the model's
+size stored for a plugin) is recovered from the file size and written back
+unchanged; two unknown plugin sizes need `set_plugin_sizes`. Also: the float32
+time, the FNV-1a fingerprint, the refusal of a foreign or truncated file, and
+the reference's file names (`state.7.3.roe`, `checkpoint.10.0.roe`,
+`exit.save.12.500.roe`). The comparison with files the reference writes, and
+its restart from files written here, is
+`Tests/DEVTESTS/IO/roe_reference_validation.py`.
 
 ### `test_singlecell_run.py` &mdash; the `singlecell` executable end to end
 Short runs of `main()` on `MitchellSchaeffer` with the reference's parameters

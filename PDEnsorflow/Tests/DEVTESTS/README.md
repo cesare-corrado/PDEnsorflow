@@ -27,6 +27,17 @@ divides out exactly there; the whole difference is at the jump, where dividing
 by a function of space is not an identity.
 
 ## IO
+`roe_reference_validation.py` checks `RoeReader` and `RoeWriter` against the
+reference simulator (`openCARP` and `mesher` on the PATH). It runs three
+two-region cases on a 525-node slab (Courtemanche | tenTusscherPanfilov with
+the electroporation plugin, Tomek, MitchellSchaeffer), and for every state file
+the reference writes checks the name, Vm against `vm.igb`, that a copy is
+byte-identical, and that the file rebuilt from decoded values is byte-identical
+except for the creation time and the revision. The reference then restarts from
+the rebuilt files and must reproduce the uninterrupted run bit for bit.
+Usage: `python roe_reference_validation.py [work_dir]` (a temporary folder by
+default).
+
 The automated `BaseWriter` unit test (`test_basewriter.py`) is now part of the
 continuous-integration suite at `Tests/CICD/unit/`, where it runs on every push
 and pull request. See `Tests/CICD/README.md`.

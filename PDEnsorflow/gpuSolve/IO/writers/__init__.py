@@ -8,6 +8,7 @@ Contains:
     * CarpMeshWriter: a class to write the mesh in carp {.pts, .elem, .lon} format
     * IGBWriter: a class to write the output in .igb format (meshalyzer)
     * StateWriter: a class to write checkpoint (saved state) files
+    * RoeWriter: a class to write binary ionic state files (.roe)
 
 """
 
@@ -30,4 +31,5 @@ from gpuSolve.IO.writers.resultwriter import ResultWriter
 from gpuSolve.IO.writers.carpmeshwriter import CarpMeshWriter
 from gpuSolve.IO.writers.igbwriter import IGBWriter
 from gpuSolve.IO.writers.statewriter import StateWriter
+from gpuSolve.IO.writers.roewriter import RoeWriter
 from gpuSolve.IO.writers.svfilewriter import SvFileWriter

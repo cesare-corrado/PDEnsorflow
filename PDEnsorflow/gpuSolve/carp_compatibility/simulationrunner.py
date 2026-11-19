@@ -26,14 +26,20 @@ from gpuSolve.IO.readers import VtxReader
 from gpuSolve.IO.readers import StateReader
 from gpuSolve.IO.writers import IGBWriter
 from gpuSolve.IO.writers import StateWriter
-from gpuSolve.carp_compatibility.parametermapper import CHECKPOINT_BASENAME
+from gpuSolve.IO.readers.roereader import ROE_MAGIC
+from gpuSolve.IO.writers.roewriter import ROE_EXTENSION
+from gpuSolve.IO.writers.roewriter import RoeWriter
+from gpuSolve.IO.writers.roewriter import checkpoint_file_name
+from gpuSolve.IO.writers.roewriter import tsav_file_name
 from gpuSolve.carp_compatibility.parametermapper import IONIC_PLUGINS
+from gpuSolve.carp_compatibility.roestatefile import ROE_PARAMETER_RTOL
+from gpuSolve.carp_compatibility.roestatefile import RoeStateFile
 from gpuSolve.carp_compatibility.svstatefile import SvStateFile
-from gpuSolve.carp_compatibility.parametermapper import time_label
 
 
-# Extension of the checkpoint files. The format's own state files are binary
-# and are not read here, so the extension says which kind a file is.
+# Extension of gpuSolve's own checkpoint files (state_format = pkl). The
+# reference's binary state files end in ROE_EXTENSION; start_statef tells the
+# two apart by their first bytes.
 STATE_FILE_EXTENSION : str = '.pkl'
 
 # Extension of a mesh stored as one binary file (Triangulation.saveMesh); a
@@ -60,8 +66,13 @@ class SimulationRunner:
         self._state_writer : StateWriter = None
         self._pending_saves : list   = None
         self._savestate : dict       = None
-        self._chkpt_index : int      = 0
-        self._next_chkpt : float     = None
+        self._chkpt_steps : list     = None
+        self._state_format : str     = 'pkl'
+        self._roe_writer : RoeStateFile = None
+        self._saved_names : set      = None
+        self._start_kind : str       = ''
+        self._start_path : str       = ''
+        self._roe_start : RoeStateFile = None
         self._lats : list            = None
         self._element_maps : dict    = None
         self._beta_ref : float       = None
@@ -114,11 +125,16 @@ class SimulationRunner:
             # here: forcing it runs every kernel operation by operation, and
             # made a step of the Tomek model 27 times slower on 63001 nodes.
             self.__build_solver()
+            self.__check_physics_regions()
             # before anything reads the nodal region IDs: the rule and the
             # claimed tags change what those IDs are
             self.__configure_region_rule()
+            # the start state is read now: a binary state file carries cell
+            # parameters, which must reach the model with the others
+            self.__read_start_state()
             self.__assign_materials()
             self.__assign_cell_parameters()
+            self.__apply_stored_parameters()
             # after the materials, because their values are what the cache key
             # has to agree on, and before the assembly, which consumes it
             self.__configure_matrix_cache()
@@ -158,7 +174,7 @@ class SimulationRunner:
             # run sees exactly the same sequence of times as an uninterrupted one.
             ctime    = model.ctime()
             report   = timedt * (np.floor(ctime / timedt) + 1.0)
-            self.__save_due_states(ctime)
+            self.__save_due_states(self._first_step)
             then     = time.time()
             # the step counter is global, so frames are recorded on the same
             # steps as in an uninterrupted run. Step istep advances the solution
@@ -181,7 +197,7 @@ class SimulationRunner:
                 if (istep + 1) % model.dt_per_plot() == 0:
                     self._writer.imshow(model.U())
                     frames += 1
-                self.__save_due_states(ctime)
+                self.__save_due_states(istep + 1)
                 if self._verbose and ctime >= report:
                     print('  t = {:9.3f} ms  ({:5.1f}%)'.format(
                         ctime, 100.0 * ctime / model.Tend()), flush=True)
@@ -227,6 +243,41 @@ class SimulationRunner:
         else:
             self._ionic = self.__new_ionic_model(config['dt'])
             self._model = MonodomainSolver(self._ionic, config)
+
+    def __check_physics_regions(self):
+        """ refuses a mesh with a bath when the physics regions say which
+            elements are myocardium. A bath needs an extracellular (bidomain)
+            solve, which this front end does not do: solving the monodomain
+            equation on the bath elements as if they were tissue would give a
+            wrong answer without a word, and the reference's state files of
+            such a run hold the myocardium only, so they could not match the
+            mesh either. Without physics regions nothing is checked, so that a
+            parameter file written before they were read runs as it did.
+        """
+        defined, tags = self._mapper.intracellular_region()
+        if not defined:
+            return
+        if tags is not None:
+            outside = sorted(self.__mesh_tags() - tags)
+            if len(outside) > 0:
+                raise ValueError('element tag(s) {} belong to no intracellular phys_region: they '
+                                 'are bath, which needs a bidomain run; gpuSolve solves the '
+                                 'monodomain equation on myocardium only'.format(
+                                     ', '.join(str(tag) for tag in outside)))
+            return
+        fibres = self._model.domain().Fibres()
+        if fibres is None:
+            self._mapper.add_note('the intracellular phys_region lists no ID, so the myocardium '
+                                  'is the elements with a fibre direction, but the mesh carries '
+                                  'no fibres: every element is taken as myocardium')
+            return
+        directions = np.reshape(np.asarray(fibres, dtype=np.float64), (np.shape(fibres)[0], -1))[:, :3]
+        bath = int(np.count_nonzero(np.all(directions == 0.0, axis=1)))
+        if bath > 0:
+            raise ValueError('{} element(s) have no fibre direction and the intracellular '
+                             'phys_region lists no ID, so they are bath, which needs a bidomain '
+                             'run; gpuSolve solves the monodomain equation on myocardium '
+                             'only'.format(bath))
 
     def __new_ionic_model(self, dt: float):
         """ builds a cell model of the run's class, with its plugins, at time
@@ -480,99 +531,258 @@ class SimulationRunner:
             U0 = values.reshape(npt, 1).astype(np.float32)
         self._model.set_initial_condition(U0)
 
-    def __restore_state(self):
-        """ loads the checkpoint named by start_statef, if any, into the solver
-            and sets the step the run resumes from. It runs before
-            finalize_for_run(), so the restored values are renumbered together
-            with the rest of the solver.
+    def __read_start_state(self):
+        """ reads the state named by start_statef, if any, before the cell
+            parameters are assigned: a binary state file carries the parameter
+            fields of the reference's state structures, which the reference
+            restores along with the state, so they have to reach the model with
+            the other parameters (see __apply_stored_parameters). The kind of
+            file is told by its first bytes, and its name must agree.
         """
         self._savestate  = self._mapper.savestate_settings()
-        self._first_step = 0
+        self._start_kind = ''
+        self._start_path = ''
+        self._roe_start  = None
         fname = self._savestate['start_statef']
         if len(fname) == 0:
             return
         path = self.__find_state_file(fname)
-        checkpoint = StateReader().read(path)
+        with open(path, 'rb') as fstate:
+            opening = fstate.read(4 + len(ROE_MAGIC))
+        is_roe = opening[4:] == ROE_MAGIC.encode('ascii')
+        if is_roe and path.endswith(STATE_FILE_EXTENSION):
+            raise ValueError('start_statef = "{}": {} is a binary state file (.roe), not a {} '
+                             'checkpoint'.format(fname, path, STATE_FILE_EXTENSION))
+        if not is_roe and path.endswith(ROE_EXTENSION):
+            raise ValueError('start_statef = "{}": {} is not a binary state file, although it '
+                             'is named {}'.format(fname, path, ROE_EXTENSION))
+        self._start_path = path
+        if not is_roe:
+            self._start_kind = 'pkl'
+            return
+        if self._ionic is None:
+            raise ValueError('start_statef = "{}": a binary state file holds the state of cell '
+                             'models, and this run has none'.format(fname))
+        self._start_kind = 'roe'
+        self._roe_start  = self.__roe_state_file(1)
+        self._roe_start.read(path)
+        for message in self._roe_start.mismatches():
+            self.__warn(message)
+
+    def __apply_stored_parameters(self):
+        """ gives the cells the parameters stored in the binary state file,
+            where they differ from the parameter file's. The reference copies
+            each record back whole, parameter fields included, so a restarted
+            run of the reference uses the stored values; doing the same keeps
+            the two restarts the same physics. Every difference is printed as a
+            warning: a parameter-file change that does not take effect on a
+            restart is a trap, and it must not be a silent one.
+        """
+        if self._roe_start is None:
+            return
+        changed = 0
+        for pname, (nodes, stored) in self._roe_start.stored_parameters().items():
+            current = self._model.cell_parameter(pname)
+            if current is None:
+                raise ValueError('start_statef: the state file stores {}, which this model does '
+                                 'not have'.format(pname))
+            differ = np.abs(stored - current[nodes]) > ROE_PARAMETER_RTOL * np.maximum(
+                np.abs(stored), np.abs(current[nodes]))
+            if not np.any(differ):
+                continue
+            first = int(np.flatnonzero(differ)[0])
+            self.__warn('start_statef = "{}": the state stores {} = {:g} where the parameters '
+                        'give {:g} ({} node(s) differ, the first shown); the stored values are '
+                        'used, as the reference does'.format(self._start_path, pname,
+                                                             stored[first], current[nodes][first],
+                                                             int(np.count_nonzero(differ))))
+            values = np.array(current, dtype=np.float64)
+            values[nodes] = stored
+            self._model.add_nodal_material_property(pname, 'nodal', values)
+            changed += 1
+        if changed > 0:
+            self._model.assign_nodal_properties()
+
+    def __restore_state(self):
+        """ loads the state read by __read_start_state, if any, into the solver
+            and sets the step the run resumes from. It runs before
+            finalize_for_run(), so the restored values are renumbered together
+            with the rest of the solver.
+            The time of a binary state file is a float32: it is snapped to the
+            nearest step, which is where the reference's own clock resumes.
+        """
+        self._first_step = 0
+        if len(self._start_kind) == 0:
+            return
+        fname = self._savestate['start_statef']
         model = self._model
-        model.restore_checkpoint(checkpoint)
+        if self._start_kind == 'pkl':
+            checkpoint = StateReader().read(self._start_path)
+            saved      = checkpoint['time']
+        else:
+            checkpoint = self.__roe_checkpoint()
+            saved      = checkpoint['time']
         dt    = model.dt()
-        first = int(round(checkpoint['time'] / dt))
+        # lround(t / dt), as the reference turns a time into a step
+        first = int(np.floor(saved / dt + 0.5))
+        if self._start_kind == 'roe':
+            checkpoint['time'] = first * dt
+        # restored first, so that a state of another mesh or model is reported
+        # as such rather than by its time
+        model.restore_checkpoint(checkpoint)
         if first >= model.nt():
             raise ValueError('start_statef = "{}": the state was saved at t = {} ms, which leaves '
-                             'no step before tend = {} ms'.format(fname, checkpoint['time'],
-                                                                  model.Tend()))
-        if abs(first * dt - checkpoint['time']) > 1.0e-3 * dt:
+                             'no step before tend = {} ms'.format(fname, saved, model.Tend()))
+        # a float32 time carries a relative error of 6e-8, so the test allows
+        # for it on top of a thousandth of a step
+        if abs(first * dt - saved) > max(1.0e-3 * dt, 4.0 * float(np.finfo(np.float32).eps) * saved):
             self._mapper.add_note('start_statef = "{}": the saved time {} ms is not a multiple of '
                                   'dt = {} ms; was it written with another dt?'.format(
-                                      fname, checkpoint['time'], dt))
+                                      fname, saved, dt))
         self._first_step = first
         if self._verbose:
             print('restarting from {} at t = {} ms (step {})'.format(
-                path, checkpoint['time'], first), flush=True)
+                self._start_path, checkpoint['time'], first), flush=True)
+
+    def __roe_checkpoint(self) -> dict:
+        """ the solver checkpoint with the potential and the state variables of
+            the binary state file. A plugin's variables are set on the nodes of
+            the regions that list it; elsewhere they keep their initial value,
+            as in the reference, where those nodes carry no plugin record.
+        """
+        checkpoint = self._model.checkpoint()
+        states = {name: np.array(values, dtype=np.float64)
+                  for name, values in checkpoint['state_variables'].items()}
+        for name, (nodes, values) in self._roe_start.states().items():
+            if name not in states:
+                raise ValueError('start_statef: the state file holds {}, which this model does '
+                                 'not have'.format(name))
+            states[name][nodes] = values
+        return({'ionic_model': self._model.checkpoint_model_name(),
+                'time': self._roe_start.time(),
+                'num_nodes': checkpoint['num_nodes'],
+                'Vm': self._roe_start.Vm(),
+                'state_variables': states})
+
+    def __roe_state_file(self, fmt: int) -> RoeStateFile:
+        """ a RoeStateFile for this run's regions, writing format fmt """
+        nreg = max(1, self._mapper.count('imp_region'))
+        return(RoeStateFile({'model': self._ionic,
+                             'imp_name': self._mapper.ionic_model_name(),
+                             'region_plugins': [self._mapper.region_plugins(index)
+                                                for index in range(nreg)],
+                             'node_regions': self.__node_regions(),
+                             'format': fmt}))
+
+    def __node_regions(self) -> np.ndarray:
+        """ the imp_region index of every node, the region mask of the
+            reference's binary state file: each node's region ID resolved
+            through the same map the cell parameters are
+        """
+        ids = np.reshape(np.asarray(self._model.domain().point_region_ids()), (-1,))
+        assignment = self._mapper.imp_region_assignment(self.__mesh_tags())
+        unique, inverse = np.unique(ids, return_inverse=True)
+        index = np.array([assignment.get(int(tag), 0) for tag in unique.tolist()], dtype=np.int8)
+        return(index[np.reshape(inverse, (-1,))])
+
+    def __warn(self, message: str):
+        """ prints a warning now and keeps it for the end-of-run notes """
+        print('WARNING: {}'.format(message), flush=True)
+        self._mapper.add_note(message)
 
     def __find_state_file(self, fname: str) -> str:
-        """ accepts the checkpoint name with or without its extension, relative
-            to the working directory as meshname is
+        """ accepts the state name with or without its extension, as the
+            reference does, relative to the working directory as meshname is
         """
-        for candidate in (fname, '{}{}'.format(fname, STATE_FILE_EXTENSION)):
+        candidates = (fname, '{}{}'.format(fname, ROE_EXTENSION),
+                      '{}{}'.format(fname, STATE_FILE_EXTENSION))
+        for candidate in candidates:
             if os.path.isfile(candidate):
                 return(candidate)
-        raise ValueError('start_statef = "{}": cannot find {} or {}{}'.format(
-            fname, fname, fname, STATE_FILE_EXTENSION))
+        raise ValueError('start_statef = "{}": cannot find {}'.format(
+            fname, ', '.join(candidates)))
 
     def __schedule_saves(self):
-        """ prepares the save times of tsav and of interval checkpointing.
-            A save time is matched to the first step that reaches it within half
-            a step, because the times in the parameters need not be multiples of
-            dt. Save times already behind the start of a restarted run are
-            dropped with a note.
+        """ prepares the steps of the tsav saves and of interval checkpointing,
+            as the reference's timers do: a time t falls on step lround(t / dt),
+            a checkpoint series runs from chkpt_start to chkpt_stop every
+            chkpt_intv on those steps, and a save on or after the step a run
+            starts from is made, one before it dropped with a note (a restarted
+            run saves again at its own start time, as the reference does).
+            The format of the files is chosen here; a pure diffusion run has no
+            cell model for the binary file to describe, so it keeps gpuSolve's.
         """
         model = self._model
-        half  = 0.5 * model.dt()
-        t0    = model.ctime()
-        self._state_writer  = StateWriter()
+        dt    = model.dt()
+        first = self._first_step
+        fmt   = self._savestate['state_format']
+        if fmt != 'pkl' and self._ionic is None:
+            self._mapper.add_note('state_format = {}: a pure diffusion run has no cell model for '
+                                  'the binary state file to hold, so its states are saved as '
+                                  '{}'.format(fmt, STATE_FILE_EXTENSION))
+            fmt = 'pkl'
+        self._state_format = fmt
+        self._state_writer = StateWriter()
+        self._roe_writer   = None
+        if fmt != 'pkl':
+            self._roe_writer = self.__roe_state_file(1 if fmt == 'roe1' else 3)
+        self._saved_names = set()
         self._pending_saves = []
-        for tsav, name in sorted(self._savestate['save_times']):
-            if tsav < t0 - half:
+        for tsav, _label in self._savestate['save_times']:
+            step = int(np.floor(tsav / dt + 0.5))
+            if step < first:
                 self._mapper.add_note('tsav = {} ms is before the restart time {} ms: that state '
-                                      'is not saved'.format(tsav, t0))
+                                      'is not saved'.format(tsav, model.ctime()))
             else:
-                self._pending_saves.append((tsav, name))
-        self._next_chkpt = None
+                self._pending_saves.append(step)
+        self._pending_saves.sort()
+        self._chkpt_steps = []
         intv = self._savestate['chkpt_intv']
         if intv > 0.0:
-            start = self._savestate['chkpt_start']
-            # the first checkpoint time not behind the start of the run
-            self._chkpt_index = max(0, int(np.ceil((t0 - half - start) / intv)))
-            self.__advance_checkpoint_time(start + self._chkpt_index * intv)
+            d_start = int(np.floor(self._savestate['chkpt_start'] / dt + 0.5))
+            d_intv  = max(1, int(np.floor(intv / dt + 0.5)))
+            d_end   = int(np.floor(self._savestate['chkpt_stop'] / dt + 0.5))
+            self._chkpt_steps = [step for step in range(d_start, d_end + 1, d_intv) if step >= first]
 
-    def __advance_checkpoint_time(self, candidate: float):
-        """ arms the next checkpoint time, or disarms checkpointing past chkpt_stop """
-        if candidate <= self._savestate['chkpt_stop'] + 0.5 * self._model.dt():
-            self._next_chkpt = candidate
-        else:
-            self._next_chkpt = None
+    def __save_due_states(self, step: int):
+        """ writes every state due at this step: the tsav saves first, then the
+            interval checkpoint, the order of the reference's checkpointing()
+        """
+        due = False
+        while len(self._pending_saves) > 0 and self._pending_saves[0] <= step:
+            self._pending_saves.pop(0)
+            due = True
+        if due:
+            self.__write_state(self.__tsav_name(step))
+        if len(self._chkpt_steps) > 0 and self._chkpt_steps[0] <= step:
+            while len(self._chkpt_steps) > 0 and self._chkpt_steps[0] <= step:
+                self._chkpt_steps.pop(0)
+            self.__write_state(checkpoint_file_name(step * self._model.dt()))
 
-    def __save_due_states(self, ctime: float):
-        """ writes every state whose save time the current step has reached """
-        half = 0.5 * self._model.dt()
-        while len(self._pending_saves) > 0 and ctime >= self._pending_saves[0][0] - half:
-            _tsav, name = self._pending_saves.pop(0)
-            self.__write_state(name)
-        if self._next_chkpt is not None and ctime >= self._next_chkpt - half:
-            self.__write_state('{}.{}'.format(CHECKPOINT_BASENAME, time_label(self._next_chkpt)))
-            # a checkpoint interval shorter than dt would name several times
-            # inside one step; the state is written once and the rest skipped
-            start = self._savestate['chkpt_start']
-            intv  = self._savestate['chkpt_intv']
-            while self._next_chkpt is not None and ctime >= self._next_chkpt - half:
-                self._chkpt_index += 1
-                self.__advance_checkpoint_time(start + self._chkpt_index * intv)
+    def __tsav_name(self, step: int) -> str:
+        """ the file of a tsav save: write_statef, then the tsav_ext of the save
+            time nearest to the step (the reference's get_tsav_ext)
+        """
+        ctime = step * self._model.dt()
+        saves = self._savestate['save_times']
+        label = min(saves, key=lambda save: abs(save[0] - ctime))[1]
+        return(tsav_file_name(self._savestate['write_statef'], label))
 
     def __write_state(self, name: str):
-        """ writes the current state to <simID>/<name>.pkl """
-        path = os.path.join(self._outdir, '{}{}'.format(name, STATE_FILE_EXTENSION))
-        self._state_writer.write(self._model.checkpoint(), path)
+        """ writes the current state to <simID>/<name>, name being the
+            reference's file name; a gpuSolve checkpoint swaps its extension
+        """
+        if self._state_format == 'pkl':
+            name = name[:-len(ROE_EXTENSION)] + STATE_FILE_EXTENSION
+        path = os.path.join(self._outdir, name)
+        if name in self._saved_names:
+            self._mapper.add_note('{} is written more than once (two save times give it the same '
+                                  'name); the last state is kept, as the reference does'.format(path))
+        self._saved_names.add(name)
+        if self._state_format == 'pkl':
+            self._state_writer.write(self._model.checkpoint(), path)
+        else:
+            RoeWriter().write(self._roe_writer.content(self._model), path)
         if self._verbose:
             print('  state at t = {:9.3f} ms saved to {}'.format(self._model.ctime(), path),
                   flush=True)

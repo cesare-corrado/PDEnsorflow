@@ -66,6 +66,7 @@ from gpuSolve.ionic.plugins.electroporation_debruin_krassowska98 import Electrop
 from gpuSolve.ionic.plugins.defib_ashihara_trayanova import DefibAshiharaTrayanova
 from gpuSolve.ionic.ionicmodelwithplugins import PLUGIN_SEPARATOR
 from gpuSolve.ionic.ionicmodelwithplugins import ACTIVE_PARAMETER
+from gpuSolve.IO.writers.roewriter import tsav_label
 
 
 # S/m and micrometres to um^2/ms, once beta (um^-1) has divided it out.
@@ -78,11 +79,24 @@ DT_MICROSECONDS_TO_MS : float = 1.0e-3
 # listed rather than derived.
 ARRAY_COUNTERS = {'gregion': 'num_gregions',
                   'imp_region': 'num_imp_regions',
+                  'phys_region': 'num_phys_regions',
                   'stim': 'num_stim',
                   'stimulus': 'num_stim',
                   'tsav': 'num_tsav',
                   'tsav_ext': 'num_tsav',
                   'lats': 'num_LATs'}
+
+# Physics types of phys_region[].ptype (the reference's PHYSREG_* values).
+# Intracellular electrics is what this monodomain front end solves; the
+# extracellular domain only exists in a bidomain run, which it does not do;
+# the others are physics it does not provide.
+PHYSICS_REGION_TYPES = {0: 'intracellular electrics',
+                        1: 'extracellular electrics',
+                        2: 'eikonal',
+                        5: 'Laplace',
+                        6: 'EMI'}
+PHYSREG_INTRA_ELEC : int = 0
+PHYSREG_EXTRA_ELEC : int = 1
 
 # The format accepts at most this many save times.
 MAX_SAVE_TIMES : int = 50
@@ -90,6 +104,10 @@ MAX_SAVE_TIMES : int = 50
 # Base name of the files written by interval checkpointing (chkpt_intv); the
 # time of the checkpoint is appended to it.
 CHECKPOINT_BASENAME : str = 'checkpoint'
+
+# Values of state_format: the reference's binary state file in its format 1 or
+# 3, or gpuSolve's own checkpoint.
+STATE_FORMATS : tuple = ('roe1', 'roe3', 'pkl')
 
 # Cell models. `MitchellSchaeffer` covers both variants: a_crit is 0 by default,
 # which is the plain model, and non-zero selects the modified one.
@@ -236,6 +254,14 @@ REGISTRY = {
     # the file and the others read it, which skips the mesh connectivity and
     # the assembly (160 s of the 185 s of setup on a 4.0 M-node mesh).
     'matrix_cache':                 ('str',   '',        True),
+    # gpuSolve-only: the format of the states saved by tsav and chkpt_intv.
+    # roe1 is the reference's binary state file as its release 19.0 writes and
+    # reads it, roe3 the format of its later releases; with either, an output
+    # folder of one simulator restarts the other with no renaming. pkl is
+    # gpuSolve's own checkpoint: it keeps the gates in float64, where the
+    # reference's file rounds them to float32, so a restart from it repeats an
+    # uninterrupted gpuSolve run exactly.
+    'state_format':                 ('str',   'roe1',    True),
     'num_gregions':                 ('int',   1,         True),
     'num_imp_regions':              ('int',   1,         True),
     'num_stim':                     ('int',   0,         True),
@@ -272,6 +298,14 @@ REGISTRY = {
     'imp_region[].num_IDs':         ('int',   0,         True),
     'imp_region[].ID':              ('idset', '',        True),
     'imp_region[].ID[]':            ('int',   -1,        True),
+    # optional, as in the reference: with no physics region it makes one
+    # intracellular region whose elements are those with a fibre direction
+    'num_phys_regions':             ('int',   0,         True),
+    'phys_region[].name':           ('str',   '',        True),
+    'phys_region[].ptype':          ('int',   0,         True),
+    'phys_region[].num_IDs':        ('int',   0,         True),
+    'phys_region[].ID':             ('idset', '',        True),
+    'phys_region[].ID[]':           ('int',   -1,        True),
     'stim[].name':                  ('str',   '',        True),
     'stim[].crct.type':             ('int',   0,         True),
     'stim[].pulse.strength':        ('float', 0.0,       True),
@@ -407,15 +441,6 @@ def expand_idset(text: str) -> list:
         else:
             raise ValueError('cannot read tag range "{}"'.format(chunk))
     return(tags)
-
-
-def time_label(ctime: float) -> str:
-    """ time_label(ctime) writes a time in ms for a file name, without trailing
-        zeros: 100.0 -> "100", 12.5 -> "12.5". Six decimals are kept before the
-        zeros are trimmed, so two save times one microsecond apart still get
-        different names.
-    """
-    return('{:.6f}'.format(ctime).rstrip('0').rstrip('.'))
 
 
 def parse_im_param(text: str, aliases: dict = None) -> dict:
@@ -653,12 +678,17 @@ class ParameterMapper:
     def savestate_settings(self) -> dict:
         """ savestate_settings() returns when to save the state and what to resume
             from, with every time in ms:
-              'save_times':   [(time, file name without extension)], one per tsav
+              'save_times':   [(time, tsav_ext)], one per tsav, in the given order
+              'write_statef': the base name of the tsav files
               'start_statef': the checkpoint to resume from ('' for a fresh run)
               'chkpt_start', 'chkpt_intv', 'chkpt_stop': interval checkpointing,
                               off when chkpt_intv is 0
+              'state_format': 'roe1', 'roe3' or 'pkl' (see STATE_FORMATS)
             The derived defaults are the reference's: a tsav that is not given is
-            one time step before tend, and its file-name suffix is the save time.
+            one time step before tend, and its tsav_ext is the save time printed
+            with one decimal (tsav_label). The file name itself is made where the
+            state is saved, because the reference takes the tsav_ext of the save
+            time nearest to the step that saves.
         """
         tend  = self.value('tend')
         dt_ms = self.value('dt') * DT_MICROSECONDS_TO_MS
@@ -666,7 +696,6 @@ class ParameterMapper:
         if nsav > MAX_SAVE_TIMES:
             raise ValueError('num_tsav = {}: at most {} save times are accepted'.format(
                 nsav, MAX_SAVE_TIMES))
-        basename = self.value('write_statef')
         saves : list = []
         for index in range(nsav):
             tsav = self.value('tsav[{}]'.format(index))
@@ -676,8 +705,8 @@ class ParameterMapper:
                 raise ValueError('tsav[{}] = {}: a save time cannot be negative'.format(index, tsav))
             suffix = self.value('tsav_ext[{}]'.format(index))
             if suffix is None or len(suffix.strip()) == 0:
-                suffix = time_label(tsav)
-            saves.append((tsav, '{}.{}'.format(basename, suffix.strip())))
+                suffix = tsav_label(tsav)
+            saves.append((tsav, suffix.strip()))
         chkpt_start = self.value('chkpt_start')
         chkpt_intv  = self.value('chkpt_intv')
         chkpt_stop  = self.value('chkpt_stop')
@@ -687,7 +716,13 @@ class ParameterMapper:
                          ('chkpt_stop', chkpt_stop)):
             if val < 0.0 or val > tend:
                 raise ValueError('{} = {}: must lie between 0 and tend = {}'.format(key, val, tend))
+        state_format = self.value('state_format').strip()
+        if state_format not in STATE_FORMATS:
+            raise ValueError('state_format = "{}": must be one of {}'.format(
+                state_format, ', '.join(STATE_FORMATS)))
         return({'save_times': saves,
+                'write_statef': self.value('write_statef'),
+                'state_format': state_format,
                 'start_statef': self.value('start_statef').strip(),
                 'chkpt_start': chkpt_start,
                 'chkpt_intv': chkpt_intv,
@@ -924,6 +959,64 @@ class ParameterMapper:
         if len(distinct) == 1:
             return({'cell_type': distinct.pop()})
         return({'cell_type': DEFAULT_CELL_TYPE[name]})
+
+    def imp_region_assignment(self, tags: set) -> dict:
+        """ imp_region_assignment(tags) returns {node region ID: imp_region
+            index} for the IDs point_region_ids() can put on a node of a mesh
+            carrying the element tags `tags` (NODAL_DEFAULT_TAG included). It is
+            the region every per-node quantity is resolved with: the cell
+            parameters, the state files, and the region mask of a binary state
+            file, which the reference writes as this index.
+        """
+        return(self.__nodal_tag_to_entry(tags)[1])
+
+    def intracellular_region(self) -> tuple:
+        """ intracellular_region() returns (defined, tags): how the parameters
+            say which elements are myocardium, the reference's rule
+            (simulator/sim_utils.cc, the submesh extraction):
+              * no phys_region at all: (False, None). The reference then makes
+                one intracellular region from the elements with a fibre
+                direction; this front end keeps its own behaviour, which
+                predates the physics regions, so that a parameter file without
+                them runs exactly as it did;
+              * intracellular regions with IDs: (True, the union of their
+                tags). Every intracellular region adds its IDs to one tag set
+                of the one intracellular mesh, so a region without IDs adds
+                nothing to it;
+              * intracellular regions none of which lists an ID: (True, None),
+                the elements with a fibre direction, as in the first case (the
+                reference extracts by fibres only when the tag set is empty).
+            An extracellular region is noted and ignored (it needs a bidomain
+            run); any other physics type, and parameters with physics regions
+            but none intracellular, are refused.
+        """
+        count = self.count('phys_region')
+        if count == 0:
+            return((False, None))
+        tags : set = set()
+        found      = False
+        for index in range(count):
+            ptype = self.value('phys_region[{}].ptype'.format(index))
+            name  = self.value('phys_region[{}].name'.format(index))
+            if ptype == PHYSREG_INTRA_ELEC:
+                found = True
+                tags |= set(int(tag) for tag in self.region_tags('phys_region', index))
+            elif ptype == PHYSREG_EXTRA_ELEC:
+                self.__note_once('phys_region[{}] ("{}") is an extracellular region: it is ignored, '
+                                 'because it needs a bidomain run and gpuSolve solves the '
+                                 'monodomain equation only'.format(index, name))
+            elif ptype in PHYSICS_REGION_TYPES:
+                raise ValueError('phys_region[{}].ptype = {} ({}) is not provided by gpuSolve, '
+                                 'which solves intracellular electrics only'.format(
+                                     index, ptype, PHYSICS_REGION_TYPES[ptype]))
+            else:
+                raise ValueError('phys_region[{}].ptype = {} is not a physics type (known: {})'.format(
+                    index, ptype, ', '.join('{} {}'.format(key, value) for key, value
+                                            in sorted(PHYSICS_REGION_TYPES.items()))))
+        if not found:
+            raise ValueError('num_phys_regions = {} but no phys_region is intracellular '
+                             '(ptype = 0): there is no myocardium to solve on'.format(count))
+        return((True, None if len(tags) == 0 else tags))
 
     def nodal_region_tags(self) -> set:
         """ nodal_region_tags() returns the element tags claimed by the
