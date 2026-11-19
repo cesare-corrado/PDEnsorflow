@@ -125,6 +125,7 @@ class SimulationRunner:
             # here: forcing it runs every kernel operation by operation, and
             # made a step of the Tomek model 27 times slower on 63001 nodes.
             self.__build_solver()
+            self.__check_physics_regions()
             # before anything reads the nodal region IDs: the rule and the
             # claimed tags change what those IDs are
             self.__configure_region_rule()
@@ -242,6 +243,41 @@ class SimulationRunner:
         else:
             self._ionic = self.__new_ionic_model(config['dt'])
             self._model = MonodomainSolver(self._ionic, config)
+
+    def __check_physics_regions(self):
+        """ refuses a mesh with a bath when the physics regions say which
+            elements are myocardium. A bath needs an extracellular (bidomain)
+            solve, which this front end does not do: solving the monodomain
+            equation on the bath elements as if they were tissue would give a
+            wrong answer without a word, and the reference's state files of
+            such a run hold the myocardium only, so they could not match the
+            mesh either. Without physics regions nothing is checked, so that a
+            parameter file written before they were read runs as it did.
+        """
+        defined, tags = self._mapper.intracellular_region()
+        if not defined:
+            return
+        if tags is not None:
+            outside = sorted(self.__mesh_tags() - tags)
+            if len(outside) > 0:
+                raise ValueError('element tag(s) {} belong to no intracellular phys_region: they '
+                                 'are bath, which needs a bidomain run; gpuSolve solves the '
+                                 'monodomain equation on myocardium only'.format(
+                                     ', '.join(str(tag) for tag in outside)))
+            return
+        fibres = self._model.domain().Fibres()
+        if fibres is None:
+            self._mapper.add_note('the intracellular phys_region lists no ID, so the myocardium '
+                                  'is the elements with a fibre direction, but the mesh carries '
+                                  'no fibres: every element is taken as myocardium')
+            return
+        directions = np.reshape(np.asarray(fibres, dtype=np.float64), (np.shape(fibres)[0], -1))[:, :3]
+        bath = int(np.count_nonzero(np.all(directions == 0.0, axis=1)))
+        if bath > 0:
+            raise ValueError('{} element(s) have no fibre direction and the intracellular '
+                             'phys_region lists no ID, so they are bath, which needs a bidomain '
+                             'run; gpuSolve solves the monodomain equation on myocardium '
+                             'only'.format(bath))
 
     def __new_ionic_model(self, dt: float):
         """ builds a cell model of the run's class, with its plugins, at time

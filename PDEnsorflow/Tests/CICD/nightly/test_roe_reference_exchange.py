@@ -47,8 +47,7 @@ _RESTART = 10.0          # ms
 _TEND    = 20.0          # ms
 _SPACEDT = 0.1           # ms
 
-# the keys shared by both simulators; the reference also needs a physical
-# region, which this front end does not read (_REFERENCE_ONLY)
+# one parameter file for both simulators
 _PAR = """meshname  = slab
 bidomain  = 0
 dt        = 25
@@ -74,8 +73,7 @@ stim[0].elec.p0[2]     = -300
 stim[0].elec.p1[0]     = -850
 stim[0].elec.p1[1]     = 300
 stim[0].elec.p1[2]     = 300
-"""
-_REFERENCE_ONLY = """num_phys_regions       = 1
+num_phys_regions       = 1
 phys_region[0].name    = "myocard"
 phys_region[0].ptype   = 0
 phys_region[0].num_IDs = 2
@@ -118,16 +116,14 @@ def slab(tmp_path_factory) -> str:
         out.append(' '.join(tokens))
     with open(os.path.join(folder, 'slab.elem'), 'w') as felem:
         felem.write('\n'.join(out) + '\n')
-    with open(os.path.join(folder, 'front.par'), 'w') as fpar:
+    with open(os.path.join(folder, 'slab.par'), 'w') as fpar:
         fpar.write(_PAR.format(spacedt=_SPACEDT))
-    with open(os.path.join(folder, 'reference.par'), 'w') as fpar:
-        fpar.write(_PAR.format(spacedt=_SPACEDT) + _REFERENCE_ONLY)
     return(folder)
 
 
 def _run_reference(folder: str, argv: list):
     with open(os.path.join(folder, 'reference.log'), 'a') as flog:
-        code = subprocess.call(['openCARP', '+F', 'reference.par'] + argv,
+        code = subprocess.call(['openCARP', '+F', 'slab.par'] + argv,
                                cwd=folder, stdout=flog, stderr=subprocess.STDOUT)
     assert code == 0, 'the reference failed, see {}/reference.log'.format(folder)
 
@@ -136,7 +132,7 @@ def _run_front(folder: str, argv: list):
     cwd = os.getcwd()
     try:
         os.chdir(folder)
-        assert main(['+F', 'front.par'] + argv) == 0
+        assert main(['+F', 'slab.par'] + argv) == 0
     finally:
         os.chdir(cwd)
 
