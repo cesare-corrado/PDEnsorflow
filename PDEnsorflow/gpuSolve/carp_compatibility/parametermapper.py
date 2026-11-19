@@ -79,11 +79,24 @@ DT_MICROSECONDS_TO_MS : float = 1.0e-3
 # listed rather than derived.
 ARRAY_COUNTERS = {'gregion': 'num_gregions',
                   'imp_region': 'num_imp_regions',
+                  'phys_region': 'num_phys_regions',
                   'stim': 'num_stim',
                   'stimulus': 'num_stim',
                   'tsav': 'num_tsav',
                   'tsav_ext': 'num_tsav',
                   'lats': 'num_LATs'}
+
+# Physics types of phys_region[].ptype (the reference's PHYSREG_* values).
+# Intracellular electrics is what this monodomain front end solves; the
+# extracellular domain only exists in a bidomain run, which it does not do;
+# the others are physics it does not provide.
+PHYSICS_REGION_TYPES = {0: 'intracellular electrics',
+                        1: 'extracellular electrics',
+                        2: 'eikonal',
+                        5: 'Laplace',
+                        6: 'EMI'}
+PHYSREG_INTRA_ELEC : int = 0
+PHYSREG_EXTRA_ELEC : int = 1
 
 # The format accepts at most this many save times.
 MAX_SAVE_TIMES : int = 50
@@ -285,6 +298,14 @@ REGISTRY = {
     'imp_region[].num_IDs':         ('int',   0,         True),
     'imp_region[].ID':              ('idset', '',        True),
     'imp_region[].ID[]':            ('int',   -1,        True),
+    # optional, as in the reference: with no physics region it makes one
+    # intracellular region whose elements are those with a fibre direction
+    'num_phys_regions':             ('int',   0,         True),
+    'phys_region[].name':           ('str',   '',        True),
+    'phys_region[].ptype':          ('int',   0,         True),
+    'phys_region[].num_IDs':        ('int',   0,         True),
+    'phys_region[].ID':             ('idset', '',        True),
+    'phys_region[].ID[]':           ('int',   -1,        True),
     'stim[].name':                  ('str',   '',        True),
     'stim[].crct.type':             ('int',   0,         True),
     'stim[].pulse.strength':        ('float', 0.0,       True),
@@ -948,6 +969,54 @@ class ParameterMapper:
             file, which the reference writes as this index.
         """
         return(self.__nodal_tag_to_entry(tags)[1])
+
+    def intracellular_region(self) -> tuple:
+        """ intracellular_region() returns (defined, tags): how the parameters
+            say which elements are myocardium, the reference's rule
+            (simulator/sim_utils.cc, the submesh extraction):
+              * no phys_region at all: (False, None). The reference then makes
+                one intracellular region from the elements with a fibre
+                direction; this front end keeps its own behaviour, which
+                predates the physics regions, so that a parameter file without
+                them runs exactly as it did;
+              * intracellular regions with IDs: (True, the union of their
+                tags). Every intracellular region adds its IDs to one tag set
+                of the one intracellular mesh, so a region without IDs adds
+                nothing to it;
+              * intracellular regions none of which lists an ID: (True, None),
+                the elements with a fibre direction, as in the first case (the
+                reference extracts by fibres only when the tag set is empty).
+            An extracellular region is noted and ignored (it needs a bidomain
+            run); any other physics type, and parameters with physics regions
+            but none intracellular, are refused.
+        """
+        count = self.count('phys_region')
+        if count == 0:
+            return((False, None))
+        tags : set = set()
+        found      = False
+        for index in range(count):
+            ptype = self.value('phys_region[{}].ptype'.format(index))
+            name  = self.value('phys_region[{}].name'.format(index))
+            if ptype == PHYSREG_INTRA_ELEC:
+                found = True
+                tags |= set(int(tag) for tag in self.region_tags('phys_region', index))
+            elif ptype == PHYSREG_EXTRA_ELEC:
+                self.__note_once('phys_region[{}] ("{}") is an extracellular region: it is ignored, '
+                                 'because it needs a bidomain run and gpuSolve solves the '
+                                 'monodomain equation only'.format(index, name))
+            elif ptype in PHYSICS_REGION_TYPES:
+                raise ValueError('phys_region[{}].ptype = {} ({}) is not provided by gpuSolve, '
+                                 'which solves intracellular electrics only'.format(
+                                     index, ptype, PHYSICS_REGION_TYPES[ptype]))
+            else:
+                raise ValueError('phys_region[{}].ptype = {} is not a physics type (known: {})'.format(
+                    index, ptype, ', '.join('{} {}'.format(key, value) for key, value
+                                            in sorted(PHYSICS_REGION_TYPES.items()))))
+        if not found:
+            raise ValueError('num_phys_regions = {} but no phys_region is intracellular '
+                             '(ptype = 0): there is no myocardium to solve on'.format(count))
+        return((True, None if len(tags) == 0 else tags))
 
     def nodal_region_tags(self) -> set:
         """ nodal_region_tags() returns the element tags claimed by the

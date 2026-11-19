@@ -510,6 +510,18 @@ file stops the run; and the `savestate` defaults and ranges of the parameters
 (a tsav left unset is labelled `100.0`, `roe1` is the default `state_format`, an
 unknown one is refused).
 
+### `test_phys_region.py` &mdash; physics regions (`phys_region[]`)
+The keys are optional, as in the reference. Without them nothing is checked, so
+an older parameter file runs as before (elements without a fibre direction are
+still solved on as tissue). With them, the intracellular regions (`ptype 0`)
+say which elements are myocardium: the union of their IDs, or, when none lists
+an ID, the elements with a fibre direction (the reference's rule). A
+myocardium-only mesh gives the same potential as without the keys, bit for bit;
+a tag outside every intracellular region, or an element without a fibre
+direction under the fibre rule, is bath and is refused (it needs a bidomain
+run). An extracellular region (`ptype 1`) is noted and ignored; eikonal, EMI,
+an unknown type, and physics regions with none intracellular are refused.
+
 ### `test_roe_state.py` &mdash; the reference's binary state files in a run
 The paced cable in two ionic regions (tag 2 on its second half), saving with the
 defaults: the files are `.roe`, format 1, named as the reference names them
